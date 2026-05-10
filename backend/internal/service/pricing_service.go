@@ -648,6 +648,9 @@ func canonicalModelNameForPricing(model string) string {
 	case "claude-haiku-4.5":
 		return "claude-haiku-4-5"
 	default:
+		if canonical := canonicalizeOpenAIModelAliasSpelling(model); canonical != "" {
+			return canonical
+		}
 		return model
 	}
 }
