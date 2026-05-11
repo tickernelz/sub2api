@@ -69,12 +69,21 @@ func writeSSEChunks(w io.Writer, chunks [][]byte) error {
 	return nil
 }
 
-func writeAnthropicMessageStart(w io.Writer, msgID, model string, inputTokens int) error {
+func writeAnthropicMessageStart(w io.Writer, msgID, model string, inputTokens int, cacheUsage *kiroCacheEmulationUsage) error {
 	if strings.TrimSpace(msgID) == "" {
 		msgID = "msg_" + kiropkg.GenerateToolUseID()
 	}
 	if strings.TrimSpace(model) == "" {
 		model = "kiro"
+	}
+	usage := map[string]any{
+		"input_tokens":  inputTokens,
+		"output_tokens": 0,
+	}
+	if cacheUsage != nil {
+		usage["input_tokens"] = cacheUsage.InputTokens
+		usage["cache_creation_input_tokens"] = cacheUsage.CacheCreationInputTokens
+		usage["cache_read_input_tokens"] = cacheUsage.CacheReadInputTokens
 	}
 	payload, err := json.Marshal(map[string]any{
 		"type": "message_start",
@@ -86,12 +95,7 @@ func writeAnthropicMessageStart(w io.Writer, msgID, model string, inputTokens in
 			"content":       []any{},
 			"stop_reason":   nil,
 			"stop_sequence": nil,
-			"usage": map[string]any{
-				"input_tokens":                inputTokens,
-				"output_tokens":               0,
-				"cache_creation_input_tokens": 0,
-				"cache_read_input_tokens":     0,
-			},
+			"usage":         usage,
 		},
 	})
 	if err != nil {
@@ -102,7 +106,7 @@ func writeAnthropicMessageStart(w io.Writer, msgID, model string, inputTokens in
 }
 
 func (s *GatewayService) streamKiroWebSearchAsAnthropic(
-	ctx context.Context, account *Account, anthropicBody []byte, mappedModel, requestModel, token string, inputTokens int, headers http.Header, w io.Writer,
+	ctx context.Context, account *Account, anthropicBody []byte, mappedModel, requestModel, token string, inputTokens int, headers http.Header, w io.Writer, cacheUsage *kiroCacheEmulationUsage,
 ) error {
 	query := kiropkg.ExtractSearchQuery(anthropicBody)
 	if strings.TrimSpace(query) == "" {
@@ -116,7 +120,7 @@ func (s *GatewayService) streamKiroWebSearchAsAnthropic(
 	currentToolUseID := "srvtoolu_" + kiropkg.GenerateToolUseID()
 	nextContentBlockIndex := 0
 
-	if err := writeAnthropicMessageStart(w, "", mappedModel, inputTokens); err != nil {
+	if err := writeAnthropicMessageStart(w, "", mappedModel, inputTokens, cacheUsage); err != nil {
 		return err
 	}
 
@@ -190,7 +194,7 @@ func (s *GatewayService) streamKiroWebSearchAsAnthropic(
 	return fmt.Errorf("kiro web search exceeded max iterations")
 }
 
-func (s *GatewayService) executeKiroWebSearch(ctx context.Context, account *Account, anthropicBody []byte, mappedModel, requestModel, token string, headers http.Header) (*kiroWebSearchExecution, error) {
+func (s *GatewayService) executeKiroWebSearch(ctx context.Context, account *Account, group *Group, anthropicBody []byte, mappedModel, requestModel, token string, headers http.Header) (*kiroWebSearchExecution, error) {
 	query := kiropkg.ExtractSearchQuery(anthropicBody)
 	if strings.TrimSpace(query) == "" {
 		return nil, errKiroWebSearchFallback
@@ -205,6 +209,8 @@ func (s *GatewayService) executeKiroWebSearch(ctx context.Context, account *Acco
 	currentToolUseID := "srvtoolu_" + kiropkg.GenerateToolUseID()
 	searches := make([]kiropkg.SearchIndicator, 0, 2)
 	requestID := ""
+	var cacheUsage *kiroCacheEmulationUsage
+	cacheUsageResolved := false
 
 	for iteration := 0; iteration < kiroMaxWebSearchIterations; iteration++ {
 		s.prefetchKiroWebSearchDescription(ctx, account, token)
@@ -237,7 +243,11 @@ func (s *GatewayService) executeKiroWebSearch(ctx context.Context, account *Acco
 
 		parseResult, parseErr := func() (*kiropkg.ParseResult, error) {
 			defer func() { _ = resp.Body.Close() }()
-			return kiropkg.ParseNonStreamingEventStream(resp.Body, mappedModel)
+			if !cacheUsageResolved {
+				cacheUsage = s.buildKiroCacheEmulationUsage(account, group, anthropicBody, mappedModel, inputTokens)
+				cacheUsageResolved = true
+			}
+			return kiropkg.ParseNonStreamingEventStreamWithContext(resp.Body, mappedModel, kiropkg.KiroRequestContext{CacheEmulationUsage: cacheUsage.toKiroUsage()})
 		}()
 		if parseErr != nil {
 			return nil, parseErr

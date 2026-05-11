@@ -108,7 +108,11 @@ func (s *GatewayService) ForwardAsResponses(
 
 	var resp *http.Response
 	if account.Platform == PlatformKiro && account.Type == AccountTypeOAuth {
-		resp, _, err = s.openKiroAnthropicStreamResponse(ctx, account, anthropicBody, mappedModel, originalModel, c.Request.Header)
+		var group *Group
+		if parsed != nil {
+			group = parsed.Group
+		}
+		resp, _, err = s.openKiroAnthropicStreamResponse(ctx, account, anthropicBody, mappedModel, originalModel, c.Request.Header, group)
 		if err != nil {
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			setOpsUpstreamError(c, 0, safeErr, "")

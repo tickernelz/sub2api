@@ -524,6 +524,8 @@ export interface Group {
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   require_oauth_only: boolean
   require_privacy_set: boolean
+  kiro_cache_emulation_enabled: boolean
+  kiro_cache_emulation_ratio: number
   created_at: string
   updated_at: string
 }
@@ -633,6 +635,8 @@ export interface CreateGroupRequest {
   supported_model_scopes?: string[]
   require_oauth_only?: boolean
   require_privacy_set?: boolean
+  kiro_cache_emulation_enabled?: boolean
+  kiro_cache_emulation_ratio?: number
   // 从指定分组复制账号
   copy_accounts_from_group_ids?: number[]
 }
@@ -661,6 +665,8 @@ export interface UpdateGroupRequest {
   supported_model_scopes?: string[]
   require_oauth_only?: boolean
   require_privacy_set?: boolean
+  kiro_cache_emulation_enabled?: boolean
+  kiro_cache_emulation_ratio?: number
   copy_accounts_from_group_ids?: number[]
 }
 

@@ -160,6 +160,15 @@ func (Group) Fields() []ent.Field {
 		field.Int("rpm_limit").
 			Default(0).
 			Comment("分组 RPM 上限，0 表示不限制；设置后接管该分组用户的限流"),
+
+		// Kiro 模拟缓存配置（仅 Kiro 平台生效）
+		field.Bool("kiro_cache_emulation_enabled").
+			Default(false).
+			Comment("是否启用 Kiro 模拟缓存（仅 kiro 分组生效）"),
+		field.Float("kiro_cache_emulation_ratio").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(5,4)"}).
+			Default(1.0).
+			Comment("Kiro 模拟缓存生效比例，范围 0-1（仅 kiro 分组生效）"),
 	}
 }
 

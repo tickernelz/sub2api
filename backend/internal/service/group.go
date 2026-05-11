@@ -66,6 +66,10 @@ type Group struct {
 	// 一旦设置即接管该分组用户的限流（覆盖用户级 rpm_limit），可被 user-group rpm_override 进一步覆盖。
 	RPMLimit int
 
+	// Kiro 模拟缓存配置（仅 Kiro 平台生效）。
+	KiroCacheEmulationEnabled bool
+	KiroCacheEmulationRatio   float64
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
@@ -73,6 +77,49 @@ type Group struct {
 	AccountCount            int64
 	ActiveAccountCount      int64
 	RateLimitedAccountCount int64
+}
+
+func (g *Group) EffectiveKiroCacheEmulationEnabled() bool {
+	return g != nil && g.Platform == PlatformKiro && g.KiroCacheEmulationEnabled && g.EffectiveKiroCacheEmulationRatio() > 0
+}
+
+func (g *Group) EffectiveKiroCacheEmulationRatio() float64 {
+	if g == nil || g.Platform != PlatformKiro || !g.KiroCacheEmulationEnabled {
+		return 0
+	}
+	return normalizeKiroCacheEmulationRatio(g.KiroCacheEmulationRatio)
+}
+
+func normalizeKiroCacheEmulationRatio(ratio float64) float64 {
+	if ratio < 0 {
+		return 0
+	}
+	if ratio > 1 {
+		return 1
+	}
+	if ratio == 0 {
+		return 0
+	}
+	return ratio
+}
+
+func normalizeKiroCacheEmulationFields(g *Group) {
+	if g == nil {
+		return
+	}
+	if g.Platform != PlatformKiro {
+		g.KiroCacheEmulationEnabled = false
+		g.KiroCacheEmulationRatio = 0
+		return
+	}
+	if g.KiroCacheEmulationRatio == 0 {
+		g.KiroCacheEmulationRatio = 1
+	}
+	g.KiroCacheEmulationRatio = normalizeKiroCacheEmulationRatio(g.KiroCacheEmulationRatio)
+}
+
+func NormalizeGroupRuntimeFields(g *Group) {
+	normalizeKiroCacheEmulationFields(g)
 }
 
 func (g *Group) IsActive() bool {

@@ -59,10 +59,13 @@ var (
 )
 
 type Usage struct {
-	InputTokens          int
-	OutputTokens         int
-	TotalTokens          int
-	CacheReadInputTokens int
+	InputTokens                int
+	OutputTokens               int
+	TotalTokens                int
+	CacheReadInputTokens       int
+	CacheCreationInputTokens   int
+	CacheCreation5mInputTokens int
+	CacheCreation1hInputTokens int
 }
 
 type StreamResult struct {
@@ -78,8 +81,9 @@ type ParseResult struct {
 }
 
 type KiroRequestContext struct {
-	ToolNameMap     map[string]string
-	ThinkingEnabled bool
+	ToolNameMap         map[string]string
+	ThinkingEnabled     bool
+	CacheEmulationUsage *Usage
 }
 
 type KiroBuildResult struct {
@@ -344,6 +348,9 @@ func ParseNonStreamingEventStreamWithContext(body io.Reader, model string, reque
 	if err != nil {
 		return nil, err
 	}
+	if requestCtx.CacheEmulationUsage != nil {
+		usage = mergeKiroCacheEmulationUsage(usage, requestCtx.CacheEmulationUsage)
+	}
 	return &ParseResult{
 		ResponseBody: buildClaudeResponse(content, toolUses, model, usage, stopReason, requestCtx),
 		Usage:        usage,
@@ -391,6 +398,15 @@ func StreamEventStreamAsAnthropicWithContext(ctx context.Context, body io.Reader
 		if messageStartSent {
 			return nil
 		}
+		startUsage := usage
+		if requestCtx.CacheEmulationUsage != nil {
+			startUsage = mergeKiroCacheEmulationUsage(startUsage, requestCtx.CacheEmulationUsage)
+		}
+		usageMap := map[string]any{
+			"input_tokens":  startUsage.InputTokens,
+			"output_tokens": 0,
+		}
+		addKiroCacheUsageFields(usageMap, startUsage)
 		if err := writeEvent("message_start", map[string]any{
 			"type": "message_start",
 			"message": map[string]any{
@@ -401,10 +417,7 @@ func StreamEventStreamAsAnthropicWithContext(ctx context.Context, body io.Reader
 				"model":         model,
 				"stop_reason":   nil,
 				"stop_sequence": nil,
-				"usage": map[string]any{
-					"input_tokens":  usage.InputTokens,
-					"output_tokens": 0,
-				},
+				"usage":         usageMap,
 			},
 		}); err != nil {
 			return err
@@ -925,6 +938,9 @@ func StreamEventStreamAsAnthropicWithContext(ctx context.Context, body io.Reader
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	}
+	if requestCtx.CacheEmulationUsage != nil {
+		usage = mergeKiroCacheEmulationUsage(usage, requestCtx.CacheEmulationUsage)
+	}
 	if stopReason == "" {
 		if len(emittedToolContents) > 0 {
 			stopReason = "tool_use"
@@ -935,18 +951,20 @@ func StreamEventStreamAsAnthropicWithContext(ctx context.Context, body io.Reader
 	if err := ensureMessageStart(); err != nil {
 		return nil, err
 	}
+	finalUsageMap := map[string]any{
+		"input_tokens":                usage.InputTokens,
+		"output_tokens":               usage.OutputTokens,
+		"cache_read_input_tokens":     usage.CacheReadInputTokens,
+		"cache_creation_input_tokens": usage.CacheCreationInputTokens,
+	}
+	addKiroCacheUsageFields(finalUsageMap, usage)
 	if err := writeEvent("message_delta", map[string]any{
 		"type": "message_delta",
 		"delta": map[string]any{
 			"stop_reason":   stopReason,
 			"stop_sequence": nil,
 		},
-		"usage": map[string]any{
-			"input_tokens":                usage.InputTokens,
-			"output_tokens":               usage.OutputTokens,
-			"cache_read_input_tokens":     usage.CacheReadInputTokens,
-			"cache_creation_input_tokens": 0,
-		},
+		"usage": finalUsageMap,
 	}); err != nil {
 		return nil, err
 	}
@@ -1879,14 +1897,28 @@ func buildClaudeResponse(content string, toolUses []KiroToolUse, model string, u
 		"model":       model,
 		"content":     blocks,
 		"stop_reason": stopReason,
-		"usage": map[string]interface{}{
-			"input_tokens":            usage.InputTokens,
-			"output_tokens":           usage.OutputTokens,
-			"cache_read_input_tokens": usage.CacheReadInputTokens,
-		},
+		"usage":       buildKiroClaudeUsageMap(usage),
 	}
 	result, _ := json.Marshal(response)
 	return result
+}
+
+func buildKiroClaudeUsageMap(usage Usage) map[string]interface{} {
+	usageMap := map[string]interface{}{
+		"input_tokens":            usage.InputTokens,
+		"output_tokens":           usage.OutputTokens,
+		"cache_read_input_tokens": usage.CacheReadInputTokens,
+	}
+	if usage.CacheCreationInputTokens > 0 {
+		usageMap["cache_creation_input_tokens"] = usage.CacheCreationInputTokens
+	}
+	if usage.CacheCreation5mInputTokens > 0 || usage.CacheCreation1hInputTokens > 0 {
+		usageMap["cache_creation"] = map[string]interface{}{
+			"ephemeral_5m_input_tokens": usage.CacheCreation5mInputTokens,
+			"ephemeral_1h_input_tokens": usage.CacheCreation1hInputTokens,
+		}
+	}
+	return usageMap
 }
 
 func restoreResponseToolName(name string, requestCtx KiroRequestContext) string {
@@ -2726,5 +2758,36 @@ func toInt(value interface{}) (int, bool) {
 		return int(n), err == nil
 	default:
 		return 0, false
+	}
+}
+
+func mergeKiroCacheEmulationUsage(base Usage, simulated *Usage) Usage {
+	if simulated == nil {
+		return base
+	}
+	if base.CacheReadInputTokens > 0 || base.CacheCreationInputTokens > 0 || base.CacheCreation5mInputTokens > 0 || base.CacheCreation1hInputTokens > 0 {
+		return base
+	}
+	base.InputTokens = simulated.InputTokens
+	base.CacheReadInputTokens = simulated.CacheReadInputTokens
+	base.CacheCreationInputTokens = simulated.CacheCreationInputTokens
+	base.CacheCreation5mInputTokens = simulated.CacheCreation5mInputTokens
+	base.CacheCreation1hInputTokens = simulated.CacheCreation1hInputTokens
+	base.TotalTokens = base.InputTokens + base.OutputTokens + base.CacheReadInputTokens + base.CacheCreationInputTokens
+	return base
+}
+
+func addKiroCacheUsageFields(usageMap map[string]any, usage Usage) {
+	if usage.CacheCreationInputTokens > 0 {
+		usageMap["cache_creation_input_tokens"] = usage.CacheCreationInputTokens
+	}
+	if usage.CacheReadInputTokens > 0 {
+		usageMap["cache_read_input_tokens"] = usage.CacheReadInputTokens
+	}
+	if usage.CacheCreation5mInputTokens > 0 || usage.CacheCreation1hInputTokens > 0 {
+		usageMap["cache_creation"] = map[string]any{
+			"ephemeral_5m_input_tokens": usage.CacheCreation5mInputTokens,
+			"ephemeral_1h_input_tokens": usage.CacheCreation1hInputTokens,
+		}
 	}
 }

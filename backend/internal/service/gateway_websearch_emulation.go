@@ -194,11 +194,13 @@ func (s *GatewayService) handleWebSearchEmulation(
 	if model == "" {
 		model = defaultWebSearchModel
 	}
+	inputTokens := estimateKiroInputTokens(parsed.Body)
+	cacheUsage := s.buildKiroCacheEmulationUsage(account, parsed.Group, parsed.Body, model, inputTokens)
 
 	if parsed.Stream {
-		return writeWebSearchStreamResponse(c, query, resp, model, startTime)
+		return writeWebSearchStreamResponse(c, query, resp, model, startTime, inputTokens, cacheUsage)
 	}
-	return writeWebSearchNonStreamResponse(c, query, resp, model, startTime)
+	return writeWebSearchNonStreamResponse(c, query, resp, model, startTime, inputTokens, cacheUsage)
 }
 
 func doWebSearch(ctx context.Context, account *Account, query string) (*websearch.SearchResponse, string, error) {
@@ -227,20 +229,21 @@ func resolveAccountProxyURL(account *Account) string {
 // --- SSE streaming response ---
 
 func writeWebSearchStreamResponse(
-	c *gin.Context, query string, resp *websearch.SearchResponse, model string, startTime time.Time,
+	c *gin.Context, query string, resp *websearch.SearchResponse, model string, startTime time.Time, inputTokens int, cacheUsage *kiroCacheEmulationUsage,
 ) (*ForwardResult, error) {
 	msgID := webSearchMsgIDPrefix + uuid.New().String()
 	toolUseID := webSearchToolUseIDPrefix + uuid.New().String()[:16]
 	textSummary := buildTextSummary(query, resp.Results)
+	usage := buildWebSearchClaudeUsage(inputTokens, len(textSummary)/tokenEstimateDivisor, cacheUsage)
 
 	setSSEHeaders(c)
 	w := c.Writer
 	for _, fn := range []func() error{
-		func() error { return writeSSEMessageStart(w, msgID, model) },
+		func() error { return writeSSEMessageStart(w, msgID, model, usage) },
 		func() error { return writeSSEServerToolUse(w, toolUseID, query, 0) },
 		func() error { return writeSSEToolResult(w, toolUseID, resp.Results, 1) },
 		func() error { return writeSSETextBlock(w, textSummary, 2) },
-		func() error { return writeSSEMessageEnd(w, len(textSummary)/tokenEstimateDivisor) },
+		func() error { return writeSSEMessageEnd(w, usage.OutputTokens) },
 	} {
 		if err := fn(); err != nil {
 			slog.Warn("web search emulation: SSE write failed, stopping", "error", err)
@@ -249,7 +252,7 @@ func writeWebSearchStreamResponse(
 	}
 	w.Flush()
 
-	return &ForwardResult{Model: model, Duration: time.Since(startTime), Usage: ClaudeUsage{}}, nil
+	return &ForwardResult{Model: model, Duration: time.Since(startTime), Usage: usage}, nil
 }
 
 func setSSEHeaders(c *gin.Context) {
@@ -260,17 +263,17 @@ func setSSEHeaders(c *gin.Context) {
 	c.Writer.WriteHeader(http.StatusOK)
 }
 
-func writeSSEMessageStart(w http.ResponseWriter, msgID, model string) error {
+func writeSSEMessageStart(w http.ResponseWriter, msgID, model string, usage ClaudeUsage) error {
 	evt := map[string]any{
 		"type": "message_start",
 		"message": map[string]any{
 			"id": msgID, "type": "message", "role": "assistant", "model": model,
 			"content": []any{}, "stop_reason": nil, "stop_sequence": nil,
 			"usage": map[string]int{
-				"input_tokens":                0,
+				"input_tokens":                usage.InputTokens,
 				"output_tokens":               0,
-				"cache_creation_input_tokens": 0,
-				"cache_read_input_tokens":     0,
+				"cache_creation_input_tokens": usage.CacheCreationInputTokens,
+				"cache_read_input_tokens":     usage.CacheReadInputTokens,
 			},
 		},
 	}
@@ -364,11 +367,17 @@ func flushSSEJSON(w http.ResponseWriter, event string, data any) error {
 // --- Non-streaming JSON response ---
 
 func writeWebSearchNonStreamResponse(
-	c *gin.Context, query string, resp *websearch.SearchResponse, model string, startTime time.Time,
+	c *gin.Context, query string, resp *websearch.SearchResponse, model string, startTime time.Time, inputTokens int, cacheUsage *kiroCacheEmulationUsage,
 ) (*ForwardResult, error) {
 	msgID := webSearchMsgIDPrefix + uuid.New().String()
 	toolUseID := webSearchToolUseIDPrefix + uuid.New().String()[:16]
 	textSummary := buildTextSummary(query, resp.Results)
+	usage := buildWebSearchClaudeUsage(inputTokens, len(textSummary)/tokenEstimateDivisor, cacheUsage)
+	usageMap := map[string]int{"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens}
+	if cacheUsage != nil {
+		usageMap["cache_creation_input_tokens"] = usage.CacheCreationInputTokens
+		usageMap["cache_read_input_tokens"] = usage.CacheReadInputTokens
+	}
 
 	msg := map[string]any{
 		"id": msgID, "type": "message", "role": "assistant", "model": model,
@@ -384,7 +393,7 @@ func writeWebSearchNonStreamResponse(
 			map[string]any{"type": "text", "text": textSummary},
 		},
 		"stop_reason": "end_turn", "stop_sequence": nil,
-		"usage": map[string]int{"input_tokens": 0, "output_tokens": len(textSummary) / tokenEstimateDivisor},
+		"usage": usageMap,
 	}
 
 	body, err := json.Marshal(msg)
@@ -393,7 +402,20 @@ func writeWebSearchNonStreamResponse(
 	}
 	c.Data(http.StatusOK, "application/json", body)
 
-	return &ForwardResult{Model: model, Duration: time.Since(startTime), Usage: ClaudeUsage{}}, nil
+	return &ForwardResult{Model: model, Duration: time.Since(startTime), Usage: usage}, nil
+}
+
+func buildWebSearchClaudeUsage(inputTokens, outputTokens int, cacheUsage *kiroCacheEmulationUsage) ClaudeUsage {
+	usage := ClaudeUsage{InputTokens: inputTokens, OutputTokens: outputTokens}
+	if cacheUsage == nil {
+		return usage
+	}
+	usage.InputTokens = cacheUsage.InputTokens
+	usage.CacheReadInputTokens = cacheUsage.CacheReadInputTokens
+	usage.CacheCreationInputTokens = cacheUsage.CacheCreationInputTokens
+	usage.CacheCreation5mTokens = cacheUsage.CacheCreation5mInputTokens
+	usage.CacheCreation1hTokens = cacheUsage.CacheCreation1hInputTokens
+	return usage
 }
 
 // --- Helpers ---

@@ -80,6 +80,9 @@ func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) er
 	created, err := builder.Save(ctx)
 	if err == nil {
 		groupIn.ID = created.ID
+		if err := r.updateKiroCacheEmulationFields(ctx, groupIn); err != nil {
+			return err
+		}
 		groupIn.CreatedAt = created.CreatedAt
 		groupIn.UpdatedAt = created.UpdatedAt
 		if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
@@ -108,7 +111,78 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrGroupNotFound, nil)
 	}
-	return groupEntityToService(m), nil
+	out := groupEntityToService(m)
+	if err := r.hydrateKiroCacheEmulationFields(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (r *groupRepository) hydrateKiroCacheEmulationFields(ctx context.Context, groupOut *service.Group) error {
+	if r == nil || r.sql == nil || groupOut == nil || groupOut.ID <= 0 {
+		return nil
+	}
+	var enabled bool
+	var ratio float64
+	if err := scanSingleRow(ctx, r.sql,
+		`SELECT kiro_cache_emulation_enabled, kiro_cache_emulation_ratio FROM groups WHERE id = $1`,
+		[]any{groupOut.ID}, &enabled, &ratio); err != nil {
+		return err
+	}
+	groupOut.KiroCacheEmulationEnabled = enabled
+	groupOut.KiroCacheEmulationRatio = ratio
+	service.NormalizeGroupRuntimeFields(groupOut)
+	return nil
+}
+
+func (r *groupRepository) updateKiroCacheEmulationFields(ctx context.Context, groupIn *service.Group) error {
+	if r == nil || r.sql == nil || groupIn == nil || groupIn.ID <= 0 {
+		return nil
+	}
+	service.NormalizeGroupRuntimeFields(groupIn)
+	_, err := r.sql.ExecContext(ctx,
+		`UPDATE groups SET kiro_cache_emulation_enabled = $1, kiro_cache_emulation_ratio = $2 WHERE id = $3`,
+		groupIn.KiroCacheEmulationEnabled, groupIn.KiroCacheEmulationRatio, groupIn.ID)
+	return err
+}
+
+func (r *groupRepository) hydrateKiroCacheEmulationFieldsForGroups(ctx context.Context, groups []service.Group) error {
+	if r == nil || r.sql == nil || len(groups) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(groups))
+	indexByID := make(map[int64]int, len(groups))
+	for i := range groups {
+		if groups[i].ID <= 0 {
+			continue
+		}
+		ids = append(ids, groups[i].ID)
+		indexByID[groups[i].ID] = i
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := r.sql.QueryContext(ctx,
+		`SELECT id, kiro_cache_emulation_enabled, kiro_cache_emulation_ratio FROM groups WHERE id = ANY($1)`,
+		pq.Array(ids))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id int64
+		var enabled bool
+		var ratio float64
+		if err := rows.Scan(&id, &enabled, &ratio); err != nil {
+			return err
+		}
+		if idx, ok := indexByID[id]; ok {
+			groups[idx].KiroCacheEmulationEnabled = enabled
+			groups[idx].KiroCacheEmulationRatio = ratio
+			service.NormalizeGroupRuntimeFields(&groups[idx])
+		}
+	}
+	return rows.Err()
 }
 
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
@@ -199,6 +273,9 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	if err != nil {
 		return translatePersistenceError(err, service.ErrGroupNotFound, service.ErrGroupExists)
 	}
+	if err := r.updateKiroCacheEmulationFields(ctx, groupIn); err != nil {
+		return err
+	}
 	groupIn.UpdatedAt = updated.UpdatedAt
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
 		logger.LegacyPrintf("repository.group", "[SchedulerOutbox] enqueue group update failed: group=%d err=%v", groupIn.ID, err)
@@ -278,6 +355,9 @@ func (r *groupRepository) ListWithFilters(ctx context.Context, params pagination
 			outGroups[i].RateLimitedAccountCount = c.RateLimited
 		}
 	}
+	if err := r.hydrateKiroCacheEmulationFieldsForGroups(ctx, outGroups); err != nil {
+		return nil, nil, err
+	}
 
 	return outGroups, paginationResultFromTotal(int64(total), params), nil
 }
@@ -307,6 +387,9 @@ func (r *groupRepository) listWithAccountCountSort(ctx context.Context, q *dbent
 		outGroups[i].AccountCount = c.Total
 		outGroups[i].ActiveAccountCount = c.Active
 		outGroups[i].RateLimitedAccountCount = c.RateLimited
+	}
+	if err := r.hydrateKiroCacheEmulationFieldsForGroups(ctx, outGroups); err != nil {
+		return nil, nil, err
 	}
 
 	sortOrder := params.NormalizedSortOrder(pagination.SortOrderDesc)
@@ -406,6 +489,9 @@ func (r *groupRepository) ListActive(ctx context.Context) ([]service.Group, erro
 			outGroups[i].RateLimitedAccountCount = c.RateLimited
 		}
 	}
+	if err := r.hydrateKiroCacheEmulationFieldsForGroups(ctx, outGroups); err != nil {
+		return nil, err
+	}
 
 	return outGroups, nil
 }
@@ -435,6 +521,9 @@ func (r *groupRepository) ListActiveByPlatform(ctx context.Context, platform str
 			outGroups[i].ActiveAccountCount = c.Active
 			outGroups[i].RateLimitedAccountCount = c.RateLimited
 		}
+	}
+	if err := r.hydrateKiroCacheEmulationFieldsForGroups(ctx, outGroups); err != nil {
+		return nil, err
 	}
 
 	return outGroups, nil

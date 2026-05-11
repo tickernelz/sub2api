@@ -16,12 +16,31 @@ import (
 
 func TestWriteSSEMessageStart_IncludesCacheUsageFields(t *testing.T) {
 	rec := httptest.NewRecorder()
-	err := writeSSEMessageStart(rec, "msg_test", "claude-sonnet-4-5")
+	err := writeSSEMessageStart(rec, "msg_test", "claude-sonnet-4-5", ClaudeUsage{
+		InputTokens:              10,
+		CacheCreationInputTokens: 7,
+		CacheReadInputTokens:     3,
+	})
 	require.NoError(t, err)
 
 	body := rec.Body.String()
-	require.Contains(t, body, `"cache_creation_input_tokens":0`)
-	require.Contains(t, body, `"cache_read_input_tokens":0`)
+	require.Contains(t, body, `"input_tokens":10`)
+	require.Contains(t, body, `"cache_creation_input_tokens":7`)
+	require.Contains(t, body, `"cache_read_input_tokens":3`)
+}
+
+func TestBuildWebSearchClaudeUsage_UsesCacheEmulationUsage(t *testing.T) {
+	usage := buildWebSearchClaudeUsage(100, 5, &kiroCacheEmulationUsage{
+		InputTokens:                40,
+		CacheReadInputTokens:       20,
+		CacheCreationInputTokens:   40,
+		CacheCreation5mInputTokens: 40,
+	})
+	require.Equal(t, 40, usage.InputTokens)
+	require.Equal(t, 5, usage.OutputTokens)
+	require.Equal(t, 20, usage.CacheReadInputTokens)
+	require.Equal(t, 40, usage.CacheCreationInputTokens)
+	require.Equal(t, 40, usage.CacheCreation5mTokens)
 }
 
 func TestWriteSSEServerToolUse_UsesInputJSONDelta(t *testing.T) {

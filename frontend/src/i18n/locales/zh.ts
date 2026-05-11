@@ -2143,6 +2143,13 @@ export default {
         validityHint: '分配给用户时订阅的有效天数',
         noLimit: '无限制'
       },
+      kiroCache: {
+        title: 'Kiro 模拟缓存',
+        description: '仅对当前 Kiro 分组模拟 Anthropic Prompt Cache 用量。',
+        enabled: '启用模拟缓存',
+        ratio: '缓存比例',
+        ratioHint: '范围 0 到 1，例如 0.5 表示只生效一半模拟缓存 token。'
+      },
       imagePricing: {
         title: '图片生成计费',
         description: '配置图片生成能力和图片基础单价，留空则使用默认价格',

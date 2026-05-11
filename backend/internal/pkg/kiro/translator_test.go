@@ -1131,6 +1131,67 @@ func TestStreamEventStreamAsAnthropicRestoresShortToolName(t *testing.T) {
 	require.NotContains(t, out.String(), `"name":"`+shortName+`"`)
 }
 
+func TestKiroCacheEmulationUsageInjectedIntoNonStreamingResponse(t *testing.T) {
+	stream := bytes.NewBuffer(nil)
+	_, _ = stream.Write(buildEventStreamFrame(t, "messageMetadataEvent", map[string]any{
+		"messageMetadataEvent": map[string]any{
+			"tokenUsage": map[string]any{
+				"uncachedInputTokens": 120,
+				"outputTokens":        7,
+			},
+		},
+	}))
+	result, err := ParseNonStreamingEventStreamWithContext(stream, "claude-sonnet-4-5", KiroRequestContext{
+		CacheEmulationUsage: &Usage{
+			InputTokens:                20,
+			CacheReadInputTokens:       70,
+			CacheCreationInputTokens:   30,
+			CacheCreation5mInputTokens: 30,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 20, result.Usage.InputTokens)
+	require.Equal(t, 70, result.Usage.CacheReadInputTokens)
+	require.Equal(t, 30, result.Usage.CacheCreationInputTokens)
+	require.Equal(t, 20, int(gjson.GetBytes(result.ResponseBody, "usage.input_tokens").Int()))
+	require.Equal(t, 70, int(gjson.GetBytes(result.ResponseBody, "usage.cache_read_input_tokens").Int()))
+	require.Equal(t, 30, int(gjson.GetBytes(result.ResponseBody, "usage.cache_creation_input_tokens").Int()))
+	require.Equal(t, 30, int(gjson.GetBytes(result.ResponseBody, "usage.cache_creation.ephemeral_5m_input_tokens").Int()))
+}
+
+func TestKiroCacheEmulationUsageInjectedIntoStreamAndResult(t *testing.T) {
+	stream := bytes.NewBuffer(nil)
+	_, _ = stream.Write(buildEventStreamFrame(t, "messageMetadataEvent", map[string]any{
+		"messageMetadataEvent": map[string]any{
+			"tokenUsage": map[string]any{
+				"uncachedInputTokens": 120,
+				"outputTokens":        7,
+			},
+		},
+	}))
+	_, _ = stream.Write(buildEventStreamFrame(t, "assistantResponseEvent", map[string]any{
+		"assistantResponseEvent": map[string]any{"content": "hello"},
+	}))
+	var out bytes.Buffer
+	result, err := StreamEventStreamAsAnthropicWithContext(context.Background(), stream, &out, "claude-sonnet-4-5", 120, KiroRequestContext{
+		CacheEmulationUsage: &Usage{
+			InputTokens:                20,
+			CacheReadInputTokens:       70,
+			CacheCreationInputTokens:   30,
+			CacheCreation1hInputTokens: 30,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 20, result.Usage.InputTokens)
+	require.Equal(t, 70, result.Usage.CacheReadInputTokens)
+	require.Equal(t, 30, result.Usage.CacheCreationInputTokens)
+	output := out.String()
+	require.Contains(t, output, `"input_tokens":20`)
+	require.Contains(t, output, `"cache_read_input_tokens":70`)
+	require.Contains(t, output, `"cache_creation_input_tokens":30`)
+	require.Contains(t, output, `"ephemeral_1h_input_tokens":30`)
+}
+
 func TestRepairJSONKeepsStringBracesWhileRepairingTrailingComma(t *testing.T) {
 	raw := `{"key":"value with {nested}",}`
 	repaired := repairJSON(raw)

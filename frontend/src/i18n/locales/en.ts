@@ -2060,6 +2060,13 @@ export default {
         validityHint: 'Number of days the subscription is valid when assigned to a user',
         noLimit: 'No limit'
       },
+      kiroCache: {
+        title: 'Kiro Cache Emulation',
+        description: 'Simulate Anthropic prompt cache usage for this Kiro group only.',
+        enabled: 'Enable cache emulation',
+        ratio: 'Cache ratio',
+        ratioHint: '0 to 1. For example, 0.5 applies half of the simulated cache tokens.'
+      },
       imagePricing: {
         title: 'Image Generation Pricing',
         description: 'Configure image generation access and base image prices. Leave empty to use default prices.',
