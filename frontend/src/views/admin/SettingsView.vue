@@ -6115,6 +6115,32 @@
         @confirm="handleAffiliateConfirm"
         @cancel="cancelAffiliateConfirm"
       />
+      <ConfirmDialog
+        :show="showResetWebSearchUsageDialog"
+        :title="t('admin.settings.webSearchEmulation.resetUsageConfirm')"
+        :message="t('admin.settings.webSearchEmulation.resetUsageConfirm')"
+        :confirm-text="t('common.confirm')"
+        @confirm="confirmResetWebSearchUsage"
+        @cancel="showResetWebSearchUsageDialog = false"
+      />
+      <ConfirmDialog
+        :show="showRegenerateApiKeyDialog"
+        :title="t('admin.settings.adminApiKey.regenerateConfirm')"
+        :message="t('admin.settings.adminApiKey.regenerateConfirm')"
+        :confirm-text="t('common.confirm')"
+        danger
+        @confirm="confirmRegenerateAdminApiKey"
+        @cancel="showRegenerateApiKeyDialog = false"
+      />
+      <ConfirmDialog
+        :show="showDeleteApiKeyDialog"
+        :title="t('admin.settings.adminApiKey.deleteConfirm')"
+        :message="t('admin.settings.adminApiKey.deleteConfirm')"
+        :confirm-text="t('common.delete')"
+        danger
+        @confirm="confirmDeleteAdminApiKey"
+        @cancel="showDeleteApiKeyDialog = false"
+      />
     </div>
   </AppLayout>
 </template>
@@ -6740,11 +6766,18 @@ function quotaPercentage(provider: WebSearchProviderConfig): number {
   return ((provider.quota_used ?? 0) / provider.quota_limit) * 100;
 }
 
-async function resetWebSearchUsage(idx: number) {
+const showResetWebSearchUsageDialog = ref(false);
+let pendingResetWebSearchIdx = -1;
+function resetWebSearchUsage(idx: number) {
   const provider = webSearchConfig.providers[idx];
   if (!provider) return;
-  if (!confirm(t("admin.settings.webSearchEmulation.resetUsageConfirm")))
-    return;
+  pendingResetWebSearchIdx = idx;
+  showResetWebSearchUsageDialog.value = true;
+}
+async function confirmResetWebSearchUsage() {
+  showResetWebSearchUsageDialog.value = false;
+  const provider = webSearchConfig.providers[pendingResetWebSearchIdx];
+  if (!provider) return;
   try {
     await adminAPI.settings.resetWebSearchUsage({
       provider_type: provider.type,
@@ -7920,13 +7953,20 @@ async function createAdminApiKey() {
   }
 }
 
-async function regenerateAdminApiKey() {
-  if (!confirm(t("admin.settings.adminApiKey.regenerateConfirm"))) return;
+const showRegenerateApiKeyDialog = ref(false);
+const showDeleteApiKeyDialog = ref(false);
+function regenerateAdminApiKey() {
+  showRegenerateApiKeyDialog.value = true;
+}
+async function confirmRegenerateAdminApiKey() {
+  showRegenerateApiKeyDialog.value = false;
   await createAdminApiKey();
 }
-
-async function deleteAdminApiKey() {
-  if (!confirm(t("admin.settings.adminApiKey.deleteConfirm"))) return;
+function deleteAdminApiKey() {
+  showDeleteApiKeyDialog.value = true;
+}
+async function confirmDeleteAdminApiKey() {
+  showDeleteApiKeyDialog.value = false;
   adminApiKeyOperating.value = true;
   try {
     await adminAPI.settings.deleteAdminApiKey();

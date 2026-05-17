@@ -371,6 +371,9 @@
     />
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
+    <ConfirmDialog :show="showBulkDeleteDialog" :title="t('admin.accounts.bulkDeleteTitle')" :message="t('admin.accounts.bulkDeleteConfirm', { count: selIds.length })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmBulkDelete" @cancel="showBulkDeleteDialog = false" />
+    <ConfirmDialog :show="showBulkResetStatusDialog" :title="t('admin.accounts.bulkResetStatusTitle')" :message="t('admin.accounts.bulkResetStatusConfirm', { count: selIds.length })" :confirm-text="t('common.confirm')" :cancel-text="t('common.cancel')" @confirm="confirmBulkResetStatus" @cancel="showBulkResetStatusDialog = false" />
+    <ConfirmDialog :show="showBulkRefreshTokenDialog" :title="t('admin.accounts.bulkRefreshTokenTitle')" :message="t('admin.accounts.bulkRefreshTokenConfirm', { count: selIds.length })" :confirm-text="t('common.confirm')" :cancel-text="t('common.cancel')" @confirm="confirmBulkRefreshToken" @cancel="showBulkRefreshTokenDialog = false" />
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
       <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" v-model="includeProxyOnExport" />
@@ -478,6 +481,9 @@ const showBulkEdit = ref(false)
 const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
+const showBulkDeleteDialog = ref(false)
+const showBulkResetStatusDialog = ref(false)
+const showBulkRefreshTokenDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
@@ -1229,9 +1235,20 @@ const toggleSelectAllVisible = (event: Event) => {
   const target = event.target as HTMLInputElement
   toggleVisible(target.checked)
 }
-const handleBulkDelete = async () => { if(!confirm(t('common.confirm'))) return; try { await Promise.all(selIds.value.map(id => adminAPI.accounts.delete(id))); clearSelection(); reload() } catch (error) { console.error('Failed to bulk delete accounts:', error) } }
-const handleBulkResetStatus = async () => {
-  if (!confirm(t('common.confirm'))) return
+const handleBulkDelete = () => { showBulkDeleteDialog.value = true }
+const confirmBulkDelete = async () => {
+  showBulkDeleteDialog.value = false
+  try {
+    await Promise.all(selIds.value.map(id => adminAPI.accounts.delete(id)))
+    clearSelection()
+    reload()
+  } catch (error) {
+    console.error('Failed to bulk delete accounts:', error)
+  }
+}
+const handleBulkResetStatus = () => { showBulkResetStatusDialog.value = true }
+const confirmBulkResetStatus = async () => {
+  showBulkResetStatusDialog.value = false
   try {
     const result = await adminAPI.accounts.batchClearError(selIds.value)
     if (result.failed > 0) {
@@ -1246,8 +1263,9 @@ const handleBulkResetStatus = async () => {
     appStore.showError(String(error))
   }
 }
-const handleBulkRefreshToken = async () => {
-  if (!confirm(t('common.confirm'))) return
+const handleBulkRefreshToken = () => { showBulkRefreshTokenDialog.value = true }
+const confirmBulkRefreshToken = async () => {
+  showBulkRefreshTokenDialog.value = false
   try {
     const result = await adminAPI.accounts.batchRefresh(selIds.value)
     if (result.failed > 0) {

@@ -276,6 +276,8 @@
         </div>
       </transition>
     </teleport>
+    <ConfirmDialog :show="showRestoreDialog" :title="t('admin.backup.actions.restore')" :message="t('admin.backup.actions.restoreConfirm')" :confirm-text="t('common.confirm')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmRestore" @cancel="showRestoreDialog = false" />
+    <ConfirmDialog :show="showRemoveDialog" :title="t('admin.backup.actions.delete')" :message="t('admin.backup.actions.deleteConfirm')" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmRemove" @cancel="showRemoveDialog = false" />
 </template>
 
 <script setup lang="ts">
@@ -283,6 +285,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import type { BackupS3Config, BackupScheduleConfig, BackupRecord } from '@/api/admin/backup'
 
 const { t } = useI18n()
@@ -316,6 +319,10 @@ const backups = ref<BackupRecord[]>([])
 const loadingBackups = ref(false)
 const creatingBackup = ref(false)
 const restoringId = ref('')
+const showRestoreDialog = ref(false)
+const pendingRestoreId = ref('')
+const showRemoveDialog = ref(false)
+const pendingRemoveId = ref('')
 const manualExpireDays = ref(14)
 
 // Polling
@@ -546,8 +553,13 @@ async function downloadBackup(id: string) {
   }
 }
 
-async function restoreBackup(id: string) {
-  if (!window.confirm(t('admin.backup.actions.restoreConfirm'))) return
+function restoreBackup(id: string) {
+  pendingRestoreId.value = id
+  showRestoreDialog.value = true
+}
+async function confirmRestore() {
+  showRestoreDialog.value = false
+  const id = pendingRestoreId.value
   const password = window.prompt(t('admin.backup.actions.restorePasswordPrompt'))
   if (!password) return
   restoringId.value = id
@@ -565,10 +577,14 @@ async function restoreBackup(id: string) {
   }
 }
 
-async function removeBackup(id: string) {
-  if (!window.confirm(t('admin.backup.actions.deleteConfirm'))) return
+function removeBackup(id: string) {
+  pendingRemoveId.value = id
+  showRemoveDialog.value = true
+}
+async function confirmRemove() {
+  showRemoveDialog.value = false
   try {
-    await adminAPI.backup.deleteBackup(id)
+    await adminAPI.backup.deleteBackup(pendingRemoveId.value)
     appStore.showSuccess(t('admin.backup.actions.deleted'))
     await loadBackups()
   } catch (error) {
