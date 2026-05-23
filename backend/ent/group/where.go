@@ -210,6 +210,16 @@ func RpmLimit(v int) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRpmLimit, v))
 }
 
+// KiroCacheEmulationEnabled applies equality check predicate on the "kiro_cache_emulation_enabled" field. It's identical to KiroCacheEmulationEnabledEQ.
+func KiroCacheEmulationEnabled(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldKiroCacheEmulationEnabled, v))
+}
+
+// KiroCacheEmulationRatio applies equality check predicate on the "kiro_cache_emulation_ratio" field. It's identical to KiroCacheEmulationRatioEQ.
+func KiroCacheEmulationRatio(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldKiroCacheEmulationRatio, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldCreatedAt, v))
@@ -1438,6 +1448,56 @@ func RpmLimitLT(v int) predicate.Group {
 // RpmLimitLTE applies the LTE predicate on the "rpm_limit" field.
 func RpmLimitLTE(v int) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldRpmLimit, v))
+}
+
+// KiroCacheEmulationEnabledEQ applies the EQ predicate on the "kiro_cache_emulation_enabled" field.
+func KiroCacheEmulationEnabledEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldKiroCacheEmulationEnabled, v))
+}
+
+// KiroCacheEmulationEnabledNEQ applies the NEQ predicate on the "kiro_cache_emulation_enabled" field.
+func KiroCacheEmulationEnabledNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldKiroCacheEmulationEnabled, v))
+}
+
+// KiroCacheEmulationRatioEQ applies the EQ predicate on the "kiro_cache_emulation_ratio" field.
+func KiroCacheEmulationRatioEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldKiroCacheEmulationRatio, v))
+}
+
+// KiroCacheEmulationRatioNEQ applies the NEQ predicate on the "kiro_cache_emulation_ratio" field.
+func KiroCacheEmulationRatioNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldKiroCacheEmulationRatio, v))
+}
+
+// KiroCacheEmulationRatioIn applies the In predicate on the "kiro_cache_emulation_ratio" field.
+func KiroCacheEmulationRatioIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldKiroCacheEmulationRatio, vs...))
+}
+
+// KiroCacheEmulationRatioNotIn applies the NotIn predicate on the "kiro_cache_emulation_ratio" field.
+func KiroCacheEmulationRatioNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldKiroCacheEmulationRatio, vs...))
+}
+
+// KiroCacheEmulationRatioGT applies the GT predicate on the "kiro_cache_emulation_ratio" field.
+func KiroCacheEmulationRatioGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldKiroCacheEmulationRatio, v))
+}
+
+// KiroCacheEmulationRatioGTE applies the GTE predicate on the "kiro_cache_emulation_ratio" field.
+func KiroCacheEmulationRatioGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldKiroCacheEmulationRatio, v))
+}
+
+// KiroCacheEmulationRatioLT applies the LT predicate on the "kiro_cache_emulation_ratio" field.
+func KiroCacheEmulationRatioLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldKiroCacheEmulationRatio, v))
+}
+
+// KiroCacheEmulationRatioLTE applies the LTE predicate on the "kiro_cache_emulation_ratio" field.
+func KiroCacheEmulationRatioLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldKiroCacheEmulationRatio, v))
 }
 
 // HasAPIKeys applies the HasEdge predicate on the "api_keys" edge.

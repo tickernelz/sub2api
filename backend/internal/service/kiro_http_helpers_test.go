@@ -132,9 +132,8 @@ func TestBuildKiroPayloadForAccountPropagatesThinkingHeaders(t *testing.T) {
 	headers := http.Header{}
 	headers.Set("Anthropic-Beta", "interleaved-thinking-2025-05-14")
 
-	buildResult, err := buildKiroPayloadForAccountWithRepo(
+	buildResult, err := (&GatewayService{}).buildKiroPayloadForAccount(
 		context.Background(),
-		nil,
 		account,
 		body,
 		"claude-sonnet-4.6",
@@ -159,9 +158,8 @@ func TestBuildKiroPayloadForAccountPreservesThinkingAliasAfterMapping(t *testing
 		"messages":[{"role":"user","content":"hello"}]
 	}`)
 
-	buildResult, err := buildKiroPayloadForAccountWithRepo(
+	buildResult, err := (&GatewayService{}).buildKiroPayloadForAccount(
 		context.Background(),
-		nil,
 		account,
 		body,
 		"claude-opus-4.6",
@@ -198,9 +196,8 @@ func TestBuildKiroPayloadForAccountMapsOpus47ToDottedModelID(t *testing.T) {
 	modelID := kiropkg.MapModel(mappedModel)
 	require.Equal(t, "claude-opus-4.7", modelID)
 
-	buildResult, err := buildKiroPayloadForAccountWithRepo(
+	buildResult, err := (&GatewayService{}).buildKiroPayloadForAccount(
 		context.Background(),
-		nil,
 		account,
 		body,
 		modelID,
@@ -225,9 +222,8 @@ func TestBuildKiroPayloadForAccountDoesNotEnableThinkingForNonThinkingAlias(t *t
 		"messages":[{"role":"user","content":"hello"}]
 	}`)
 
-	buildResult, err := buildKiroPayloadForAccountWithRepo(
+	buildResult, err := (&GatewayService{}).buildKiroPayloadForAccount(
 		context.Background(),
-		nil,
 		account,
 		body,
 		"claude-opus-4.6",

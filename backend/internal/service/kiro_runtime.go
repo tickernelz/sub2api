@@ -513,15 +513,6 @@ func (s *GatewayService) buildKiroPayloadForAccount(ctx context.Context, account
 	return kiropkg.BuildKiroPayloadWithContext(anthropicBody, modelID, profileArn, "AI_EDITOR", headers)
 }
 
-func buildKiroPayloadForAccountWithRepo(ctx context.Context, repo AccountRepository, account *Account, anthropicBody []byte, modelID, token, requestModel string, headers http.Header) (*kiropkg.KiroBuildResult, error) {
-	_ = ctx
-	_ = repo
-	_ = token
-	profileArn := resolveKiroPayloadProfileArn(account)
-	preparedBody := prepareKiroPayloadBodyForRequestModel(anthropicBody, requestModel)
-	return kiropkg.BuildKiroPayloadWithContext(preparedBody, modelID, profileArn, "AI_EDITOR", headers)
-}
-
 func logKiroStatelessReplay(account *Account, payload []byte) {
 	if account == nil {
 		return

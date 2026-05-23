@@ -157,8 +157,8 @@ func buildKiroCacheProfile(body []byte, model string, inputTokens int) (*kiroCac
 		}
 		blockHash := sha256.Sum256(blockJSON)
 		h := sha256.New()
-		h.Write(prefixState)
-		h.Write(blockHash[:])
+		_, _ = h.Write(prefixState)
+		_, _ = h.Write(blockHash[:])
 		prefixFingerprint := [32]byte(h.Sum(nil))
 		prefixState = prefixFingerprint[:]
 		profile.blocks = append(profile.blocks, kiroCacheBlock{prefixFingerprint: prefixFingerprint, cumulativeTokens: cumulativeTokens})
@@ -549,14 +549,14 @@ func writeCanonicalJSON(buf *bytes.Buffer, v any) error {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		buf.WriteByte('{')
+		_ = buf.WriteByte('{')
 		for i, k := range keys {
 			if i > 0 {
-				buf.WriteByte(',')
+				_ = buf.WriteByte(',')
 			}
 			kb, _ := json.Marshal(k)
-			buf.Write(kb)
-			buf.WriteByte(':')
+			_, _ = buf.Write(kb)
+			_ = buf.WriteByte(':')
 			if err := writeCanonicalJSON(buf, x[k]); err != nil {
 				return err
 			}
@@ -580,7 +580,7 @@ func writeCanonicalJSON(buf *bytes.Buffer, v any) error {
 		if err != nil {
 			return err
 		}
-		buf.Write(b)
+		_, _ = buf.Write(b)
 		return nil
 	}
 }

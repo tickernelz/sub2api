@@ -522,7 +522,7 @@ func StreamEventStreamAsAnthropicWithContext(ctx context.Context, body io.Reader
 		if toolUseID == "" || !streamingToolStarted[toolUseID] || streamingToolStopped[toolUseID] {
 			return nil
 		}
-		outputTextBuf.WriteString(fragment)
+		_, _ = outputTextBuf.WriteString(fragment)
 		return writeEvent("content_block_delta", map[string]any{
 			"type":  "content_block_delta",
 			"index": streamingToolBlockIndices[toolUseID],
@@ -602,7 +602,7 @@ func StreamEventStreamAsAnthropicWithContext(ctx context.Context, body io.Reader
 				return err
 			}
 		}
-		outputTextBuf.WriteString(text)
+		_, _ = outputTextBuf.WriteString(text)
 		return writeEvent("content_block_delta", map[string]any{
 			"type":  "content_block_delta",
 			"index": contentBlockIndex,
@@ -643,7 +643,7 @@ func StreamEventStreamAsAnthropicWithContext(ctx context.Context, body io.Reader
 			return err
 		}
 		inputJSON, _ := json.Marshal(tool.Input)
-		outputTextBuf.Write(inputJSON)
+		_, _ = outputTextBuf.Write(inputJSON)
 		if err := writeEvent("content_block_delta", map[string]any{
 			"type":  "content_block_delta",
 			"index": contentBlockIndex,
@@ -712,7 +712,7 @@ func StreamEventStreamAsAnthropicWithContext(ctx context.Context, body io.Reader
 			}
 		}
 		if text != "" {
-			outputTextBuf.WriteString(text)
+			_, _ = outputTextBuf.WriteString(text)
 		}
 		return writeEvent("content_block_delta", map[string]any{
 			"type":  "content_block_delta",
@@ -1931,7 +1931,7 @@ func parseEventStream(body io.Reader) (string, []KiroToolUse, Usage, string, err
 		outputBuf.WriteString(cleanText)
 		for _, tu := range toolUses {
 			if b, err := json.Marshal(tu.Input); err == nil {
-				outputBuf.Write(b)
+				_, _ = outputBuf.Write(b)
 			}
 		}
 		if est := anthropictokenizer.CountTokens(outputBuf.String()); est > 0 {
