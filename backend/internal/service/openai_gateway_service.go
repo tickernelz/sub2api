@@ -4540,13 +4540,19 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 	var maxDurationCh <-chan time.Time
 	maxDurationSeconds := 0
 	if s.settingService != nil {
-		if retrySettings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && retrySettings != nil && retrySettings.Enabled {
-			maxDurationSeconds = retrySettings.MaxDurationSeconds
+		if retrySettings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && retrySettings != nil {
+			logger.LegacyPrintf("service.openai_gateway", "stream_retry.settings enabled=%v max_dur=%d account=%d", retrySettings.Enabled, retrySettings.MaxDurationSeconds, account.ID)
+			if retrySettings.Enabled {
+				maxDurationSeconds = retrySettings.MaxDurationSeconds
+			}
+		} else if err != nil {
+			logger.LegacyPrintf("service.openai_gateway", "stream_retry.settings_error account=%d err=%v", account.ID, err)
 		}
 	}
 	if maxDurationSeconds <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
 		maxDurationSeconds = s.cfg.Gateway.StreamMaxDurationSeconds
 	}
+	logger.LegacyPrintf("service.openai_gateway", "stream_retry.max_duration_seconds=%d account=%d", maxDurationSeconds, account.ID)
 	if maxDurationSeconds > 0 {
 		maxDurationTimer := time.NewTimer(time.Duration(maxDurationSeconds) * time.Second)
 		defer maxDurationTimer.Stop()
