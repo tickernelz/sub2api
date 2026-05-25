@@ -211,11 +211,8 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// Priority: DB-backed StreamRetrySettings (if enabled) > config.yaml fallback.
 	chatMaxDurSeconds := 0
 	if s.settingService != nil {
-		if rs, err2 := s.settingService.GetStreamRetrySettings(ctx); err2 == nil && rs != nil {
-			logger.LegacyPrintf("service.openai_gateway", "stream_retry.chat_settings enabled=%v max_dur=%d account=%d", rs.Enabled, rs.MaxDurationSeconds, account.ID)
-			if rs.Enabled {
-				chatMaxDurSeconds = rs.MaxDurationSeconds
-			}
+		if rs, err2 := s.settingService.GetStreamRetrySettings(ctx); err2 == nil && rs != nil && rs.Enabled {
+			chatMaxDurSeconds = rs.MaxDurationSeconds
 		}
 	}
 	if chatMaxDurSeconds <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
@@ -224,7 +221,6 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	var chatUpstreamCtxCancel context.CancelFunc
 	if chatMaxDurSeconds > 0 {
 		upstreamCtx, chatUpstreamCtxCancel = context.WithTimeout(upstreamCtx, time.Duration(chatMaxDurSeconds)*time.Second)
-		logger.LegacyPrintf("service.openai_gateway", "stream_retry.chat_deadline_set account=%d duration=%ds", account.ID, chatMaxDurSeconds)
 	}
 	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, true, promptCacheKey, false)
 	releaseUpstreamCtx()

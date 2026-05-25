@@ -3156,13 +3156,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	// the HTTP transport will interrupt the blocking read when the timer fires.
 	passthroughMaxDurSeconds := 0
 	if s.settingService != nil {
-		if rs, err2 := s.settingService.GetStreamRetrySettings(ctx); err2 == nil && rs != nil {
-			logger.LegacyPrintf("service.openai_gateway", "stream_retry.passthrough_settings enabled=%v max_dur=%d account=%d", rs.Enabled, rs.MaxDurationSeconds, account.ID)
-			if rs.Enabled {
-				passthroughMaxDurSeconds = rs.MaxDurationSeconds
-			}
-		} else if err2 != nil {
-			logger.LegacyPrintf("service.openai_gateway", "stream_retry.passthrough_settings_error account=%d err=%v", account.ID, err2)
+		if rs, err2 := s.settingService.GetStreamRetrySettings(ctx); err2 == nil && rs != nil && rs.Enabled {
+			passthroughMaxDurSeconds = rs.MaxDurationSeconds
 		}
 	}
 	if passthroughMaxDurSeconds <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
@@ -3176,9 +3171,6 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	releaseUpstreamCtx()
 	if upstreamCtxCancel != nil {
 		defer upstreamCtxCancel()
-		if dl, ok := upstreamCtx.Deadline(); ok {
-			logger.LegacyPrintf("service.openai_gateway", "stream_retry.passthrough_deadline_set account=%d deadline=%s", account.ID, dl.Format("15:04:05"))
-		}
 	}
 	if err != nil {
 		return nil, err
@@ -4540,19 +4532,13 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 	var maxDurationCh <-chan time.Time
 	maxDurationSeconds := 0
 	if s.settingService != nil {
-		if retrySettings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && retrySettings != nil {
-			logger.LegacyPrintf("service.openai_gateway", "stream_retry.settings enabled=%v max_dur=%d account=%d", retrySettings.Enabled, retrySettings.MaxDurationSeconds, account.ID)
-			if retrySettings.Enabled {
-				maxDurationSeconds = retrySettings.MaxDurationSeconds
-			}
-		} else if err != nil {
-			logger.LegacyPrintf("service.openai_gateway", "stream_retry.settings_error account=%d err=%v", account.ID, err)
+		if retrySettings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && retrySettings != nil && retrySettings.Enabled {
+			maxDurationSeconds = retrySettings.MaxDurationSeconds
 		}
 	}
 	if maxDurationSeconds <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
 		maxDurationSeconds = s.cfg.Gateway.StreamMaxDurationSeconds
 	}
-	logger.LegacyPrintf("service.openai_gateway", "stream_retry.max_duration_seconds=%d account=%d", maxDurationSeconds, account.ID)
 	if maxDurationSeconds > 0 {
 		maxDurationTimer := time.NewTimer(time.Duration(maxDurationSeconds) * time.Second)
 		defer maxDurationTimer.Stop()
