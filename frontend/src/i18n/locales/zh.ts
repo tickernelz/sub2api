@@ -6300,6 +6300,18 @@ export default {
         saved: '流超时设置保存成功',
         saveFailed: '保存流超时设置失败'
       },
+      streamRetry: {
+        title: '流重试',
+        description: '当流未正常终止或请求前发生网络错误时，自动重试或切换账户',
+        maxDurationSeconds: '流最大时长（秒）',
+        maxDurationSecondsHint: '流运行超过此时长且未收到终止事件时切断并重试。0 = 禁用，必须为 0 或 ≥ 60。',
+        retryMax: '最大重试次数',
+        retryMaxHint: '流失败后的最大重试次数。多账号时优先轮换账号，单账号时在同一账号重试。0 = 禁用（最多5次）。',
+        retryBackoffMs: '重试退避（毫秒）',
+        retryBackoffMsHint: '每次重试前的等待时间（毫秒，0-30000）。',
+        saved: '流重试设置保存成功',
+        saveFailed: '保存流重试设置失败'
+      },
       rectifier: {
         title: '请求整流器',
         description: '当上游返回特定错误时，自动修正请求参数并重试，提高请求成功率',

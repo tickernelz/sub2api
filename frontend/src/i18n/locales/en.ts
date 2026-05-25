@@ -6143,6 +6143,18 @@ export default {
         saved: 'Stream timeout settings saved',
         saveFailed: 'Failed to save stream timeout settings'
       },
+      streamRetry: {
+        title: 'Stream Retry',
+        description: 'Automatically retry or failover when a stream fails to terminate or a network error occurs before the stream starts',
+        maxDurationSeconds: 'Max Stream Duration (seconds)',
+        maxDurationSecondsHint: 'Cut and retry the stream if it runs longer than this without a terminal event. 0 = disabled. Must be 0 or ≥ 60.',
+        retryMax: 'Max Retries',
+        retryMaxHint: 'Maximum retry attempts after a stream failure. With multiple accounts, rotates to a different account first. 0 = disabled (max 5).',
+        retryBackoffMs: 'Retry Backoff (ms)',
+        retryBackoffMsHint: 'Wait time before each retry attempt in milliseconds (0–30000).',
+        saved: 'Stream retry settings saved',
+        saveFailed: 'Failed to save stream retry settings'
+      },
       rectifier: {
         title: 'Request Rectifier',
         description: 'Automatically fix request parameters and retry when upstream returns specific errors',

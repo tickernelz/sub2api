@@ -339,6 +339,13 @@ type StreamTimeoutSettings struct {
 	ThresholdWindowMinutes int    `json:"threshold_window_minutes"`
 }
 
+// StreamRetrySettings 流重试配置 DTO
+type StreamRetrySettings struct {
+	MaxDurationSeconds int `json:"max_duration_seconds"`
+	RetryMax           int `json:"retry_max"`
+	RetryBackoffMs     int `json:"retry_backoff_ms"`
+}
+
 // RectifierSettings 请求整流器配置 DTO
 type RectifierSettings struct {
 	Enabled                  bool     `json:"enabled"`

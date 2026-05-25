@@ -746,6 +746,14 @@ type GatewayConfig struct {
 	ImageStreamDataIntervalTimeout int `mapstructure:"image_stream_data_interval_timeout"`
 	// ImageStreamKeepaliveInterval: 图片流式 keepalive 间隔（秒），0表示禁用
 	ImageStreamKeepaliveInterval int `mapstructure:"image_stream_keepalive_interval"`
+
+	// StreamMaxDurationSeconds: 流式请求最大总时长（秒），0表示禁用；超时后触发 failover/retry
+	// 用于检测 upstream 持续发送 chunk 但不发送终止事件的情况
+	StreamMaxDurationSeconds int `mapstructure:"stream_max_duration_seconds"`
+	// StreamFailureRetryMax: 流失败（inactivity/max duration/network error）后最大重试次数，0表示禁用
+	StreamFailureRetryMax int `mapstructure:"stream_failure_retry_max"`
+	// StreamFailureRetryBackoffMs: 流失败重试前退避时间（毫秒）
+	StreamFailureRetryBackoffMs int `mapstructure:"stream_failure_retry_backoff_ms"`
 	// MaxLineSize: 上游 SSE 单行最大字节数（0使用默认值）
 	MaxLineSize int `mapstructure:"max_line_size"`
 
@@ -1825,6 +1833,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.kiro_stream_keepalive_interval", 25)
 	viper.SetDefault("gateway.image_stream_data_interval_timeout", 900)
 	viper.SetDefault("gateway.image_stream_keepalive_interval", 10)
+	viper.SetDefault("gateway.stream_max_duration_seconds", 0)
+	viper.SetDefault("gateway.stream_failure_retry_max", 0)
+	viper.SetDefault("gateway.stream_failure_retry_backoff_ms", 1000)
 	viper.SetDefault("gateway.max_line_size", 500*1024*1024)
 	viper.SetDefault("gateway.scheduling.sticky_session_max_waiting", 3)
 	viper.SetDefault("gateway.scheduling.sticky_session_wait_timeout", 120*time.Second)
@@ -2449,6 +2460,24 @@ func (c *Config) Validate() error {
 	if c.Gateway.ImageStreamKeepaliveInterval != 0 &&
 		(c.Gateway.ImageStreamKeepaliveInterval < 5 || c.Gateway.ImageStreamKeepaliveInterval > 60) {
 		return fmt.Errorf("gateway.image_stream_keepalive_interval must be 0 or between 5-60 seconds")
+	}
+	if c.Gateway.StreamMaxDurationSeconds < 0 {
+		return fmt.Errorf("gateway.stream_max_duration_seconds must be non-negative")
+	}
+	if c.Gateway.StreamMaxDurationSeconds != 0 && c.Gateway.StreamMaxDurationSeconds < 60 {
+		return fmt.Errorf("gateway.stream_max_duration_seconds must be 0 or >= 60 seconds")
+	}
+	if c.Gateway.StreamFailureRetryMax < 0 {
+		return fmt.Errorf("gateway.stream_failure_retry_max must be non-negative")
+	}
+	if c.Gateway.StreamFailureRetryMax > 5 {
+		return fmt.Errorf("gateway.stream_failure_retry_max must be <= 5")
+	}
+	if c.Gateway.StreamFailureRetryBackoffMs < 0 {
+		return fmt.Errorf("gateway.stream_failure_retry_backoff_ms must be non-negative")
+	}
+	if c.Gateway.StreamFailureRetryBackoffMs > 30000 {
+		return fmt.Errorf("gateway.stream_failure_retry_backoff_ms must be <= 30000")
 	}
 	// 兼容旧键 sticky_previous_response_ttl_seconds
 	if c.Gateway.OpenAIWS.StickyResponseIDTTLSeconds <= 0 && c.Gateway.OpenAIWS.StickyPreviousResponseTTLSeconds > 0 {

@@ -1090,6 +1090,37 @@ export async function updateStreamTimeoutSettings(
   return data;
 }
 
+// ==================== Stream Retry Settings ====================
+
+export interface StreamRetrySettings {
+  max_duration_seconds: number;
+  retry_max: number;
+  retry_backoff_ms: number;
+}
+
+/**
+ * Get stream retry settings
+ */
+export async function getStreamRetrySettings(): Promise<StreamRetrySettings> {
+  const { data } = await apiClient.get<StreamRetrySettings>(
+    "/admin/settings/stream-retry",
+  );
+  return data;
+}
+
+/**
+ * Update stream retry settings
+ */
+export async function updateStreamRetrySettings(
+  settings: StreamRetrySettings,
+): Promise<StreamRetrySettings> {
+  const { data } = await apiClient.put<StreamRetrySettings>(
+    "/admin/settings/stream-retry",
+    settings,
+  );
+  return data;
+}
+
 // ==================== Rectifier Settings ====================
 
 /**
@@ -1279,6 +1310,8 @@ export const settingsAPI = {
   updateRateLimit429CooldownSettings,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
+  getStreamRetrySettings,
+  updateStreamRetrySettings,
   getRectifierSettings,
   updateRectifierSettings,
   getBetaPolicySettings,

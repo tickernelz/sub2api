@@ -591,6 +591,123 @@
             </div>
           </div>
 
+          <!-- Stream Retry Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.streamRetry.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.streamRetry.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="streamRetryLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+              <template v-else>
+                <!-- Max Duration Seconds -->
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.streamRetry.maxDurationSeconds") }}
+                  </label>
+                  <input
+                    v-model.number="streamRetryForm.max_duration_seconds"
+                    type="number"
+                    min="0"
+                    class="input w-32"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.streamRetry.maxDurationSecondsHint") }}
+                  </p>
+                </div>
+                <!-- Retry Max -->
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.streamRetry.retryMax") }}
+                  </label>
+                  <input
+                    v-model.number="streamRetryForm.retry_max"
+                    type="number"
+                    min="0"
+                    max="5"
+                    class="input w-32"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.streamRetry.retryMaxHint") }}
+                  </p>
+                </div>
+                <!-- Retry Backoff Ms -->
+                <div>
+                  <label
+                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.streamRetry.retryBackoffMs") }}
+                  </label>
+                  <input
+                    v-model.number="streamRetryForm.retry_backoff_ms"
+                    type="number"
+                    min="0"
+                    max="30000"
+                    class="input w-32"
+                  />
+                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.streamRetry.retryBackoffMsHint") }}
+                  </p>
+                </div>
+                <!-- Save Button -->
+                <div
+                  class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <button
+                    type="button"
+                    @click="saveStreamRetrySettings"
+                    :disabled="streamRetrySaving"
+                    class="btn btn-primary btn-sm"
+                  >
+                    <svg
+                      v-if="streamRetrySaving"
+                      class="mr-1 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        class="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        stroke-width="4"
+                      ></circle>
+                      <path
+                        class="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    {{
+                      streamRetrySaving
+                        ? t("common.saving")
+                        : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- Request Rectifier Settings -->
           <div class="card">
             <div
@@ -6748,6 +6865,15 @@ const streamTimeoutForm = reactive({
   threshold_window_minutes: 10,
 });
 
+// Stream Retry 状态
+const streamRetryLoading = ref(true);
+const streamRetrySaving = ref(false);
+const streamRetryForm = reactive({
+  max_duration_seconds: 0,
+  retry_max: 0,
+  retry_backoff_ms: 1000,
+});
+
 // Rectifier 状态
 const rectifierLoading = ref(true);
 const rectifierSaving = ref(false);
@@ -8559,6 +8685,41 @@ async function saveStreamTimeoutSettings() {
   }
 }
 
+// Stream Retry 方法
+async function loadStreamRetrySettings() {
+  streamRetryLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getStreamRetrySettings();
+    Object.assign(streamRetryForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    streamRetryLoading.value = false;
+  }
+}
+
+async function saveStreamRetrySettings() {
+  streamRetrySaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateStreamRetrySettings({
+      max_duration_seconds: streamRetryForm.max_duration_seconds,
+      retry_max: streamRetryForm.retry_max,
+      retry_backoff_ms: streamRetryForm.retry_backoff_ms,
+    });
+    Object.assign(streamRetryForm, updated);
+    appStore.showSuccess(t("admin.settings.streamRetry.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.streamRetry.saveFailed"),
+      ),
+    );
+  } finally {
+    streamRetrySaving.value = false;
+  }
+}
+
 // Rectifier 方法
 async function loadRectifierSettings() {
   rectifierLoading.value = true;
@@ -9137,6 +9298,7 @@ onMounted(() => {
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
   loadStreamTimeoutSettings();
+  loadStreamRetrySettings();
   loadRectifierSettings();
   loadBetaPolicySettings();
   loadProviders();

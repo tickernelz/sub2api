@@ -389,6 +389,27 @@ func DefaultStreamTimeoutSettings() *StreamTimeoutSettings {
 	}
 }
 
+// StreamRetrySettings 流重试配置（控制 stream failure 后的自动重试行为）
+type StreamRetrySettings struct {
+	// MaxDurationSeconds 单次流请求最大总时长（秒），0=禁用；超时后触发 failover/retry
+	// 用于检测 upstream 持续发送 chunk 但不发送终止事件的情况
+	MaxDurationSeconds int `json:"max_duration_seconds"`
+	// RetryMax 流失败后最大重试次数，0=禁用
+	// 多账号时优先轮换账号，单账号时在同一账号重试
+	RetryMax int `json:"retry_max"`
+	// RetryBackoffMs 重试前退避时间（毫秒）
+	RetryBackoffMs int `json:"retry_backoff_ms"`
+}
+
+// DefaultStreamRetrySettings 返回默认的流重试配置
+func DefaultStreamRetrySettings() *StreamRetrySettings {
+	return &StreamRetrySettings{
+		MaxDurationSeconds: 0,
+		RetryMax:           0,
+		RetryBackoffMs:     1000,
+	}
+}
+
 // RectifierSettings 请求整流器配置
 type RectifierSettings struct {
 	Enabled                  bool     `json:"enabled"`                    // 总开关

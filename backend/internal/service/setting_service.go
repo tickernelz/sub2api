@@ -4493,3 +4493,65 @@ func (s *SettingService) SetStreamTimeoutSettings(ctx context.Context, settings 
 
 	return s.settingRepo.Set(ctx, SettingKeyStreamTimeoutSettings, string(data))
 }
+
+// GetStreamRetrySettings 获取流重试配置
+func (s *SettingService) GetStreamRetrySettings(ctx context.Context) (*StreamRetrySettings, error) {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyStreamRetrySettings)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return DefaultStreamRetrySettings(), nil
+		}
+		return DefaultStreamRetrySettings(), nil
+	}
+	if value == "" {
+		return DefaultStreamRetrySettings(), nil
+	}
+	var settings StreamRetrySettings
+	if err := json.Unmarshal([]byte(value), &settings); err != nil {
+		return DefaultStreamRetrySettings(), nil
+	}
+	// Clamp values to safe ranges
+	if settings.MaxDurationSeconds < 0 {
+		settings.MaxDurationSeconds = 0
+	}
+	if settings.MaxDurationSeconds != 0 && settings.MaxDurationSeconds < 60 {
+		settings.MaxDurationSeconds = 60
+	}
+	if settings.RetryMax < 0 {
+		settings.RetryMax = 0
+	}
+	if settings.RetryMax > 5 {
+		settings.RetryMax = 5
+	}
+	if settings.RetryBackoffMs < 0 {
+		settings.RetryBackoffMs = 0
+	}
+	if settings.RetryBackoffMs > 30000 {
+		settings.RetryBackoffMs = 30000
+	}
+	return &settings, nil
+}
+
+// SetStreamRetrySettings 设置流重试配置
+func (s *SettingService) SetStreamRetrySettings(ctx context.Context, settings *StreamRetrySettings) error {
+	if settings == nil {
+		return fmt.Errorf("settings must not be nil")
+	}
+	if settings.MaxDurationSeconds < 0 {
+		return fmt.Errorf("max_duration_seconds must be non-negative")
+	}
+	if settings.MaxDurationSeconds != 0 && settings.MaxDurationSeconds < 60 {
+		return fmt.Errorf("max_duration_seconds must be 0 or >= 60")
+	}
+	if settings.RetryMax < 0 || settings.RetryMax > 5 {
+		return fmt.Errorf("retry_max must be between 0-5")
+	}
+	if settings.RetryBackoffMs < 0 || settings.RetryBackoffMs > 30000 {
+		return fmt.Errorf("retry_backoff_ms must be between 0-30000")
+	}
+	data, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("marshal stream retry settings: %w", err)
+	}
+	return s.settingRepo.Set(ctx, SettingKeyStreamRetrySettings, string(data))
+}

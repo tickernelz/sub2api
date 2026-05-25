@@ -3069,6 +3069,21 @@ func (h *SettingHandler) GetStreamTimeoutSettings(c *gin.Context) {
 	})
 }
 
+// GetStreamRetrySettings 获取流重试配置
+// GET /api/v1/admin/settings/stream-retry
+func (h *SettingHandler) GetStreamRetrySettings(c *gin.Context) {
+	settings, err := h.settingService.GetStreamRetrySettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.StreamRetrySettings{
+		MaxDurationSeconds: settings.MaxDurationSeconds,
+		RetryMax:           settings.RetryMax,
+		RetryBackoffMs:     settings.RetryBackoffMs,
+	})
+}
+
 // GetRectifierSettings 获取请求整流器配置
 // GET /api/v1/admin/settings/rectifier
 func (h *SettingHandler) GetRectifierSettings(c *gin.Context) {
@@ -3261,6 +3276,42 @@ func (h *SettingHandler) UpdateStreamTimeoutSettings(c *gin.Context) {
 		TempUnschedMinutes:     updatedSettings.TempUnschedMinutes,
 		ThresholdCount:         updatedSettings.ThresholdCount,
 		ThresholdWindowMinutes: updatedSettings.ThresholdWindowMinutes,
+	})
+}
+
+// UpdateStreamRetrySettingsRequest 更新流重试配置请求
+type UpdateStreamRetrySettingsRequest struct {
+	MaxDurationSeconds int `json:"max_duration_seconds"`
+	RetryMax           int `json:"retry_max"`
+	RetryBackoffMs     int `json:"retry_backoff_ms"`
+}
+
+// UpdateStreamRetrySettings 更新流重试配置
+// PUT /api/v1/admin/settings/stream-retry
+func (h *SettingHandler) UpdateStreamRetrySettings(c *gin.Context) {
+	var req UpdateStreamRetrySettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	settings := &service.StreamRetrySettings{
+		MaxDurationSeconds: req.MaxDurationSeconds,
+		RetryMax:           req.RetryMax,
+		RetryBackoffMs:     req.RetryBackoffMs,
+	}
+	if err := h.settingService.SetStreamRetrySettings(c.Request.Context(), settings); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	updatedSettings, err := h.settingService.GetStreamRetrySettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.StreamRetrySettings{
+		MaxDurationSeconds: updatedSettings.MaxDurationSeconds,
+		RetryMax:           updatedSettings.RetryMax,
+		RetryBackoffMs:     updatedSettings.RetryBackoffMs,
 	})
 }
 

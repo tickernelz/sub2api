@@ -633,6 +633,53 @@ func classifyOpenAIWSReconnectReason(err error) (string, bool) {
 	}
 }
 
+// isRetryableNetworkError returns true for transient network errors that warrant
+// a failover/retry to another account or the same account.
+// Errors caused by client disconnect or deliberate cancellation are NOT retryable.
+func isRetryableNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Client-side cancellation: never retry
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	msg := err.Error()
+	// Non-retryable patterns
+	nonRetryable := []string{
+		"context canceled",
+		"context deadline exceeded",
+		"request body too large",
+		"client disconnected",
+	}
+	for _, s := range nonRetryable {
+		if strings.Contains(msg, s) {
+			return false
+		}
+	}
+	// Retryable transient network patterns
+	retryable := []string{
+		"timeout awaiting response headers",
+		"connection refused",
+		"connection reset by peer",
+		"connection timed out",
+		"dial tcp",
+		"i/o timeout",
+		"EOF",
+		"broken pipe",
+		"no such host",
+		"network is unreachable",
+		"http2: server sent GOAWAY",
+		"http2: Transport received Server's graceful shutdown",
+	}
+	for _, s := range retryable {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
 func resolveOpenAIWSFallbackErrorResponse(err error) (statusCode int, errType string, clientMessage string, upstreamMessage string, ok bool) {
 	if err == nil {
 		return 0, "", "", "", false
@@ -2796,6 +2843,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
+			// Retryable network errors trigger failover instead of immediate 502
+			if isRetryableNetworkError(err) {
+				return nil, &UpstreamFailoverError{
+					StatusCode: 0,
+				}
+			}
 			c.JSON(http.StatusBadGateway, gin.H{
 				"error": gin.H{
 					"type":    "upstream_error",
@@ -3097,6 +3150,12 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			Kind:               "request_error",
 			Message:            safeErr,
 		})
+		// Retryable network errors trigger failover instead of immediate 502
+		if isRetryableNetworkError(err) {
+			return nil, &UpstreamFailoverError{
+				StatusCode: 0,
+			}
+		}
 		c.JSON(http.StatusBadGateway, gin.H{
 			"error": gin.H{
 				"type":    "upstream_error",
@@ -4398,6 +4457,15 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 	if keepaliveTicker != nil {
 		keepaliveCh = keepaliveTicker.C
 	}
+
+	// Stream max duration timer: detects streams that never send a terminal event
+	// (upstream keeps sending chunks but [DONE] never arrives).
+	var maxDurationCh <-chan time.Time
+	if s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
+		maxDurationTimer := time.NewTimer(time.Duration(s.cfg.Gateway.StreamMaxDurationSeconds) * time.Second)
+		defer maxDurationTimer.Stop()
+		maxDurationCh = maxDurationTimer.C
+	}
 	// Track downstream writes separately from upstream reads: pre-output failover
 	// can buffer response.created / response.in_progress, so keepalive must be
 	// based on downstream idle time.
@@ -4677,7 +4745,22 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 			}
 			sendErrorEvent("stream_timeout")
-			return resultWithUsage(), fmt.Errorf("stream data interval timeout")
+			return resultWithUsage(), &UpstreamFailoverError{
+				StatusCode: 0,
+			}
+
+		case <-maxDurationCh:
+			if clientDisconnected {
+				return resultWithUsage(), fmt.Errorf("stream max duration exceeded after client disconnect")
+			}
+			logger.LegacyPrintf("service.openai_gateway", "Stream max duration exceeded: account=%d model=%s duration=%ds", account.ID, originalModel, s.cfg.Gateway.StreamMaxDurationSeconds)
+			if s.rateLimitService != nil {
+				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+			}
+			sendErrorEvent("stream_max_duration_exceeded")
+			return resultWithUsage(), &UpstreamFailoverError{
+				StatusCode: 0,
+			}
 
 		case <-keepaliveCh:
 			if clientDisconnected {
