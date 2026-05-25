@@ -207,8 +207,30 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 
 	// 6. Build upstream request
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	// Apply max duration deadline so HTTP transport interrupts blocking read when timer fires.
+	// Priority: DB-backed StreamRetrySettings (if enabled) > config.yaml fallback.
+	chatMaxDurSeconds := 0
+	if s.settingService != nil {
+		if rs, err2 := s.settingService.GetStreamRetrySettings(ctx); err2 == nil && rs != nil {
+			logger.LegacyPrintf("service.openai_gateway", "stream_retry.chat_settings enabled=%v max_dur=%d account=%d", rs.Enabled, rs.MaxDurationSeconds, account.ID)
+			if rs.Enabled {
+				chatMaxDurSeconds = rs.MaxDurationSeconds
+			}
+		}
+	}
+	if chatMaxDurSeconds <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
+		chatMaxDurSeconds = s.cfg.Gateway.StreamMaxDurationSeconds
+	}
+	var chatUpstreamCtxCancel context.CancelFunc
+	if chatMaxDurSeconds > 0 {
+		upstreamCtx, chatUpstreamCtxCancel = context.WithTimeout(upstreamCtx, time.Duration(chatMaxDurSeconds)*time.Second)
+		logger.LegacyPrintf("service.openai_gateway", "stream_retry.chat_deadline_set account=%d duration=%ds", account.ID, chatMaxDurSeconds)
+	}
 	upstreamReq, err := s.buildUpstreamRequest(upstreamCtx, c, account, responsesBody, token, true, promptCacheKey, false)
 	releaseUpstreamCtx()
+	if chatUpstreamCtxCancel != nil {
+		defer chatUpstreamCtxCancel()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
@@ -671,6 +693,21 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			}
 		}
 		if err := scanner.Err(); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				s.streamRetryMetrics.maxDurationExceeded.Add(1)
+				logger.LegacyPrintf("service.openai_gateway", "Stream max duration exceeded (chat): account=%d model=%s", account.ID, originalModel)
+				if s.rateLimitService != nil {
+					s.rateLimitService.HandleStreamTimeout(c.Request.Context(), account, originalModel)
+				}
+				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					Platform:    account.Platform,
+					AccountID:   account.ID,
+					AccountName: account.Name,
+					Kind:        "stream_max_duration_exceeded",
+					Message:     "stream exceeded max duration (chat)",
+				})
+				return resultWithUsage(), &UpstreamFailoverError{StatusCode: 0}
+			}
 			handleScanErr(err)
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", err)
 		}
@@ -743,6 +780,21 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				return missingTerminalErr()
 			}
 			if ev.err != nil {
+				if errors.Is(ev.err, context.DeadlineExceeded) {
+					s.streamRetryMetrics.maxDurationExceeded.Add(1)
+					logger.LegacyPrintf("service.openai_gateway", "Stream max duration exceeded (chat async): account=%d model=%s", account.ID, originalModel)
+					if s.rateLimitService != nil {
+						s.rateLimitService.HandleStreamTimeout(c.Request.Context(), account, originalModel)
+					}
+					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+						Platform:    account.Platform,
+						AccountID:   account.ID,
+						AccountName: account.Name,
+						Kind:        "stream_max_duration_exceeded",
+						Message:     "stream exceeded max duration (chat async)",
+					})
+					return resultWithUsage(), &UpstreamFailoverError{StatusCode: 0}
+				}
 				handleScanErr(ev.err)
 				return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", ev.err)
 			}
