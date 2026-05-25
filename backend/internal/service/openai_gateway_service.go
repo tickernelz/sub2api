@@ -3152,8 +3152,26 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	}
 
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	// If max duration is configured, wrap upstream context with a deadline so
+	// the HTTP transport will interrupt the blocking read when the timer fires.
+	passthroughMaxDurSeconds := 0
+	if s.settingService != nil {
+		if rs, err2 := s.settingService.GetStreamRetrySettings(ctx); err2 == nil && rs != nil && rs.Enabled {
+			passthroughMaxDurSeconds = rs.MaxDurationSeconds
+		}
+	}
+	if passthroughMaxDurSeconds <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
+		passthroughMaxDurSeconds = s.cfg.Gateway.StreamMaxDurationSeconds
+	}
+	var upstreamCtxCancel context.CancelFunc
+	if passthroughMaxDurSeconds > 0 {
+		upstreamCtx, upstreamCtxCancel = context.WithTimeout(upstreamCtx, time.Duration(passthroughMaxDurSeconds)*time.Second)
+	}
 	upstreamReq, err := s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token)
 	releaseUpstreamCtx()
+	if upstreamCtxCancel != nil {
+		defer upstreamCtxCancel()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -3734,24 +3752,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	scanner.Buffer(scanBuf[:0], maxLineSize)
 	defer putSSEScannerBuf64K(scanBuf)
 
-	// Apply max duration: if stream runs longer than this without [DONE], cut and failover.
-	// Priority: DB-backed StreamRetrySettings (if enabled) > config.yaml fallback.
-	var maxDurationPassthroughCh <-chan time.Time
-	passthroughMaxDuration := 0
-	if s.settingService != nil {
-		if retrySettings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && retrySettings != nil && retrySettings.Enabled {
-			passthroughMaxDuration = retrySettings.MaxDurationSeconds
-		}
-	}
-	if passthroughMaxDuration <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
-		passthroughMaxDuration = s.cfg.Gateway.StreamMaxDurationSeconds
-	}
-	if passthroughMaxDuration > 0 {
-		maxDurationPassthroughTimer := time.NewTimer(time.Duration(passthroughMaxDuration) * time.Second)
-		defer maxDurationPassthroughTimer.Stop()
-		maxDurationPassthroughCh = maxDurationPassthroughTimer.C
-	}
-
 	needModelReplace := strings.TrimSpace(originalModel) != "" && strings.TrimSpace(mappedModel) != "" && strings.TrimSpace(originalModel) != strings.TrimSpace(mappedModel)
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
 		return &openaiStreamingResultPassthrough{
@@ -3760,22 +3760,6 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			imageCount:       imageCounter.Count(),
 			imageOutputSizes: imageCounter.Sizes(),
 		}
-	}
-
-	// Max duration enforcement: close resp.Body when timer fires to unblock scanner.Scan().
-	// This causes the loop to exit with a scanner error, which we detect below.
-	var maxDurationFired atomic.Bool
-	if maxDurationPassthroughCh != nil {
-		loopDone := make(chan struct{})
-		defer close(loopDone)
-		go func() {
-			select {
-			case <-maxDurationPassthroughCh:
-				maxDurationFired.Store(true)
-				_ = resp.Body.Close()
-			case <-loopDone:
-			}
-		}()
 	}
 
 	for scanner.Scan() {
@@ -3837,10 +3821,10 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		// Max duration fired: body was closed by timer goroutine → treat as failover
-		if maxDurationFired.Load() {
+		// Max duration exceeded: upstream context deadline fired → treat as failover
+		if errors.Is(err, context.DeadlineExceeded) {
 			s.streamRetryMetrics.maxDurationExceeded.Add(1)
-			logger.LegacyPrintf("service.openai_gateway", "Stream max duration exceeded (passthrough): account=%d model=%s duration=%ds", account.ID, originalModel, passthroughMaxDuration)
+			logger.LegacyPrintf("service.openai_gateway", "Stream max duration exceeded (passthrough): account=%d model=%s", account.ID, originalModel)
 			if s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 			}
@@ -3849,7 +3833,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				AccountID:   account.ID,
 				AccountName: account.Name,
 				Kind:        "stream_max_duration_exceeded",
-				Message:     fmt.Sprintf("stream exceeded max duration of %ds (passthrough)", passthroughMaxDuration),
+				Message:     "stream exceeded max duration (passthrough)",
 			})
 			return resultWithUsage(), &UpstreamFailoverError{StatusCode: 0}
 		}
@@ -3859,7 +3843,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		if sawFailedEvent {
 			return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
 		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, context.Canceled) {
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", err)
 		}
 		if errors.Is(err, bufio.ErrTooLong) {
