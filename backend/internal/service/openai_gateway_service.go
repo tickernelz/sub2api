@@ -3171,6 +3171,9 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	releaseUpstreamCtx()
 	if upstreamCtxCancel != nil {
 		defer upstreamCtxCancel()
+		if dl, ok := upstreamCtx.Deadline(); ok {
+			logger.LegacyPrintf("service.openai_gateway", "stream_retry.passthrough_deadline_set account=%d deadline=%s", account.ID, dl.Format("15:04:05"))
+		}
 	}
 	if err != nil {
 		return nil, err
