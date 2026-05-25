@@ -42,7 +42,7 @@
     <div class="flex items-start gap-3">
       <Icon name="shield" size="sm" class="mt-0.5 flex-shrink-0 text-primary-600 dark:text-primary-300" />
       <div class="min-w-0 flex-1">
-        <p class="font-medium">继续登录前需要先同意最新条款。</p>
+        <p class="font-medium">You must agree to the latest terms before continuing.</p>
         <p class="mt-1 text-primary-700 dark:text-primary-200/80">
           未同意前，账号密码输入和快捷登录会保持禁用。
         </p>
@@ -82,7 +82,7 @@
                   </span>
                 </div>
                 <p class="mt-2 text-sm leading-6 text-gray-600 dark:text-dark-300">
-                  我们的服务条款已于 {{ updatedAt || '近期' }} 更新。在继续使用服务之前，请仔细阅读并同意以下条款。
+                  Our terms of service were updated on {{ updatedAt || 'recently' }}. Please read and agree to the following terms before continuing.
                 </p>
               </div>
             </div>
@@ -90,7 +90,7 @@
 
           <div class="max-h-[58vh] overflow-y-auto px-6 py-5">
             <div class="mb-3 flex items-center justify-between gap-3">
-              <p class="text-sm font-semibold text-gray-900 dark:text-white">相关文档</p>
+              <p class="text-sm font-semibold text-gray-900 dark:text-white">Related Documents</p>
             </div>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <RouterLink

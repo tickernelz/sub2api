@@ -889,7 +889,7 @@ function handleToolbarRefresh() {
 
           <template v-if="props.autoRefreshEnabled && props.autoRefreshCountdown !== undefined">
             <span>·</span>
-            <span>剩余 {{ props.autoRefreshCountdown }}s</span>
+            <span>{{ props.autoRefreshCountdown }}s remaining</span>
           </template>
         </div>
       </div>

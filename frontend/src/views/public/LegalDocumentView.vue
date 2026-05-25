@@ -28,8 +28,8 @@
         v-else-if="loadError"
         class="rounded-lg border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
       >
-        <h1 class="text-lg font-semibold">文档加载失败</h1>
-        <p class="mt-2 text-sm">请稍后刷新页面重试。</p>
+        <h1 class="text-lg font-semibold">Failed to load document</h1>
+        <p class="mt-2 text-sm">Please refresh the page and try again.</p>
       </section>
 
       <section
@@ -41,7 +41,7 @@
             <Icon name="document" size="sm" />
           </span>
           <div>
-            <h1 class="text-lg font-semibold text-gray-900 dark:text-white">文档不存在</h1>
+            <h1 class="text-lg font-semibold text-gray-900 dark:text-white">Document not found</h1>
             <p class="mt-2 text-sm leading-6 text-gray-600 dark:text-dark-300">
               当前条款文档不存在或已被管理员移除。
             </p>
@@ -56,7 +56,7 @@
               <Icon :name="documentIcon" size="md" />
             </span>
             <div class="min-w-0">
-              <p class="text-sm font-medium text-primary-700 dark:text-primary-300">登录条款</p>
+              <p class="text-sm font-medium text-primary-700 dark:text-primary-300">Login Terms</p>
               <h1 class="mt-2 break-words text-2xl font-bold tracking-normal text-gray-950 dark:text-white sm:text-3xl">
                 {{ currentDocument.title }}
               </h1>
