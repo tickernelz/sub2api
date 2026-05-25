@@ -274,6 +274,23 @@ type openAIWSRetryMetrics struct {
 	nonRetryableFastFallback atomic.Int64
 }
 
+// StreamRetryMetricsSnapshot is a point-in-time snapshot of stream retry counters.
+type StreamRetryMetricsSnapshot struct {
+	// NetworkErrorFailoverTotal counts pre-stream network errors (e.g. http2 timeout)
+	// that were converted to UpstreamFailoverError and triggered a failover.
+	NetworkErrorFailoverTotal int64 `json:"network_error_failover_total"`
+	// InactivityTimeoutFailoverTotal counts stream inactivity timeouts that triggered failover.
+	InactivityTimeoutFailoverTotal int64 `json:"inactivity_timeout_failover_total"`
+	// MaxDurationExceededTotal counts streams cut due to max duration exceeded.
+	MaxDurationExceededTotal int64 `json:"max_duration_exceeded_total"`
+}
+
+type streamRetryMetrics struct {
+	networkErrorFailover      atomic.Int64
+	inactivityTimeoutFailover atomic.Int64
+	maxDurationExceeded       atomic.Int64
+}
+
 type accountWriteThrottle struct {
 	minInterval time.Duration
 	mu          sync.Mutex
@@ -359,6 +376,7 @@ type OpenAIGatewayService struct {
 	openaiOAuth429WindowStartUnixNano   atomic.Int64
 	openaiOAuth429WindowCount           atomic.Int64
 	openaiWSRetryMetrics                openAIWSRetryMetrics
+	streamRetryMetrics                  streamRetryMetrics
 	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
 	codexSnapshotThrottle               *accountWriteThrottle
 	openaiCompatSessionResponses        sync.Map
@@ -914,6 +932,18 @@ func (s *OpenAIGatewayService) SnapshotOpenAIWSRetryMetrics() OpenAIWSRetryMetri
 		RetryBackoffMsTotal:           s.openaiWSRetryMetrics.retryBackoffMs.Load(),
 		RetryExhaustedTotal:           s.openaiWSRetryMetrics.retryExhausted.Load(),
 		NonRetryableFastFallbackTotal: s.openaiWSRetryMetrics.nonRetryableFastFallback.Load(),
+	}
+}
+
+// SnapshotStreamRetryMetrics returns a point-in-time snapshot of stream retry counters.
+func (s *OpenAIGatewayService) SnapshotStreamRetryMetrics() StreamRetryMetricsSnapshot {
+	if s == nil {
+		return StreamRetryMetricsSnapshot{}
+	}
+	return StreamRetryMetricsSnapshot{
+		NetworkErrorFailoverTotal:      s.streamRetryMetrics.networkErrorFailover.Load(),
+		InactivityTimeoutFailoverTotal: s.streamRetryMetrics.inactivityTimeoutFailover.Load(),
+		MaxDurationExceededTotal:       s.streamRetryMetrics.maxDurationExceeded.Load(),
 	}
 }
 
@@ -2845,6 +2875,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			})
 			// Retryable network errors trigger failover instead of immediate 502
 			if isRetryableNetworkError(err) {
+				s.streamRetryMetrics.networkErrorFailover.Add(1)
+				logger.LegacyPrintf("service.openai_gateway", "stream_retry.network_error_failover account=%d model=%s error=%s", account.ID, originalModel, safeErr)
 				return nil, &UpstreamFailoverError{
 					StatusCode: 0,
 				}
@@ -3152,6 +3184,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		})
 		// Retryable network errors trigger failover instead of immediate 502
 		if isRetryableNetworkError(err) {
+			s.streamRetryMetrics.networkErrorFailover.Add(1)
+			logger.LegacyPrintf("service.openai_gateway", "stream_retry.network_error_failover account=%d model=%s error=%s (passthrough)", account.ID, reqModel, safeErr)
 			return nil, &UpstreamFailoverError{
 				StatusCode: 0,
 			}
@@ -4744,6 +4778,14 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			if s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 			}
+			s.streamRetryMetrics.inactivityTimeoutFailover.Add(1)
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:    account.Platform,
+				AccountID:   account.ID,
+				AccountName: account.Name,
+				Kind:        "stream_inactivity_timeout",
+				Message:     fmt.Sprintf("no upstream data for %s", streamInterval),
+			})
 			sendErrorEvent("stream_timeout")
 			return resultWithUsage(), &UpstreamFailoverError{
 				StatusCode: 0,
@@ -4757,6 +4799,14 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			if s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 			}
+			s.streamRetryMetrics.maxDurationExceeded.Add(1)
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:    account.Platform,
+				AccountID:   account.ID,
+				AccountName: account.Name,
+				Kind:        "stream_max_duration_exceeded",
+				Message:     fmt.Sprintf("stream exceeded max duration of %ds", s.cfg.Gateway.StreamMaxDurationSeconds),
+			})
 			sendErrorEvent("stream_max_duration_exceeded")
 			return resultWithUsage(), &UpstreamFailoverError{
 				StatusCode: 0,
