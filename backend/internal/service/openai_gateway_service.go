@@ -3156,8 +3156,13 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	// the HTTP transport will interrupt the blocking read when the timer fires.
 	passthroughMaxDurSeconds := 0
 	if s.settingService != nil {
-		if rs, err2 := s.settingService.GetStreamRetrySettings(ctx); err2 == nil && rs != nil && rs.Enabled {
-			passthroughMaxDurSeconds = rs.MaxDurationSeconds
+		if rs, err2 := s.settingService.GetStreamRetrySettings(ctx); err2 == nil && rs != nil {
+			logger.LegacyPrintf("service.openai_gateway", "stream_retry.passthrough_settings enabled=%v max_dur=%d account=%d", rs.Enabled, rs.MaxDurationSeconds, account.ID)
+			if rs.Enabled {
+				passthroughMaxDurSeconds = rs.MaxDurationSeconds
+			}
+		} else if err2 != nil {
+			logger.LegacyPrintf("service.openai_gateway", "stream_retry.passthrough_settings_error account=%d err=%v", account.ID, err2)
 		}
 	}
 	if passthroughMaxDurSeconds <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
