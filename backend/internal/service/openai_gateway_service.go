@@ -3734,6 +3734,24 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	scanner.Buffer(scanBuf[:0], maxLineSize)
 	defer putSSEScannerBuf64K(scanBuf)
 
+	// Apply max duration: if stream runs longer than this without [DONE], cut and failover.
+	// Priority: DB-backed StreamRetrySettings (if enabled) > config.yaml fallback.
+	var maxDurationPassthroughCh <-chan time.Time
+	passthroughMaxDuration := 0
+	if s.settingService != nil {
+		if retrySettings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && retrySettings != nil && retrySettings.Enabled {
+			passthroughMaxDuration = retrySettings.MaxDurationSeconds
+		}
+	}
+	if passthroughMaxDuration <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
+		passthroughMaxDuration = s.cfg.Gateway.StreamMaxDurationSeconds
+	}
+	if passthroughMaxDuration > 0 {
+		maxDurationPassthroughTimer := time.NewTimer(time.Duration(passthroughMaxDuration) * time.Second)
+		defer maxDurationPassthroughTimer.Stop()
+		maxDurationPassthroughCh = maxDurationPassthroughTimer.C
+	}
+
 	needModelReplace := strings.TrimSpace(originalModel) != "" && strings.TrimSpace(mappedModel) != "" && strings.TrimSpace(originalModel) != strings.TrimSpace(mappedModel)
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
 		return &openaiStreamingResultPassthrough{
@@ -3742,6 +3760,22 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			imageCount:       imageCounter.Count(),
 			imageOutputSizes: imageCounter.Sizes(),
 		}
+	}
+
+	// Max duration enforcement: close resp.Body when timer fires to unblock scanner.Scan().
+	// This causes the loop to exit with a scanner error, which we detect below.
+	var maxDurationFired atomic.Bool
+	if maxDurationPassthroughCh != nil {
+		loopDone := make(chan struct{})
+		defer close(loopDone)
+		go func() {
+			select {
+			case <-maxDurationPassthroughCh:
+				maxDurationFired.Store(true)
+				_ = resp.Body.Close()
+			case <-loopDone:
+			}
+		}()
 	}
 
 	for scanner.Scan() {
@@ -3803,6 +3837,22 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		// Max duration fired: body was closed by timer goroutine → treat as failover
+		if maxDurationFired.Load() {
+			s.streamRetryMetrics.maxDurationExceeded.Add(1)
+			logger.LegacyPrintf("service.openai_gateway", "Stream max duration exceeded (passthrough): account=%d model=%s duration=%ds", account.ID, originalModel, passthroughMaxDuration)
+			if s.rateLimitService != nil {
+				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+			}
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:    account.Platform,
+				AccountID:   account.ID,
+				AccountName: account.Name,
+				Kind:        "stream_max_duration_exceeded",
+				Message:     fmt.Sprintf("stream exceeded max duration of %ds (passthrough)", passthroughMaxDuration),
+			})
+			return resultWithUsage(), &UpstreamFailoverError{StatusCode: 0}
+		}
 		if sawTerminalEvent && !sawFailedEvent {
 			return resultWithUsage(), nil
 		}
