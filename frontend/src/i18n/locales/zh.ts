@@ -6303,12 +6303,14 @@ export default {
       streamRetry: {
         title: '流重试',
         description: '当流未正常终止或请求前发生网络错误时，自动重试或切换账户',
+        enabled: '启用流重试',
+        enabledHint: '启用后，停滞或失败的流将根据以下配置自动重试',
         maxDurationSeconds: '流最大时长（秒）',
-        maxDurationSecondsHint: '流运行超过此时长且未收到终止事件时切断并重试。0 = 禁用，必须为 0 或 ≥ 60。',
+        maxDurationSecondsHint: '流运行超过此时长且未收到终止事件时切断并重试。推荐：300（5分钟），必须 ≥ 60。',
         retryMax: '最大重试次数',
-        retryMaxHint: '流失败后的最大重试次数。多账号时优先轮换账号，单账号时在同一账号重试。0 = 禁用（最多5次）。',
+        retryMaxHint: '流失败后的最大重试次数。多账号时优先轮换账号，单账号时在同一账号重试。推荐：2（最多5次）。',
         retryBackoffMs: '重试退避（毫秒）',
-        retryBackoffMsHint: '每次重试前的等待时间（毫秒，0-30000）。',
+        retryBackoffMsHint: '每次重试前的等待时间（毫秒）。推荐：1000（1秒）。',
         saved: '流重试设置保存成功',
         saveFailed: '保存流重试设置失败'
       },

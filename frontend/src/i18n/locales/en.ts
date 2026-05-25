@@ -6146,12 +6146,14 @@ export default {
       streamRetry: {
         title: 'Stream Retry',
         description: 'Automatically retry or failover when a stream fails to terminate or a network error occurs before the stream starts',
+        enabled: 'Enable Stream Retry',
+        enabledHint: 'When enabled, stale or failed streams will be automatically retried using the settings below',
         maxDurationSeconds: 'Max Stream Duration (seconds)',
-        maxDurationSecondsHint: 'Cut and retry the stream if it runs longer than this without a terminal event. 0 = disabled. Must be 0 or ≥ 60.',
+        maxDurationSecondsHint: 'Cut and retry the stream if it runs longer than this without a terminal event. Recommended: 300 (5 min). Must be ≥ 60.',
         retryMax: 'Max Retries',
-        retryMaxHint: 'Maximum retry attempts after a stream failure. With multiple accounts, rotates to a different account first. 0 = disabled (max 5).',
+        retryMaxHint: 'Maximum retry attempts after a stream failure. With multiple accounts, rotates to a different account first. Recommended: 2 (max 5).',
         retryBackoffMs: 'Retry Backoff (ms)',
-        retryBackoffMsHint: 'Wait time before each retry attempt in milliseconds (0–30000).',
+        retryBackoffMsHint: 'Wait time before each retry attempt in milliseconds. Recommended: 1000 (1s).',
         saved: 'Stream retry settings saved',
         saveFailed: 'Failed to save stream retry settings'
       },

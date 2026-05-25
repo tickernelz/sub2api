@@ -614,59 +614,79 @@
                 {{ t("common.loading") }}
               </div>
               <template v-else>
-                <!-- Max Duration Seconds -->
-                <div>
-                  <label
-                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                  >
-                    {{ t("admin.settings.streamRetry.maxDurationSeconds") }}
-                  </label>
-                  <input
-                    v-model.number="streamRetryForm.max_duration_seconds"
-                    type="number"
-                    min="0"
-                    class="input w-32"
-                  />
-                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.streamRetry.maxDurationSecondsHint") }}
-                  </p>
+                <!-- Enable Toggle -->
+                <div class="flex items-center justify-between">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">{{
+                      t("admin.settings.streamRetry.enabled")
+                    }}</label>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamRetry.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="streamRetryForm.enabled" />
                 </div>
-                <!-- Retry Max -->
-                <div>
-                  <label
-                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                  >
-                    {{ t("admin.settings.streamRetry.retryMax") }}
-                  </label>
-                  <input
-                    v-model.number="streamRetryForm.retry_max"
-                    type="number"
-                    min="0"
-                    max="5"
-                    class="input w-32"
-                  />
-                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.streamRetry.retryMaxHint") }}
-                  </p>
+
+                <!-- Settings - Only show when enabled -->
+                <div
+                  v-if="streamRetryForm.enabled"
+                  class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+                >
+                  <!-- Max Duration Seconds -->
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.streamRetry.maxDurationSeconds") }}
+                    </label>
+                    <input
+                      v-model.number="streamRetryForm.max_duration_seconds"
+                      type="number"
+                      min="60"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamRetry.maxDurationSecondsHint") }}
+                    </p>
+                  </div>
+                  <!-- Retry Max -->
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.streamRetry.retryMax") }}
+                    </label>
+                    <input
+                      v-model.number="streamRetryForm.retry_max"
+                      type="number"
+                      min="0"
+                      max="5"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamRetry.retryMaxHint") }}
+                    </p>
+                  </div>
+                  <!-- Retry Backoff Ms -->
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.streamRetry.retryBackoffMs") }}
+                    </label>
+                    <input
+                      v-model.number="streamRetryForm.retry_backoff_ms"
+                      type="number"
+                      min="0"
+                      max="30000"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamRetry.retryBackoffMsHint") }}
+                    </p>
+                  </div>
                 </div>
-                <!-- Retry Backoff Ms -->
-                <div>
-                  <label
-                    class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
-                  >
-                    {{ t("admin.settings.streamRetry.retryBackoffMs") }}
-                  </label>
-                  <input
-                    v-model.number="streamRetryForm.retry_backoff_ms"
-                    type="number"
-                    min="0"
-                    max="30000"
-                    class="input w-32"
-                  />
-                  <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.streamRetry.retryBackoffMsHint") }}
-                  </p>
-                </div>
+
                 <!-- Save Button -->
                 <div
                   class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
@@ -6869,8 +6889,9 @@ const streamTimeoutForm = reactive({
 const streamRetryLoading = ref(true);
 const streamRetrySaving = ref(false);
 const streamRetryForm = reactive({
-  max_duration_seconds: 0,
-  retry_max: 0,
+  enabled: false,
+  max_duration_seconds: 300,
+  retry_max: 2,
   retry_backoff_ms: 1000,
 });
 
@@ -8702,6 +8723,7 @@ async function saveStreamRetrySettings() {
   streamRetrySaving.value = true;
   try {
     const updated = await adminAPI.settings.updateStreamRetrySettings({
+      enabled: streamRetryForm.enabled,
       max_duration_seconds: streamRetryForm.max_duration_seconds,
       retry_max: streamRetryForm.retry_max,
       retry_backoff_ms: streamRetryForm.retry_backoff_ms,

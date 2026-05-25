@@ -1093,6 +1093,7 @@ export async function updateStreamTimeoutSettings(
 // ==================== Stream Retry Settings ====================
 
 export interface StreamRetrySettings {
+  enabled: boolean;
   max_duration_seconds: number;
   retry_max: number;
   retry_backoff_ms: number;

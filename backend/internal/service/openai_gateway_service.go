@@ -4494,9 +4494,19 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 
 	// Stream max duration timer: detects streams that never send a terminal event
 	// (upstream keeps sending chunks but [DONE] never arrives).
+	// Priority: DB-backed StreamRetrySettings (if enabled) > config.yaml fallback.
 	var maxDurationCh <-chan time.Time
-	if s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
-		maxDurationTimer := time.NewTimer(time.Duration(s.cfg.Gateway.StreamMaxDurationSeconds) * time.Second)
+	maxDurationSeconds := 0
+	if s.settingService != nil {
+		if retrySettings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && retrySettings != nil && retrySettings.Enabled {
+			maxDurationSeconds = retrySettings.MaxDurationSeconds
+		}
+	}
+	if maxDurationSeconds <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
+		maxDurationSeconds = s.cfg.Gateway.StreamMaxDurationSeconds
+	}
+	if maxDurationSeconds > 0 {
+		maxDurationTimer := time.NewTimer(time.Duration(maxDurationSeconds) * time.Second)
 		defer maxDurationTimer.Stop()
 		maxDurationCh = maxDurationTimer.C
 	}

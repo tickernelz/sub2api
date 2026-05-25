@@ -3078,6 +3078,7 @@ func (h *SettingHandler) GetStreamRetrySettings(c *gin.Context) {
 		return
 	}
 	response.Success(c, dto.StreamRetrySettings{
+		Enabled:            settings.Enabled,
 		MaxDurationSeconds: settings.MaxDurationSeconds,
 		RetryMax:           settings.RetryMax,
 		RetryBackoffMs:     settings.RetryBackoffMs,
@@ -3281,9 +3282,10 @@ func (h *SettingHandler) UpdateStreamTimeoutSettings(c *gin.Context) {
 
 // UpdateStreamRetrySettingsRequest 更新流重试配置请求
 type UpdateStreamRetrySettingsRequest struct {
-	MaxDurationSeconds int `json:"max_duration_seconds"`
-	RetryMax           int `json:"retry_max"`
-	RetryBackoffMs     int `json:"retry_backoff_ms"`
+	Enabled            bool `json:"enabled"`
+	MaxDurationSeconds int  `json:"max_duration_seconds"`
+	RetryMax           int  `json:"retry_max"`
+	RetryBackoffMs     int  `json:"retry_backoff_ms"`
 }
 
 // UpdateStreamRetrySettings 更新流重试配置
@@ -3295,6 +3297,7 @@ func (h *SettingHandler) UpdateStreamRetrySettings(c *gin.Context) {
 		return
 	}
 	settings := &service.StreamRetrySettings{
+		Enabled:            req.Enabled,
 		MaxDurationSeconds: req.MaxDurationSeconds,
 		RetryMax:           req.RetryMax,
 		RetryBackoffMs:     req.RetryBackoffMs,
@@ -3309,6 +3312,7 @@ func (h *SettingHandler) UpdateStreamRetrySettings(c *gin.Context) {
 		return
 	}
 	response.Success(c, dto.StreamRetrySettings{
+		Enabled:            updatedSettings.Enabled,
 		MaxDurationSeconds: updatedSettings.MaxDurationSeconds,
 		RetryMax:           updatedSettings.RetryMax,
 		RetryBackoffMs:     updatedSettings.RetryBackoffMs,
