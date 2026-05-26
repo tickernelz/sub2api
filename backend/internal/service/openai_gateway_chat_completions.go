@@ -557,6 +557,19 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			firstChunk = false
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
+			// Stop TTFT timer since we got the first token
+			if chunkGapTimer != nil {
+				if !chunkGapTimer.Stop() {
+					select { case <-chunkGapTimer.C: default: }
+				}
+				chunkGapTimer.Reset(time.Duration(chunkGapTimeoutSeconds) * time.Second)
+			}
+			if chunkGapWarnTimer != nil {
+				if !chunkGapWarnTimer.Stop() {
+					select { case <-chunkGapWarnTimer.C: default: }
+				}
+				chunkGapWarnTimer.Reset(time.Duration(chunkGapWarnSeconds) * time.Second)
+			}
 		}
 
 		var event apicompat.ResponsesStreamEvent
