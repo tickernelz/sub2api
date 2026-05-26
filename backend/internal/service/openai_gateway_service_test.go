@@ -1014,9 +1014,10 @@ func TestOpenAIStreamingTimeout(t *testing.T) {
 			t.Fatalf("expected stream timeout error, got %v", err)
 		}
 	}
-	if !strings.Contains(rec.Body.String(), "\"type\":\"error\"") || !strings.Contains(rec.Body.String(), "stream_timeout") {
-		t.Fatalf("expected OpenAI-compatible error SSE event, got %q", rec.Body.String())
-	}
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
 }
 
 func TestOpenAIStreamingContextCanceledReturnsIncompleteErrorWithoutInjectingErrorEvent(t *testing.T) {

@@ -483,6 +483,181 @@ func TestForwardAsChatCompletions_RequestMaxDurationReturnsFailoverError(t *test
 	require.False(t, rec.Result().Header.Get("Content-Type") == "application/json; charset=utf-8", "failover errors must not write a response before handler can switch accounts")
 }
 
+func TestSettingService_GetStreamRetrySettingsBackfillsSmartTimeoutFields(t *testing.T) {
+	oldSettingsJSON := `{"enabled":true,"max_duration_seconds":300,"retry_max":2,"retry_backoff_ms":1000}`
+
+	svc := NewSettingService(&openAIFastPolicyRepoStub{values: map[string]string{
+		SettingKeyStreamRetrySettings: oldSettingsJSON,
+	}}, &config.Config{})
+
+	settings, err := svc.GetStreamRetrySettings(context.Background())
+	require.NoError(t, err)
+	require.True(t, settings.Enabled)
+	require.Equal(t, 60, settings.TTFTTimeoutSeconds)
+	require.Equal(t, 10, settings.ChunkGapWarnSeconds)
+	require.Equal(t, 30, settings.ChunkGapTimeoutSeconds)
+}
+
+func TestHandleChatStreamingResponse_ResponseCreatedStallFailsBeforeWritingClientOutput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	settingsRaw, err := json.Marshal(&StreamRetrySettings{
+		Enabled:                true,
+		MaxDurationSeconds:     0,
+		RetryMax:               1,
+		RetryBackoffMs:         1,
+		TTFTTimeoutSeconds:     1,
+		ChunkGapWarnSeconds:    0,
+		ChunkGapTimeoutSeconds: 1,
+	})
+	require.NoError(t, err)
+	cfg := &config.Config{}
+	cfg.Gateway.StreamKeepaliveInterval = 1
+	settingRepo := &openAIFastPolicyRepoStub{values: map[string]string{SettingKeyStreamRetrySettings: string(settingsRaw)}}
+	svc := &OpenAIGatewayService{
+		cfg:            cfg,
+		settingService: NewSettingService(settingRepo, cfg),
+	}
+
+	upstreamBody := []byte(`data: {"type":"response.created","response":{"id":"resp_stall","model":"gpt-5.5","status":"in_progress","output":[]}}` + "\n\n")
+	upstreamStream := newOpenAICompatBlockingReadCloser(upstreamBody)
+	defer func() {
+		require.NoError(t, upstreamStream.Close())
+	}()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_chat_created_stall"}},
+		Body:       upstreamStream,
+	}
+
+	type forwardResult struct {
+		result *OpenAIForwardResult
+		err    error
+	}
+	resultCh := make(chan forwardResult, 1)
+	go func() {
+		result, err := svc.handleChatStreamingResponse(resp, c, &Account{ID: 1, Name: "openai", Platform: PlatformOpenAI}, "gpt-5.5", "gpt-5.5", "gpt-5.5", false, time.Now(), len(`{"model":"gpt-5.5"}`))
+		resultCh <- forwardResult{result: result, err: err}
+	}()
+
+	select {
+	case got := <-resultCh:
+		require.Error(t, got.err)
+		require.NotNil(t, got.result)
+		var failoverErr *UpstreamFailoverError
+		require.True(t, errors.As(got.err, &failoverErr))
+		require.False(t, c.Writer.Written(), "response.created role chunk must stay buffered so handler can retry another account")
+		require.Empty(t, rec.Body.String())
+		require.Nil(t, got.result.FirstTokenMs, "response.created is not semantic first output")
+	case <-time.After(2 * time.Second):
+		require.NoError(t, upstreamStream.Close())
+		require.Fail(t, "response.created without semantic output should hit smart timeout instead of hanging")
+	}
+}
+
+func TestHandleChatStreamingResponse_KeepaliveDoesNotCommitBeforeSemanticOutput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	settingsRaw, err := json.Marshal(&StreamRetrySettings{
+		Enabled:                true,
+		MaxDurationSeconds:     0,
+		RetryMax:               1,
+		RetryBackoffMs:         1,
+		TTFTTimeoutSeconds:     2,
+		ChunkGapWarnSeconds:    0,
+		ChunkGapTimeoutSeconds: 0,
+	})
+	require.NoError(t, err)
+	cfg := &config.Config{}
+	cfg.Gateway.StreamKeepaliveInterval = 1
+	settingRepo := &openAIFastPolicyRepoStub{values: map[string]string{SettingKeyStreamRetrySettings: string(settingsRaw)}}
+	svc := &OpenAIGatewayService{
+		cfg:            cfg,
+		settingService: NewSettingService(settingRepo, cfg),
+	}
+
+	upstreamBody := []byte(`data: {"type":"response.created","response":{"id":"resp_keepalive_stall","model":"gpt-5.5","status":"in_progress","output":[]}}` + "\n\n")
+	upstreamStream := newOpenAICompatBlockingReadCloser(upstreamBody)
+	defer func() {
+		require.NoError(t, upstreamStream.Close())
+	}()
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_chat_keepalive_stall"}},
+		Body:       upstreamStream,
+	}
+
+	type forwardResult struct {
+		result *OpenAIForwardResult
+		err    error
+	}
+	resultCh := make(chan forwardResult, 1)
+	go func() {
+		result, err := svc.handleChatStreamingResponse(resp, c, &Account{ID: 1, Name: "openai", Platform: PlatformOpenAI}, "gpt-5.5", "gpt-5.5", "gpt-5.5", false, time.Now(), len(`{"model":"gpt-5.5"}`))
+		resultCh <- forwardResult{result: result, err: err}
+	}()
+
+	time.Sleep(1500 * time.Millisecond)
+	require.False(t, c.Writer.Written(), "keepalive comments must not commit response before semantic output")
+	require.Empty(t, rec.Body.String())
+
+	select {
+	case got := <-resultCh:
+		require.Error(t, got.err)
+		var failoverErr *UpstreamFailoverError
+		require.True(t, errors.As(got.err, &failoverErr))
+		require.False(t, c.Writer.Written(), "TTFT failover should still be able to switch accounts after preamble-only stream")
+	case <-time.After(2 * time.Second):
+		require.NoError(t, upstreamStream.Close())
+		require.Fail(t, "preamble-only stream should hit TTFT timeout")
+	}
+}
+
+func TestHandleChatStreamingResponse_FirstTokenMsUsesFirstSemanticOutput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	pr, pw := io.Pipe()
+	doneWriting := make(chan struct{})
+	go func() {
+		defer close(doneWriting)
+		_, _ = pw.Write([]byte(`data: {"type":"response.created","response":{"id":"resp_semantic","model":"gpt-5.5","status":"in_progress","output":[]}}` + "\n\n"))
+		time.Sleep(100 * time.Millisecond)
+		_, _ = pw.Write([]byte(`data: {"type":"response.output_text.delta","delta":"ok"}` + "\n\n"))
+		_, _ = pw.Write([]byte(`data: {"type":"response.completed","response":{"id":"resp_semantic","object":"response","model":"gpt-5.5","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}` + "\n\n"))
+		_ = pw.Close()
+	}()
+	defer func() { <-doneWriting }()
+
+	cfg := &config.Config{}
+	cfg.Gateway.StreamKeepaliveInterval = 1
+	svc := &OpenAIGatewayService{cfg: cfg}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_chat_semantic_ttft"}},
+		Body:       pr,
+	}
+
+	result, err := svc.handleChatStreamingResponse(resp, c, &Account{ID: 1, Name: "openai", Platform: PlatformOpenAI}, "gpt-5.5", "gpt-5.5", "gpt-5.5", false, time.Now(), len(`{"model":"gpt-5.5"}`))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.FirstTokenMs)
+	require.GreaterOrEqual(t, *result.FirstTokenMs, 80)
+	require.Contains(t, rec.Body.String(), `"role":"assistant"`)
+	require.Contains(t, rec.Body.String(), `"content":"ok"`)
+}
+
 func TestForwardAsChatCompletions_UpstreamRequestIgnoresClientCancel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

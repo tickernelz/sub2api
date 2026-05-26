@@ -383,6 +383,26 @@ type OpenAIGatewayService struct {
 	openaiCompatAnthropicDigestSessions sync.Map
 }
 
+func (s *OpenAIGatewayService) resolveEffectiveStreamRetrySettings(ctx context.Context) StreamRetrySettings {
+	var effective StreamRetrySettings
+	if s != nil && s.settingService != nil {
+		if settings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && settings != nil && settings.Enabled {
+			effective = *settings
+			return effective
+		}
+	}
+	if s == nil || s.cfg == nil {
+		return effective
+	}
+	effective.MaxDurationSeconds = s.cfg.Gateway.StreamMaxDurationSeconds
+	effective.TTFTTimeoutSeconds = s.cfg.Gateway.StreamTTFTTimeoutSeconds
+	effective.ChunkGapWarnSeconds = s.cfg.Gateway.StreamChunkGapWarnSeconds
+	effective.ChunkGapTimeoutSeconds = s.cfg.Gateway.StreamChunkGapTimeoutSeconds
+	effective.RetryMax = s.cfg.Gateway.StreamFailureRetryMax
+	effective.RetryBackoffMs = s.cfg.Gateway.StreamFailureRetryBackoffMs
+	return effective
+}
+
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
 func NewOpenAIGatewayService(
 	accountRepo AccountRepository,
@@ -3154,15 +3174,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	// If max duration is configured, wrap upstream context with a deadline so
 	// the HTTP transport will interrupt the blocking read when the timer fires.
-	passthroughMaxDurSeconds := 0
-	if s.settingService != nil {
-		if rs, err2 := s.settingService.GetStreamRetrySettings(ctx); err2 == nil && rs != nil && rs.Enabled {
-			passthroughMaxDurSeconds = rs.MaxDurationSeconds
-		}
-	}
-	if passthroughMaxDurSeconds <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
-		passthroughMaxDurSeconds = s.cfg.Gateway.StreamMaxDurationSeconds
-	}
+	passthroughMaxDurSeconds := s.resolveEffectiveStreamRetrySettings(ctx).MaxDurationSeconds
 	var upstreamCtxCancel context.CancelFunc
 	if passthroughMaxDurSeconds > 0 {
 		upstreamCtx, upstreamCtxCancel = context.WithTimeout(upstreamCtx, time.Duration(passthroughMaxDurSeconds)*time.Second)
@@ -4528,17 +4540,9 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 
 	// Stream max duration timer: detects streams that never send a terminal event
 	// (upstream keeps sending chunks but [DONE] never arrives).
-	// Priority: DB-backed StreamRetrySettings (if enabled) > config.yaml fallback.
+	retrySettings := s.resolveEffectiveStreamRetrySettings(ctx)
 	var maxDurationCh <-chan time.Time
-	maxDurationSeconds := 0
-	if s.settingService != nil {
-		if retrySettings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && retrySettings != nil && retrySettings.Enabled {
-			maxDurationSeconds = retrySettings.MaxDurationSeconds
-		}
-	}
-	if maxDurationSeconds <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
-		maxDurationSeconds = s.cfg.Gateway.StreamMaxDurationSeconds
-	}
+	maxDurationSeconds := retrySettings.MaxDurationSeconds
 	if maxDurationSeconds > 0 {
 		maxDurationTimer := time.NewTimer(time.Duration(maxDurationSeconds) * time.Second)
 		defer maxDurationTimer.Stop()
@@ -4553,16 +4557,9 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 	var chunkGapTimeoutCh <-chan time.Time
 	var chunkGapTimer *time.Timer
 	var chunkGapWarnTimer *time.Timer
-	ttftTimeoutSeconds := 0
-	chunkGapWarnSeconds := 0
-	chunkGapTimeoutSeconds := 0
-	if s.settingService != nil {
-		if retrySettings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && retrySettings != nil && retrySettings.Enabled {
-			ttftTimeoutSeconds = retrySettings.TTFTTimeoutSeconds
-			chunkGapWarnSeconds = retrySettings.ChunkGapWarnSeconds
-			chunkGapTimeoutSeconds = retrySettings.ChunkGapTimeoutSeconds
-		}
-	}
+	ttftTimeoutSeconds := retrySettings.TTFTTimeoutSeconds
+	chunkGapWarnSeconds := retrySettings.ChunkGapWarnSeconds
+	chunkGapTimeoutSeconds := retrySettings.ChunkGapTimeoutSeconds
 	if ttftTimeoutSeconds > 0 {
 		ttftTimer := time.NewTimer(time.Duration(ttftTimeoutSeconds) * time.Second)
 		defer ttftTimer.Stop()
@@ -4784,7 +4781,7 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 	}
 
 	// 无超时/无 keepalive 的常见路径走同步扫描，减少 goroutine 与 channel 开销。
-	if streamInterval <= 0 && keepaliveInterval <= 0 {
+	if streamInterval <= 0 && keepaliveInterval <= 0 && maxDurationSeconds <= 0 && ttftTimeoutSeconds <= 0 && chunkGapWarnSeconds <= 0 && chunkGapTimeoutSeconds <= 0 {
 		defer putSSEScannerBuf64K(scanBuf)
 		for scanner.Scan() {
 			processSSELine(scanner.Text(), true)
@@ -4886,6 +4883,11 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				Kind:        "stream_inactivity_timeout",
 				Message:     fmt.Sprintf("no upstream data for %s", streamInterval),
 			})
+			// Pre-output inactivity can still fail over cleanly; once client output is committed,
+			// emit an OpenAI-compatible error event instead because retrying would splice streams.
+			if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+				return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, "OpenAI stream timed out before output")
+			}
 			sendErrorEvent("stream_timeout")
 			return resultWithUsage(), &UpstreamFailoverError{
 				StatusCode: 0,
@@ -4905,8 +4907,11 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				AccountID:   account.ID,
 				AccountName: account.Name,
 				Kind:        "stream_max_duration_exceeded",
-				Message:     fmt.Sprintf("stream exceeded max duration of %ds", s.cfg.Gateway.StreamMaxDurationSeconds),
+				Message:     fmt.Sprintf("stream exceeded max duration of %ds", maxDurationSeconds),
 			})
+			if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+				return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, "OpenAI stream exceeded max duration before output")
+			}
 			sendErrorEvent("stream_max_duration_exceeded")
 			return resultWithUsage(), &UpstreamFailoverError{
 				StatusCode: 0,
@@ -4951,6 +4956,9 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				Kind:        "stream_ttft_timeout",
 				Message:     fmt.Sprintf("no first token within %ds", ttftTimeoutSeconds),
 			})
+			if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+				return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, "OpenAI stream timed out before first output")
+			}
 			sendErrorEvent("stream_ttft_timeout")
 			return resultWithUsage(), &UpstreamFailoverError{
 				StatusCode: 0,
@@ -4981,6 +4989,9 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				Kind:        "stream_chunk_gap_timeout",
 				Message:     fmt.Sprintf("no chunks for %ds", chunkGapTimeoutSeconds),
 			})
+			if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+				return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, "OpenAI stream chunk gap before output")
+			}
 			sendErrorEvent("stream_chunk_gap_timeout")
 			return resultWithUsage(), &UpstreamFailoverError{
 				StatusCode: 0,

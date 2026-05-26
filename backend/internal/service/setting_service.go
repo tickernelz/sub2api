@@ -4510,6 +4510,7 @@ func (s *SettingService) GetStreamRetrySettings(ctx context.Context) (*StreamRet
 	if err := json.Unmarshal([]byte(value), &settings); err != nil {
 		return DefaultStreamRetrySettings(), nil
 	}
+	backfillStreamRetrySettingsMissingFields(value, &settings)
 	// Clamp values to safe ranges
 	if settings.MaxDurationSeconds < 0 {
 		settings.MaxDurationSeconds = 0
@@ -4530,6 +4531,26 @@ func (s *SettingService) GetStreamRetrySettings(ctx context.Context) (*StreamRet
 		settings.RetryBackoffMs = 30000
 	}
 	return &settings, nil
+}
+
+func backfillStreamRetrySettingsMissingFields(raw string, settings *StreamRetrySettings) {
+	if settings == nil {
+		return
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+		return
+	}
+	defaults := DefaultStreamRetrySettings()
+	if _, ok := fields["ttft_timeout_seconds"]; !ok {
+		settings.TTFTTimeoutSeconds = defaults.TTFTTimeoutSeconds
+	}
+	if _, ok := fields["chunk_gap_warn_seconds"]; !ok {
+		settings.ChunkGapWarnSeconds = defaults.ChunkGapWarnSeconds
+	}
+	if _, ok := fields["chunk_gap_timeout_seconds"]; !ok {
+		settings.ChunkGapTimeoutSeconds = defaults.ChunkGapTimeoutSeconds
+	}
 }
 
 // SetStreamRetrySettings 设置流重试配置

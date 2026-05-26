@@ -208,16 +208,8 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	// 6. Build upstream request
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	// Apply max duration deadline so HTTP transport interrupts blocking read when timer fires.
-	// Priority: DB-backed StreamRetrySettings (if enabled) > config.yaml fallback.
-	chatMaxDurSeconds := 0
-	if s.settingService != nil {
-		if rs, err2 := s.settingService.GetStreamRetrySettings(ctx); err2 == nil && rs != nil && rs.Enabled {
-			chatMaxDurSeconds = rs.MaxDurationSeconds
-		}
-	}
-	if chatMaxDurSeconds <= 0 && s.cfg != nil && s.cfg.Gateway.StreamMaxDurationSeconds > 0 {
-		chatMaxDurSeconds = s.cfg.Gateway.StreamMaxDurationSeconds
-	}
+	retrySettings := s.resolveEffectiveStreamRetrySettings(ctx)
+	chatMaxDurSeconds := retrySettings.MaxDurationSeconds
 	var chatUpstreamCtxCancel context.CancelFunc
 	if chatMaxDurSeconds > 0 {
 		upstreamCtx, chatUpstreamCtxCancel = context.WithTimeout(upstreamCtx, time.Duration(chatMaxDurSeconds)*time.Second)
@@ -478,7 +470,6 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 
 	var usage OpenAIUsage
 	var firstTokenMs *int
-	firstChunk := true
 	clientDisconnected := false
 	clientOutputStarted := false
 	pendingSSE := make([]string, 0, 4)
@@ -511,20 +502,33 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	var ttftCh <-chan time.Time
 	var chunkGapWarnCh <-chan time.Time
 	var chunkGapTimeoutCh <-chan time.Time
+	var ttftTimer *time.Timer
 	var chunkGapTimer *time.Timer
 	var chunkGapWarnTimer *time.Timer
-	ttftTimeoutSeconds := 0
-	chunkGapWarnSeconds := 0
-	chunkGapTimeoutSeconds := 0
-	if s.settingService != nil {
-		if retrySettings, err := s.settingService.GetStreamRetrySettings(c.Request.Context()); err == nil && retrySettings != nil && retrySettings.Enabled {
-			ttftTimeoutSeconds = retrySettings.TTFTTimeoutSeconds
-			chunkGapWarnSeconds = retrySettings.ChunkGapWarnSeconds
-			chunkGapTimeoutSeconds = retrySettings.ChunkGapTimeoutSeconds
+	retrySettings := s.resolveEffectiveStreamRetrySettings(c.Request.Context())
+	ttftTimeoutSeconds := retrySettings.TTFTTimeoutSeconds
+	chunkGapWarnSeconds := retrySettings.ChunkGapWarnSeconds
+	chunkGapTimeoutSeconds := retrySettings.ChunkGapTimeoutSeconds
+	stopAndDrainTimer := func(timer *time.Timer) {
+		if timer == nil {
+			return
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
 		}
 	}
+	resetTimer := func(timer *time.Timer, seconds int) {
+		if timer == nil || seconds <= 0 {
+			return
+		}
+		stopAndDrainTimer(timer)
+		timer.Reset(time.Duration(seconds) * time.Second)
+	}
 	if ttftTimeoutSeconds > 0 {
-		ttftTimer := time.NewTimer(time.Duration(ttftTimeoutSeconds) * time.Second)
+		ttftTimer = time.NewTimer(time.Duration(ttftTimeoutSeconds) * time.Second)
 		defer ttftTimer.Stop()
 		ttftCh = ttftTimer.C
 	}
@@ -552,32 +556,19 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		}
 	}
 
-	processDataLine := func(payload string) bool {
-		if firstChunk {
-			firstChunk = false
-			ms := int(time.Since(startTime).Milliseconds())
-			firstTokenMs = &ms
-			// Stop TTFT timer since we got the first token
-			if chunkGapTimer != nil {
-				if !chunkGapTimer.Stop() {
-					select {
-					case <-chunkGapTimer.C:
-					default:
-					}
-				}
-				chunkGapTimer.Reset(time.Duration(chunkGapTimeoutSeconds) * time.Second)
-			}
-			if chunkGapWarnTimer != nil {
-				if !chunkGapWarnTimer.Stop() {
-					select {
-					case <-chunkGapWarnTimer.C:
-					default:
-					}
-				}
-				chunkGapWarnTimer.Reset(time.Duration(chunkGapWarnSeconds) * time.Second)
-			}
+	markFirstSemanticOutput := func() {
+		if firstTokenMs != nil {
+			return
 		}
+		ms := int(time.Since(startTime).Milliseconds())
+		firstTokenMs = &ms
+		stopAndDrainTimer(ttftTimer)
+		ttftCh = nil
+		resetTimer(chunkGapTimer, chunkGapTimeoutSeconds)
+		resetTimer(chunkGapWarnTimer, chunkGapWarnSeconds)
+	}
 
+	processDataLine := func(payload string) bool {
 		var event apicompat.ResponsesStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
 			logger.L().Warn("openai chat_completions stream: failed to parse event",
@@ -598,6 +589,9 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		if !clientDisconnected {
 			for _, chunk := range chunks {
 				refusalDetector.ObserveChatChunk(chunk)
+				if openAIChatChunkHasSemanticOutput(chunk) {
+					markFirstSemanticOutput()
+				}
 				sse, err := apicompat.ChatChunkToSSE(chunk)
 				if err != nil {
 					logger.L().Warn("openai chat_completions stream: failed to marshal chunk",
@@ -606,7 +600,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 					)
 					continue
 				}
-				if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
+				if !clientOutputStarted && !openAIChatShouldReleaseClientOutput(chunk, refusalDetector) {
 					pendingSSE = append(pendingSSE, sse)
 					continue
 				}
@@ -650,7 +644,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				if err != nil {
 					continue
 				}
-				if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
+				if !clientOutputStarted && !openAIChatShouldReleaseClientOutput(chunk, refusalDetector) {
 					pendingSSE = append(pendingSSE, sse)
 					continue
 				}
@@ -742,7 +736,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	}
 
 	// No keepalive: fast synchronous path
-	if streamInterval <= 0 && keepaliveInterval <= 0 {
+	if streamInterval <= 0 && keepaliveInterval <= 0 && ttftTimeoutSeconds <= 0 && chunkGapWarnSeconds <= 0 && chunkGapTimeoutSeconds <= 0 {
 		var parser openAICompatSSEFrameParser
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -865,24 +859,8 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			}
 			// Reset chunk gap timers on each upstream event (after first token)
 			if firstTokenMs != nil {
-				if chunkGapTimer != nil {
-					if !chunkGapTimer.Stop() {
-						select {
-						case <-chunkGapTimer.C:
-						default:
-						}
-					}
-					chunkGapTimer.Reset(time.Duration(chunkGapTimeoutSeconds) * time.Second)
-				}
-				if chunkGapWarnTimer != nil {
-					if !chunkGapWarnTimer.Stop() {
-						select {
-						case <-chunkGapWarnTimer.C:
-						default:
-						}
-					}
-					chunkGapWarnTimer.Reset(time.Duration(chunkGapWarnSeconds) * time.Second)
-				}
+				resetTimer(chunkGapTimer, chunkGapTimeoutSeconds)
+				resetTimer(chunkGapWarnTimer, chunkGapWarnSeconds)
 			}
 			lastDataAt = time.Now()
 			line := ev.line
@@ -916,7 +894,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			if clientDisconnected {
 				continue
 			}
-			if refusalDetector.Enabled() && !clientOutputStarted {
+			if !clientOutputStarted {
 				continue
 			}
 			if time.Since(lastDataAt) < keepaliveInterval {
@@ -979,6 +957,41 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			return resultWithUsage(), &UpstreamFailoverError{StatusCode: 0}
 		}
 	}
+}
+
+func openAIChatChunkHasSemanticOutput(chunk apicompat.ChatCompletionsChunk) bool {
+	for _, choice := range chunk.Choices {
+		delta := choice.Delta
+		if delta.Content != nil && *delta.Content != "" {
+			return true
+		}
+		if delta.ReasoningContent != nil && *delta.ReasoningContent != "" {
+			return true
+		}
+		if len(delta.ToolCalls) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func openAIChatChunkCanReleaseBufferedOutput(chunk apicompat.ChatCompletionsChunk) bool {
+	if openAIChatChunkHasSemanticOutput(chunk) || chunk.Usage != nil {
+		return true
+	}
+	for _, choice := range chunk.Choices {
+		if choice.FinishReason != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func openAIChatShouldReleaseClientOutput(chunk apicompat.ChatCompletionsChunk, refusalDetector *openAIChatSilentRefusalDetector) bool {
+	if refusalDetector != nil && refusalDetector.Enabled() {
+		return refusalDetector.ShouldReleaseClientOutput()
+	}
+	return openAIChatChunkCanReleaseBufferedOutput(chunk)
 }
 
 // writeChatCompletionsError writes an error response in OpenAI Chat Completions format.
