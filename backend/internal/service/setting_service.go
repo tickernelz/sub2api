@@ -4549,6 +4549,31 @@ func (s *SettingService) SetStreamRetrySettings(ctx context.Context, settings *S
 	if settings.RetryBackoffMs < 0 || settings.RetryBackoffMs > 30000 {
 		return fmt.Errorf("retry_backoff_ms must be between 0-30000")
 	}
+
+	// Validate smart timeout detection fields
+	if settings.TTFTTimeoutSeconds < 0 {
+		return fmt.Errorf("ttft_timeout_seconds must be non-negative")
+	}
+	if settings.TTFTTimeoutSeconds != 0 && (settings.TTFTTimeoutSeconds < 10 || settings.TTFTTimeoutSeconds > 300) {
+		return fmt.Errorf("ttft_timeout_seconds must be 0 or between 10-300 seconds")
+	}
+	if settings.ChunkGapWarnSeconds < 0 {
+		return fmt.Errorf("chunk_gap_warn_seconds must be non-negative")
+	}
+	if settings.ChunkGapWarnSeconds != 0 && (settings.ChunkGapWarnSeconds < 5 || settings.ChunkGapWarnSeconds > 60) {
+		return fmt.Errorf("chunk_gap_warn_seconds must be 0 or between 5-60 seconds")
+	}
+	if settings.ChunkGapTimeoutSeconds < 0 {
+		return fmt.Errorf("chunk_gap_timeout_seconds must be non-negative")
+	}
+	if settings.ChunkGapTimeoutSeconds != 0 && (settings.ChunkGapTimeoutSeconds < 10 || settings.ChunkGapTimeoutSeconds > 120) {
+		return fmt.Errorf("chunk_gap_timeout_seconds must be 0 or between 10-120 seconds")
+	}
+	if settings.ChunkGapWarnSeconds > 0 && settings.ChunkGapTimeoutSeconds > 0 &&
+		settings.ChunkGapWarnSeconds >= settings.ChunkGapTimeoutSeconds {
+		return fmt.Errorf("chunk_gap_warn_seconds must be less than chunk_gap_timeout_seconds")
+	}
+
 	data, err := json.Marshal(settings)
 	if err != nil {
 		return fmt.Errorf("marshal stream retry settings: %w", err)

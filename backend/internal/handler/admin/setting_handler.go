@@ -3078,10 +3078,13 @@ func (h *SettingHandler) GetStreamRetrySettings(c *gin.Context) {
 		return
 	}
 	response.Success(c, dto.StreamRetrySettings{
-		Enabled:            settings.Enabled,
-		MaxDurationSeconds: settings.MaxDurationSeconds,
-		RetryMax:           settings.RetryMax,
-		RetryBackoffMs:     settings.RetryBackoffMs,
+		Enabled:              settings.Enabled,
+		MaxDurationSeconds:   settings.MaxDurationSeconds,
+		RetryMax:             settings.RetryMax,
+		RetryBackoffMs:       settings.RetryBackoffMs,
+		TTFTTimeoutSeconds:   settings.TTFTTimeoutSeconds,
+		ChunkGapWarnSeconds:  settings.ChunkGapWarnSeconds,
+		ChunkGapTimeoutSeconds: settings.ChunkGapTimeoutSeconds,
 	})
 }
 
@@ -3282,10 +3285,13 @@ func (h *SettingHandler) UpdateStreamTimeoutSettings(c *gin.Context) {
 
 // UpdateStreamRetrySettingsRequest 更新流重试配置请求
 type UpdateStreamRetrySettingsRequest struct {
-	Enabled            bool `json:"enabled"`
-	MaxDurationSeconds int  `json:"max_duration_seconds"`
-	RetryMax           int  `json:"retry_max"`
-	RetryBackoffMs     int  `json:"retry_backoff_ms"`
+	Enabled              bool `json:"enabled"`
+	MaxDurationSeconds   int  `json:"max_duration_seconds"`
+	RetryMax             int  `json:"retry_max"`
+	RetryBackoffMs       int  `json:"retry_backoff_ms"`
+	TTFTTimeoutSeconds   int  `json:"ttft_timeout_seconds"`
+	ChunkGapWarnSeconds  int  `json:"chunk_gap_warn_seconds"`
+	ChunkGapTimeoutSeconds int  `json:"chunk_gap_timeout_seconds"`
 }
 
 // UpdateStreamRetrySettings 更新流重试配置
@@ -3297,10 +3303,13 @@ func (h *SettingHandler) UpdateStreamRetrySettings(c *gin.Context) {
 		return
 	}
 	settings := &service.StreamRetrySettings{
-		Enabled:            req.Enabled,
-		MaxDurationSeconds: req.MaxDurationSeconds,
-		RetryMax:           req.RetryMax,
-		RetryBackoffMs:     req.RetryBackoffMs,
+		Enabled:              req.Enabled,
+		MaxDurationSeconds:   req.MaxDurationSeconds,
+		RetryMax:             req.RetryMax,
+		RetryBackoffMs:       req.RetryBackoffMs,
+		TTFTTimeoutSeconds:   req.TTFTTimeoutSeconds,
+		ChunkGapWarnSeconds:  req.ChunkGapWarnSeconds,
+		ChunkGapTimeoutSeconds: req.ChunkGapTimeoutSeconds,
 	}
 	if err := h.settingService.SetStreamRetrySettings(c.Request.Context(), settings); err != nil {
 		response.BadRequest(c, err.Error())
@@ -3312,10 +3321,13 @@ func (h *SettingHandler) UpdateStreamRetrySettings(c *gin.Context) {
 		return
 	}
 	response.Success(c, dto.StreamRetrySettings{
-		Enabled:            updatedSettings.Enabled,
-		MaxDurationSeconds: updatedSettings.MaxDurationSeconds,
-		RetryMax:           updatedSettings.RetryMax,
-		RetryBackoffMs:     updatedSettings.RetryBackoffMs,
+		Enabled:              updatedSettings.Enabled,
+		MaxDurationSeconds:   updatedSettings.MaxDurationSeconds,
+		RetryMax:             updatedSettings.RetryMax,
+		RetryBackoffMs:       updatedSettings.RetryBackoffMs,
+		TTFTTimeoutSeconds:   updatedSettings.TTFTTimeoutSeconds,
+		ChunkGapWarnSeconds:  updatedSettings.ChunkGapWarnSeconds,
+		ChunkGapTimeoutSeconds: updatedSettings.ChunkGapTimeoutSeconds,
 	})
 }
 

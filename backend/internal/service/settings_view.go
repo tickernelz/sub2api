@@ -401,15 +401,25 @@ type StreamRetrySettings struct {
 	RetryMax int `json:"retry_max"`
 	// RetryBackoffMs 重试前退避时间（毫秒）
 	RetryBackoffMs int `json:"retry_backoff_ms"`
+	// TTFTTimeoutSeconds Time-to-first-token timeout（秒），0=disabled
+	// 检测stream开始后长时间无首个chunk的情况（连接挂起）
+	TTFTTimeoutSeconds int `json:"ttft_timeout_seconds"`
+	// ChunkGapWarnSeconds 警告阈值：chunk间隔超过此时长记录warn日志（秒），0=disabled
+	ChunkGapWarnSeconds int `json:"chunk_gap_warn_seconds"`
+	// ChunkGapTimeoutSeconds 超时阈值：chunk间隔超过此时长触发failover（秒），0=disabled
+	ChunkGapTimeoutSeconds int `json:"chunk_gap_timeout_seconds"`
 }
 
 // DefaultStreamRetrySettings 返回默认的流重试配置
 func DefaultStreamRetrySettings() *StreamRetrySettings {
 	return &StreamRetrySettings{
-		Enabled:            false,
-		MaxDurationSeconds: 300,
-		RetryMax:           2,
-		RetryBackoffMs:     1000,
+		Enabled:              false,
+		MaxDurationSeconds:   300,
+		RetryMax:             2,
+		RetryBackoffMs:       1000,
+		TTFTTimeoutSeconds:   60,
+		ChunkGapWarnSeconds:  10,
+		ChunkGapTimeoutSeconds: 30,
 	}
 }
 

@@ -341,10 +341,13 @@ type StreamTimeoutSettings struct {
 
 // StreamRetrySettings 流重试配置 DTO
 type StreamRetrySettings struct {
-	Enabled            bool `json:"enabled"`
-	MaxDurationSeconds int  `json:"max_duration_seconds"`
-	RetryMax           int  `json:"retry_max"`
-	RetryBackoffMs     int  `json:"retry_backoff_ms"`
+	Enabled              bool `json:"enabled"`
+	MaxDurationSeconds   int  `json:"max_duration_seconds"`
+	RetryMax             int  `json:"retry_max"`
+	RetryBackoffMs       int  `json:"retry_backoff_ms"`
+	TTFTTimeoutSeconds   int  `json:"ttft_timeout_seconds"`
+	ChunkGapWarnSeconds  int  `json:"chunk_gap_warn_seconds"`
+	ChunkGapTimeoutSeconds int  `json:"chunk_gap_timeout_seconds"`
 }
 
 // RectifierSettings 请求整流器配置 DTO

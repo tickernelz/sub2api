@@ -1097,6 +1097,9 @@ export interface StreamRetrySettings {
   max_duration_seconds: number;
   retry_max: number;
   retry_backoff_ms: number;
+  ttft_timeout_seconds: number;
+  chunk_gap_warn_seconds: number;
+  chunk_gap_timeout_seconds: number;
 }
 
 /**

@@ -750,6 +750,13 @@ type GatewayConfig struct {
 	// StreamMaxDurationSeconds: 流式请求最大总时长（秒），0表示禁用；超时后触发 failover/retry
 	// 用于检测 upstream 持续发送 chunk 但不发送终止事件的情况
 	StreamMaxDurationSeconds int `mapstructure:"stream_max_duration_seconds"`
+	// StreamTTFTTimeoutSeconds: Time-to-first-token timeout (seconds), 0=disabled
+	// Detects streams that never send first chunk (connection hangs before first response)
+	StreamTTFTTimeoutSeconds int `mapstructure:"stream_ttft_timeout_seconds"`
+	// StreamChunkGapWarnSeconds: Log warning when inter-chunk gap exceeds this (seconds), 0=disabled
+	StreamChunkGapWarnSeconds int `mapstructure:"stream_chunk_gap_warn_seconds"`
+	// StreamChunkGapTimeoutSeconds: Failover when inter-chunk gap exceeds this (seconds), 0=disabled
+	StreamChunkGapTimeoutSeconds int `mapstructure:"stream_chunk_gap_timeout_seconds"`
 	// StreamFailureRetryMax: 流失败（inactivity/max duration/network error）后最大重试次数，0表示禁用
 	StreamFailureRetryMax int `mapstructure:"stream_failure_retry_max"`
 	// StreamFailureRetryBackoffMs: 流失败重试前退避时间（毫秒）
@@ -1834,6 +1841,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.image_stream_data_interval_timeout", 900)
 	viper.SetDefault("gateway.image_stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.stream_max_duration_seconds", 0)
+	viper.SetDefault("gateway.stream_ttft_timeout_seconds", 60)
+	viper.SetDefault("gateway.stream_chunk_gap_warn_seconds", 10)
+	viper.SetDefault("gateway.stream_chunk_gap_timeout_seconds", 30)
 	viper.SetDefault("gateway.stream_failure_retry_max", 0)
 	viper.SetDefault("gateway.stream_failure_retry_backoff_ms", 1000)
 	viper.SetDefault("gateway.max_line_size", 500*1024*1024)
@@ -2466,6 +2476,50 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.StreamMaxDurationSeconds != 0 && c.Gateway.StreamMaxDurationSeconds < 60 {
 		return fmt.Errorf("gateway.stream_max_duration_seconds must be 0 or >= 60 seconds")
+	}
+	if c.Gateway.StreamTTFTTimeoutSeconds < 0 {
+		return fmt.Errorf("gateway.stream_ttft_timeout_seconds must be non-negative")
+	}
+	if c.Gateway.StreamTTFTTimeoutSeconds != 0 && (c.Gateway.StreamTTFTTimeoutSeconds < 10 || c.Gateway.StreamTTFTTimeoutSeconds > 300) {
+		return fmt.Errorf("gateway.stream_ttft_timeout_seconds must be 0 or between 10-300 seconds")
+	}
+	if c.Gateway.StreamChunkGapWarnSeconds < 0 {
+		return fmt.Errorf("gateway.stream_chunk_gap_warn_seconds must be non-negative")
+	}
+	if c.Gateway.StreamChunkGapWarnSeconds != 0 && (c.Gateway.StreamChunkGapWarnSeconds < 5 || c.Gateway.StreamChunkGapWarnSeconds > 60) {
+		return fmt.Errorf("gateway.stream_chunk_gap_warn_seconds must be 0 or between 5-60 seconds")
+	}
+	if c.Gateway.StreamChunkGapTimeoutSeconds < 0 {
+		return fmt.Errorf("gateway.stream_chunk_gap_timeout_seconds must be non-negative")
+	}
+	if c.Gateway.StreamChunkGapTimeoutSeconds != 0 && (c.Gateway.StreamChunkGapTimeoutSeconds < 10 || c.Gateway.StreamChunkGapTimeoutSeconds > 120) {
+		return fmt.Errorf("gateway.stream_chunk_gap_timeout_seconds must be 0 or between 10-120 seconds")
+	}
+	if c.Gateway.StreamChunkGapWarnSeconds > 0 && c.Gateway.StreamChunkGapTimeoutSeconds > 0 &&
+		c.Gateway.StreamChunkGapWarnSeconds >= c.Gateway.StreamChunkGapTimeoutSeconds {
+		return fmt.Errorf("gateway.stream_chunk_gap_warn_seconds must be less than stream_chunk_gap_timeout_seconds")
+	}
+	if c.Gateway.StreamTTFTTimeoutSeconds < 0 {
+		return fmt.Errorf("gateway.stream_ttft_timeout_seconds must be non-negative")
+	}
+	if c.Gateway.StreamTTFTTimeoutSeconds != 0 && (c.Gateway.StreamTTFTTimeoutSeconds < 10 || c.Gateway.StreamTTFTTimeoutSeconds > 300) {
+		return fmt.Errorf("gateway.stream_ttft_timeout_seconds must be 0 or between 10-300 seconds")
+	}
+	if c.Gateway.StreamChunkGapWarnSeconds < 0 {
+		return fmt.Errorf("gateway.stream_chunk_gap_warn_seconds must be non-negative")
+	}
+	if c.Gateway.StreamChunkGapWarnSeconds != 0 && (c.Gateway.StreamChunkGapWarnSeconds < 5 || c.Gateway.StreamChunkGapWarnSeconds > 60) {
+		return fmt.Errorf("gateway.stream_chunk_gap_warn_seconds must be 0 or between 5-60 seconds")
+	}
+	if c.Gateway.StreamChunkGapTimeoutSeconds < 0 {
+		return fmt.Errorf("gateway.stream_chunk_gap_timeout_seconds must be non-negative")
+	}
+	if c.Gateway.StreamChunkGapTimeoutSeconds != 0 && (c.Gateway.StreamChunkGapTimeoutSeconds < 10 || c.Gateway.StreamChunkGapTimeoutSeconds > 120) {
+		return fmt.Errorf("gateway.stream_chunk_gap_timeout_seconds must be 0 or between 10-120 seconds")
+	}
+	if c.Gateway.StreamChunkGapWarnSeconds > 0 && c.Gateway.StreamChunkGapTimeoutSeconds > 0 &&
+		c.Gateway.StreamChunkGapWarnSeconds >= c.Gateway.StreamChunkGapTimeoutSeconds {
+		return fmt.Errorf("gateway.stream_chunk_gap_warn_seconds must be less than stream_chunk_gap_timeout_seconds")
 	}
 	if c.Gateway.StreamFailureRetryMax < 0 {
 		return fmt.Errorf("gateway.stream_failure_retry_max must be non-negative")

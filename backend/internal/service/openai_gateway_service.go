@@ -4544,6 +4544,41 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 		defer maxDurationTimer.Stop()
 		maxDurationCh = maxDurationTimer.C
 	}
+
+	// Smart timeout detection: TTFT + chunk gap (from StreamRetrySettings)
+	// TTFT: detects streams that connect but never send first chunk
+	// Chunk gap: detects streams that start but then stall mid-stream
+	var ttftCh <-chan time.Time
+	var chunkGapWarnCh <-chan time.Time
+	var chunkGapTimeoutCh <-chan time.Time
+	var chunkGapTimer *time.Timer
+	var chunkGapWarnTimer *time.Timer
+	ttftTimeoutSeconds := 0
+	chunkGapWarnSeconds := 0
+	chunkGapTimeoutSeconds := 0
+	if s.settingService != nil {
+		if retrySettings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && retrySettings != nil && retrySettings.Enabled {
+			ttftTimeoutSeconds = retrySettings.TTFTTimeoutSeconds
+			chunkGapWarnSeconds = retrySettings.ChunkGapWarnSeconds
+			chunkGapTimeoutSeconds = retrySettings.ChunkGapTimeoutSeconds
+		}
+	}
+	if ttftTimeoutSeconds > 0 {
+		ttftTimer := time.NewTimer(time.Duration(ttftTimeoutSeconds) * time.Second)
+		defer ttftTimer.Stop()
+		ttftCh = ttftTimer.C
+	}
+	if chunkGapTimeoutSeconds > 0 {
+		chunkGapTimer = time.NewTimer(time.Duration(chunkGapTimeoutSeconds) * time.Second)
+		defer chunkGapTimer.Stop()
+		chunkGapTimeoutCh = chunkGapTimer.C
+	}
+	if chunkGapWarnSeconds > 0 {
+		chunkGapWarnTimer = time.NewTimer(time.Duration(chunkGapWarnSeconds) * time.Second)
+		defer chunkGapWarnTimer.Stop()
+		chunkGapWarnCh = chunkGapWarnTimer.C
+	}
+
 	// Track downstream writes separately from upstream reads: pre-output failover
 	// can buffer response.created / response.in_progress, so keepalive must be
 	// based on downstream idle time.
@@ -4804,6 +4839,21 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			if result, err, done := handleScanErr(ev.err); done {
 				return result, err
 			}
+			// Reset chunk gap timers on each upstream event
+			if firstTokenMs != nil {
+				if chunkGapTimer != nil {
+					if !chunkGapTimer.Stop() {
+						select { case <-chunkGapTimer.C: default: }
+					}
+					chunkGapTimer.Reset(time.Duration(chunkGapTimeoutSeconds) * time.Second)
+				}
+				if chunkGapWarnTimer != nil {
+					if !chunkGapWarnTimer.Stop() {
+						select { case <-chunkGapWarnTimer.C: default: }
+					}
+					chunkGapWarnTimer.Reset(time.Duration(chunkGapWarnSeconds) * time.Second)
+				}
+			}
 			processSSELine(ev.line, len(events) == 0)
 			if streamFailoverErr != nil {
 				return resultWithUsage(), streamFailoverErr
@@ -4873,6 +4923,61 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during keepalive flush, continuing to drain upstream for billing")
 			} else {
 				lastDownstreamWriteAt = time.Now()
+			}
+
+		case <-ttftCh:
+			// TTFT timeout: stream connected but never sent first token
+			if firstTokenMs != nil {
+				continue // already got first token, ignore
+			}
+			if clientDisconnected {
+				return resultWithUsage(), fmt.Errorf("stream ttft timeout after client disconnect")
+			}
+			logger.LegacyPrintf("service.openai_gateway", "Stream TTFT timeout: account=%d model=%s timeout=%ds", account.ID, originalModel, ttftTimeoutSeconds)
+			if s.rateLimitService != nil {
+				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+			}
+			s.streamRetryMetrics.inactivityTimeoutFailover.Add(1)
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:    account.Platform,
+				AccountID:   account.ID,
+				AccountName: account.Name,
+				Kind:        "stream_ttft_timeout",
+				Message:     fmt.Sprintf("no first token within %ds", ttftTimeoutSeconds),
+			})
+			sendErrorEvent("stream_ttft_timeout")
+			return resultWithUsage(), &UpstreamFailoverError{
+				StatusCode: 0,
+			}
+
+		case <-chunkGapWarnCh:
+			// Chunk gap warning: inter-chunk gap exceeded warning threshold
+			if firstTokenMs == nil || clientDisconnected {
+				continue
+			}
+			logger.LegacyPrintf("service.openai_gateway", "Stream chunk gap warning: account=%d model=%s gap=%ds", account.ID, originalModel, chunkGapWarnSeconds)
+			// Just warn, don't failover - timer will be reset on next event
+
+		case <-chunkGapTimeoutCh:
+			// Chunk gap timeout: inter-chunk gap exceeded timeout threshold
+			if firstTokenMs == nil || clientDisconnected {
+				continue
+			}
+			logger.LegacyPrintf("service.openai_gateway", "Stream chunk gap timeout: account=%d model=%s gap=%ds", account.ID, originalModel, chunkGapTimeoutSeconds)
+			if s.rateLimitService != nil {
+				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+			}
+			s.streamRetryMetrics.inactivityTimeoutFailover.Add(1)
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:    account.Platform,
+				AccountID:   account.ID,
+				AccountName: account.Name,
+				Kind:        "stream_chunk_gap_timeout",
+				Message:     fmt.Sprintf("no chunks for %ds", chunkGapTimeoutSeconds),
+			})
+			sendErrorEvent("stream_chunk_gap_timeout")
+			return resultWithUsage(), &UpstreamFailoverError{
+				StatusCode: 0,
 			}
 		}
 	}

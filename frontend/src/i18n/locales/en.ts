@@ -6154,6 +6154,12 @@ export default {
         retryMaxHint: 'Maximum retry attempts after a stream failure. With multiple accounts, rotates to a different account first. Recommended: 2 (max 5).',
         retryBackoffMs: 'Retry Backoff (ms)',
         retryBackoffMsHint: 'Wait time before each retry attempt in milliseconds. Recommended: 1000 (1s).',
+        ttftTimeout: 'Time-to-First-Token Timeout (seconds)',
+        ttftTimeoutHint: 'Detect streams that hang before sending any output. 0 = disabled. Recommended: 60.',
+        chunkGapWarn: 'Chunk Gap Warning (seconds)',
+        chunkGapWarnHint: 'Log a warning when inter-chunk gap exceeds this. 0 = disabled. Recommended: 10.',
+        chunkGapTimeout: 'Chunk Gap Timeout (seconds)',
+        chunkGapTimeoutHint: 'Trigger failover when inter-chunk gap exceeds this. Must be > warning. 0 = disabled. Recommended: 30.',
         saved: 'Stream retry settings saved',
         saveFailed: 'Failed to save stream retry settings'
       },

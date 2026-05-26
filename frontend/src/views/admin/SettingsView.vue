@@ -685,6 +685,60 @@
                       {{ t("admin.settings.streamRetry.retryBackoffMsHint") }}
                     </p>
                   </div>
+
+                  <!-- TTFT Timeout -->
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.streamRetry.ttftTimeout") }}
+                    </label>
+                    <input
+                      v-model.number="streamRetryForm.ttft_timeout_seconds"
+                      type="number"
+                      min="0"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamRetry.ttftTimeoutHint") }}
+                    </p>
+                  </div>
+
+                  <!-- Chunk Gap Warn -->
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.streamRetry.chunkGapWarn") }}
+                    </label>
+                    <input
+                      v-model.number="streamRetryForm.chunk_gap_warn_seconds"
+                      type="number"
+                      min="0"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamRetry.chunkGapWarnHint") }}
+                    </p>
+                  </div>
+
+                  <!-- Chunk Gap Timeout -->
+                  <div>
+                    <label
+                      class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.streamRetry.chunkGapTimeout") }}
+                    </label>
+                    <input
+                      v-model.number="streamRetryForm.chunk_gap_timeout_seconds"
+                      type="number"
+                      min="0"
+                      class="input w-32"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamRetry.chunkGapTimeoutHint") }}
+                    </p>
+                  </div>
                 </div>
 
                 <!-- Save Button -->
@@ -6893,6 +6947,9 @@ const streamRetryForm = reactive({
   max_duration_seconds: 300,
   retry_max: 2,
   retry_backoff_ms: 1000,
+  ttft_timeout_seconds: 60,
+  chunk_gap_warn_seconds: 10,
+  chunk_gap_timeout_seconds: 30,
 });
 
 // Rectifier 状态
@@ -8727,6 +8784,9 @@ async function saveStreamRetrySettings() {
       max_duration_seconds: streamRetryForm.max_duration_seconds,
       retry_max: streamRetryForm.retry_max,
       retry_backoff_ms: streamRetryForm.retry_backoff_ms,
+      ttft_timeout_seconds: streamRetryForm.ttft_timeout_seconds,
+      chunk_gap_warn_seconds: streamRetryForm.chunk_gap_warn_seconds,
+      chunk_gap_timeout_seconds: streamRetryForm.chunk_gap_timeout_seconds,
     });
     Object.assign(streamRetryForm, updated);
     appStore.showSuccess(t("admin.settings.streamRetry.saved"));
