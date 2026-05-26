@@ -6311,6 +6311,12 @@ export default {
         retryMaxHint: '流失败后的最大重试次数。多账号时优先轮换账号，单账号时在同一账号重试。推荐：2（最多5次）。',
         retryBackoffMs: '重试退避（毫秒）',
         retryBackoffMsHint: '每次重试前的等待时间（毫秒）。推荐：1000（1秒）。',
+        ttftTimeout: '首字超时（秒）',
+        ttftTimeoutHint: '检测连接后长时间未发送首个 chunk 的流。0 = 禁用。推荐：60。',
+        chunkGapWarn: 'Chunk 间隔警告（秒）',
+        chunkGapWarnHint: '当 chunk 间隔超过此时长记录警告日志。0 = 禁用。推荐：10。',
+        chunkGapTimeout: 'Chunk 间隔超时（秒）',
+        chunkGapTimeoutHint: '当 chunk 间隔超过此时长触发 failover。必须大于警告值。0 = 禁用。推荐：30。',
         saved: '流重试设置保存成功',
         saveFailed: '保存流重试设置失败'
       },
