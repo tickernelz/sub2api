@@ -1005,8 +1005,14 @@ func TestOpenAIStreamingTimeout(t *testing.T) {
 	_ = pw.Close()
 	_ = pr.Close()
 
-	if err == nil || !strings.Contains(err.Error(), "stream data interval timeout") {
-		t.Fatalf("expected stream timeout error, got %v", err)
+	if err == nil {
+		t.Fatalf("expected stream timeout error, got nil")
+	}
+	if !strings.Contains(err.Error(), "stream data interval timeout") {
+		var failoverErr *UpstreamFailoverError
+		if !errors.As(err, &failoverErr) {
+			t.Fatalf("expected stream timeout error, got %v", err)
+		}
 	}
 	if !strings.Contains(rec.Body.String(), "\"type\":\"error\"") || !strings.Contains(rec.Body.String(), "stream_timeout") {
 		t.Fatalf("expected OpenAI-compatible error SSE event, got %q", rec.Body.String())

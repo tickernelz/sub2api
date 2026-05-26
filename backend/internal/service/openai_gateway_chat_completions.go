@@ -242,6 +242,22 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	}
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
+		if chatMaxDurSeconds > 0 && errors.Is(err, context.DeadlineExceeded) {
+			msg := fmt.Sprintf("stream exceeded maximum duration %ds before upstream response", chatMaxDurSeconds)
+			s.streamRetryMetrics.maxDurationExceeded.Add(1)
+			logger.LegacyPrintf("service.openai_gateway", "Stream max duration exceeded (chat request): account=%d model=%s", account.ID, originalModel)
+			if s.rateLimitService != nil {
+				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
+			}
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+				Platform:    account.Platform,
+				AccountID:   account.ID,
+				AccountName: account.Name,
+				Kind:        "stream_max_duration_exceeded",
+				Message:     msg,
+			})
+			return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway}
+		}
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
