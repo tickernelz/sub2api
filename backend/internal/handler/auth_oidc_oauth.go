@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rsa"
@@ -1113,13 +1114,21 @@ func (k oidcJWK) publicKey() (any, error) {
 		return &rsa.PublicKey{N: n, E: e}, nil
 	case "EC":
 		var curve elliptic.Curve
+		var ecdhCurve ecdh.Curve
+		var coordinateSize int
 		switch strings.TrimSpace(k.Crv) {
 		case "P-256":
 			curve = elliptic.P256()
+			ecdhCurve = ecdh.P256()
+			coordinateSize = 32
 		case "P-384":
 			curve = elliptic.P384()
+			ecdhCurve = ecdh.P384()
+			coordinateSize = 48
 		case "P-521":
 			curve = elliptic.P521()
+			ecdhCurve = ecdh.P521()
+			coordinateSize = 66
 		default:
 			return nil, fmt.Errorf("unsupported ec curve: %s", k.Crv)
 		}
@@ -1131,13 +1140,35 @@ func (k oidcJWK) publicKey() (any, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decode ec y: %w", err)
 		}
-		if !curve.IsOnCurve(x, y) {
-			return nil, errors.New("ec point is not on curve")
+		point, err := encodeUncompressedECPoint(x, y, coordinateSize)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := ecdhCurve.NewPublicKey(point); err != nil {
+			return nil, fmt.Errorf("ec point is not on curve: %w", err)
 		}
 		return &ecdsa.PublicKey{Curve: curve, X: x, Y: y}, nil
 	default:
 		return nil, fmt.Errorf("unsupported jwk kty: %s", k.Kty)
 	}
+}
+
+func encodeUncompressedECPoint(x, y *big.Int, coordinateSize int) ([]byte, error) {
+	if x.Sign() < 0 || y.Sign() < 0 {
+		return nil, errors.New("negative ec coordinate")
+	}
+
+	xb := x.Bytes()
+	yb := y.Bytes()
+	if len(xb) > coordinateSize || len(yb) > coordinateSize {
+		return nil, errors.New("ec coordinate too large")
+	}
+
+	point := make([]byte, 1+2*coordinateSize)
+	point[0] = 4
+	copy(point[1+coordinateSize-len(xb):1+coordinateSize], xb)
+	copy(point[1+2*coordinateSize-len(yb):], yb)
+	return point, nil
 }
 
 func decodeBase64URLBigInt(raw string) (*big.Int, error) {

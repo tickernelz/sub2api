@@ -571,8 +571,7 @@ const updateAccountCredentials = async (payload: {
 }) => {
   if (!props.account) return
 
-  await adminAPI.accounts.update(props.account.id, payload)
-  const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
+  const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, payload)
   appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
   emit('reauthorized', updatedAccount)
   handleClose()
