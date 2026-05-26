@@ -4843,13 +4843,19 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 			if firstTokenMs != nil {
 				if chunkGapTimer != nil {
 					if !chunkGapTimer.Stop() {
-						select { case <-chunkGapTimer.C: default: }
+						select {
+						case <-chunkGapTimer.C:
+						default:
+						}
 					}
 					chunkGapTimer.Reset(time.Duration(chunkGapTimeoutSeconds) * time.Second)
 				}
 				if chunkGapWarnTimer != nil {
 					if !chunkGapWarnTimer.Stop() {
-						select { case <-chunkGapWarnTimer.C: default: }
+						select {
+						case <-chunkGapWarnTimer.C:
+						default:
+						}
 					}
 					chunkGapWarnTimer.Reset(time.Duration(chunkGapWarnSeconds) * time.Second)
 				}

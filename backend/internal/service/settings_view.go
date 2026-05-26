@@ -413,12 +413,12 @@ type StreamRetrySettings struct {
 // DefaultStreamRetrySettings 返回默认的流重试配置
 func DefaultStreamRetrySettings() *StreamRetrySettings {
 	return &StreamRetrySettings{
-		Enabled:              false,
-		MaxDurationSeconds:   300,
-		RetryMax:             2,
-		RetryBackoffMs:       1000,
-		TTFTTimeoutSeconds:   60,
-		ChunkGapWarnSeconds:  10,
+		Enabled:                false,
+		MaxDurationSeconds:     300,
+		RetryMax:               2,
+		RetryBackoffMs:         1000,
+		TTFTTimeoutSeconds:     60,
+		ChunkGapWarnSeconds:    10,
 		ChunkGapTimeoutSeconds: 30,
 	}
 }
