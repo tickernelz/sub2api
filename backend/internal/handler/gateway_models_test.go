@@ -69,6 +69,7 @@ func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHand
 			nil, // channelService
 			nil, // resolver
 			nil, // balanceNotifyService
+			nil, // userPlatformQuotaRepo
 		),
 	}
 }
