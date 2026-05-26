@@ -181,15 +181,177 @@ Nginx drops headers containing underscores by default (e.g. `session_id`), which
 > This fork publishes Docker images to Docker Hub as `tickernelz/sub2api`.
 > The deployment scripts in this repository download compose files and releases from `github.com/tickernelz/sub2api`.
 
-### Method 1: Script Installation (Recommended)
+### Method 1: Docker Compose (Recommended)
 
-One-click installation script that downloads pre-built binaries from GitHub Releases.
+Docker Compose is the recommended installation path. It runs Sub2API with PostgreSQL and Redis, keeps data persistent, and is easier to upgrade or migrate than a long multi-container `docker run` setup.
+
+#### Prerequisites
+
+- Docker 20.10+
+- Docker Compose v2+
+
+#### Quick Start
+
+```bash
+# Create deployment directory
+mkdir -p sub2api-deploy && cd sub2api-deploy
+
+# Download compose files and generate secure secrets
+curl -sSL https://raw.githubusercontent.com/tickernelz/sub2api/main/deploy/docker-deploy.sh | bash
+
+# Start PostgreSQL, Redis, and Sub2API
+docker compose up -d
+
+# View logs
+docker compose logs -f sub2api
+```
+
+The script downloads the recommended compose file, generates `.env` secrets, creates data directories, and uses the Docker image `tickernelz/sub2api:latest`.
+
+Open `http://YOUR_SERVER_IP:8080` after the containers are healthy.
+
+If the admin password was auto-generated, find it in logs:
+
+```bash
+docker compose logs sub2api | grep "admin password"
+```
+
+#### Manual Docker Compose
+
+If you prefer manual setup:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/tickernelz/sub2api.git
+cd sub2api/deploy
+
+# 2. Copy and edit environment configuration
+cp .env.example .env
+nano .env
+
+# 3. Generate recommended secrets
+openssl rand -hex 32  # POSTGRES_PASSWORD
+openssl rand -hex 32  # JWT_SECRET
+openssl rand -hex 32  # TOTP_ENCRYPTION_KEY
+
+# 4. Create data directories
+mkdir -p data postgres_data redis_data
+
+# 5. Start all services with local directories for easier backup/migration
+docker compose -f docker-compose.local.yml up -d
+
+# 6. Check status and logs
+docker compose -f docker-compose.local.yml ps
+docker compose -f docker-compose.local.yml logs -f sub2api
+```
+
+Required/recommended values in `.env`:
+
+```bash
+POSTGRES_PASSWORD=<secure-postgres-password>
+JWT_SECRET=<secure-random-hex>
+TOTP_ENCRYPTION_KEY=<secure-random-hex>
+
+# Optional
+SERVER_PORT=8080
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=<optional-initial-admin-password>
+```
+
+#### Production Image Tag
+
+`latest` is convenient for quick testing. For production, pin a release tag so upgrades are deliberate:
+
+```yaml
+services:
+  sub2api:
+    image: tickernelz/sub2api:0.1.132
+```
+
+Published tags include:
+
+- `latest`
+- `0.1.132` / other exact release tags
+- `0.1`
+- `0`
+
+#### Common Docker Compose Commands
+
+```bash
+# Stop all services
+docker compose -f docker-compose.local.yml down
+
+# Restart Sub2API only
+docker compose -f docker-compose.local.yml restart sub2api
+
+# Update image and recreate containers
+docker compose -f docker-compose.local.yml pull
+docker compose -f docker-compose.local.yml up -d
+
+# View all logs
+docker compose -f docker-compose.local.yml logs -f
+```
+
+#### Easy Migration
+
+When using `docker-compose.local.yml`, data is stored in local directories (`data/`, `postgres_data/`, `redis_data/`). Migrate by archiving the deployment directory:
+
+```bash
+# On source server
+cd /path/to/sub2api-deploy
+docker compose down
+cd ..
+tar czf sub2api-deploy.tar.gz sub2api-deploy/
+
+# On new server
+tar xzf sub2api-deploy.tar.gz
+cd sub2api-deploy/
+docker compose up -d
+```
+
+### Method 2: Docker Run (Advanced / Existing PostgreSQL and Redis)
+
+Use `docker run` only when PostgreSQL and Redis already exist. For a full single-server setup, Docker Compose above is simpler and safer.
+
+```bash
+docker run -d \
+  --name sub2api \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v sub2api_data:/app/data \
+  -e AUTO_SETUP=true \
+  -e SERVER_HOST=0.0.0.0 \
+  -e SERVER_PORT=8080 \
+  -e DATABASE_HOST=postgres.example.internal \
+  -e DATABASE_PORT=5432 \
+  -e DATABASE_USER=sub2api \
+  -e DATABASE_PASSWORD='<secure-postgres-password>' \
+  -e DATABASE_DBNAME=sub2api \
+  -e DATABASE_SSLMODE=disable \
+  -e REDIS_HOST=redis.example.internal \
+  -e REDIS_PORT=6379 \
+  -e REDIS_PASSWORD='' \
+  -e JWT_SECRET='<secure-random-hex>' \
+  -e TOTP_ENCRYPTION_KEY='<secure-random-hex>' \
+  -e ADMIN_EMAIL=admin@example.com \
+  tickernelz/sub2api:0.1.132
+```
+
+Generate secrets with:
+
+```bash
+openssl rand -hex 32
+```
+
+### Method 3: Script Installation (Bare Metal / systemd)
+
+Use this if you do not want Docker and already have PostgreSQL 15+ and Redis 7+ installed on the server.
 
 #### Prerequisites
 
 - Linux server (amd64 or arm64)
-- PostgreSQL 15+ (installed and running)
-- Redis 7+ (installed and running)
+- PostgreSQL 15+ installed and running
+- Redis 7+ installed and running
 - Root privileges
 
 #### Installation Steps
@@ -198,46 +360,21 @@ One-click installation script that downloads pre-built binaries from GitHub Rele
 curl -sSL https://raw.githubusercontent.com/tickernelz/sub2api/main/deploy/install.sh | sudo bash
 ```
 
-The script will:
-1. Detect your system architecture
-2. Download the latest release
-3. Install binary to `/opt/sub2api`
-4. Create systemd service
-5. Configure system user and permissions
+The script detects your architecture, downloads the latest release from `tickernelz/sub2api`, installs the binary to `/opt/sub2api`, and creates a systemd service.
 
 #### Post-Installation
 
 ```bash
-# 1. Start the service
 sudo systemctl start sub2api
-
-# 2. Enable auto-start on boot
 sudo systemctl enable sub2api
-
-# 3. Open Setup Wizard in browser
-# http://YOUR_SERVER_IP:8080
+sudo systemctl status sub2api
 ```
 
-The Setup Wizard will guide you through:
-- Database configuration
-- Redis configuration
-- Admin account creation
-
-#### Upgrade
-
-You can upgrade directly from the **Admin Dashboard** by clicking the **Check for Updates** button in the top-left corner.
-
-The web interface will:
-- Check for new versions automatically
-- Download and apply updates with one click
-- Support rollback if needed
+Open `http://YOUR_SERVER_IP:8080` and complete the Setup Wizard for database, Redis, and admin account configuration.
 
 #### Useful Commands
 
 ```bash
-# Check status
-sudo systemctl status sub2api
-
 # View logs
 sudo journalctl -u sub2api -f
 
@@ -250,171 +387,7 @@ curl -sSL https://raw.githubusercontent.com/tickernelz/sub2api/main/deploy/insta
 
 ---
 
-### Method 2: Docker Compose (Recommended)
-
-Deploy with Docker Compose, including PostgreSQL and Redis containers.
-
-#### Prerequisites
-
-- Docker 20.10+
-- Docker Compose v2+
-
-#### Quick Start (One-Click Deployment)
-
-Use the automated deployment script for easy setup:
-
-```bash
-# Create deployment directory
-mkdir -p sub2api-deploy && cd sub2api-deploy
-
-# Download and run deployment preparation script
-curl -sSL https://raw.githubusercontent.com/tickernelz/sub2api/main/deploy/docker-deploy.sh | bash
-
-# Start services
-docker compose up -d
-
-# View logs
-docker compose logs -f sub2api
-```
-
-**What the script does:**
-- Downloads `docker-compose.local.yml` (saved as `docker-compose.yml`) and `.env.example`
-- Generates secure credentials (JWT_SECRET, TOTP_ENCRYPTION_KEY, POSTGRES_PASSWORD)
-- Creates `.env` file with auto-generated secrets
-- Creates data directories (uses local directories for easy backup/migration)
-- Displays generated credentials for your reference
-
-#### Manual Deployment
-
-If you prefer manual setup:
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/tickernelz/sub2api.git
-cd sub2api/deploy
-
-# 2. Copy environment configuration
-cp .env.example .env
-
-# 3. Edit configuration (generate secure passwords)
-nano .env
-```
-
-**Required configuration in `.env`:**
-
-```bash
-# PostgreSQL password (REQUIRED)
-POSTGRES_PASSWORD=your_secure_password_here
-
-# JWT Secret (RECOMMENDED - keeps users logged in after restart)
-JWT_SECRET=your_jwt_secret_here
-
-# TOTP Encryption Key (RECOMMENDED - preserves 2FA after restart)
-TOTP_ENCRYPTION_KEY=your_totp_key_here
-
-# Optional: Admin account
-ADMIN_EMAIL=admin@example.com
-ADMIN_PASSWORD=your_admin_password
-
-# Optional: Custom port
-SERVER_PORT=8080
-```
-
-**Generate secure secrets:**
-```bash
-# Generate JWT_SECRET
-openssl rand -hex 32
-
-# Generate TOTP_ENCRYPTION_KEY
-openssl rand -hex 32
-
-# Generate POSTGRES_PASSWORD
-openssl rand -hex 32
-```
-
-```bash
-# 4. Create data directories (for local version)
-mkdir -p data postgres_data redis_data
-
-# 5. Start all services
-# Option A: Local directory version (recommended - easy migration)
-docker compose -f docker-compose.local.yml up -d
-
-# Option B: Named volumes version (simple setup)
-docker compose up -d
-
-# 6. Check status
-docker compose -f docker-compose.local.yml ps
-
-# 7. View logs
-docker compose -f docker-compose.local.yml logs -f sub2api
-```
-
-#### Deployment Versions
-
-| Version | Data Storage | Migration | Best For |
-|---------|-------------|-----------|----------|
-| **docker-compose.local.yml** | Local directories | ✅ Easy (tar entire directory) | Production, frequent backups |
-| **docker-compose.yml** | Named volumes | ⚠️ Requires docker commands | Simple setup |
-
-**Recommendation:** Use `docker-compose.local.yml` (deployed by script) for easier data management.
-
-#### Access
-
-Open `http://YOUR_SERVER_IP:8080` in your browser.
-
-If admin password was auto-generated, find it in logs:
-```bash
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
-```
-
-#### Upgrade
-
-```bash
-# Pull latest image and recreate container
-docker compose -f docker-compose.local.yml pull
-docker compose -f docker-compose.local.yml up -d
-```
-
-#### Easy Migration (Local Directory Version)
-
-When using `docker-compose.local.yml`, migrate to a new server easily:
-
-```bash
-# On source server
-docker compose -f docker-compose.local.yml down
-cd ..
-tar czf sub2api-complete.tar.gz sub2api-deploy/
-
-# Transfer to new server
-scp sub2api-complete.tar.gz user@new-server:/path/
-
-# On new server
-tar xzf sub2api-complete.tar.gz
-cd sub2api-deploy/
-docker compose -f docker-compose.local.yml up -d
-```
-
-#### Useful Commands
-
-```bash
-# Stop all services
-docker compose -f docker-compose.local.yml down
-
-# Restart
-docker compose -f docker-compose.local.yml restart
-
-# View all logs
-docker compose -f docker-compose.local.yml logs -f
-
-# Remove all data (caution!)
-docker compose -f docker-compose.local.yml down
-rm -rf data/ postgres_data/ redis_data/
-```
-
----
-
-### Method 3: Build from Source
+### Method 4: Build from Source
 
 Build and run from source code for development or customization.
 
