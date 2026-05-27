@@ -870,16 +870,20 @@ func init() {
 	groupDescMessagesDispatchModelConfig := groupFields[29].Descriptor()
 	// group.DefaultMessagesDispatchModelConfig holds the default value on creation for the messages_dispatch_model_config field.
 	group.DefaultMessagesDispatchModelConfig = groupDescMessagesDispatchModelConfig.Default.(domain.OpenAIMessagesDispatchModelConfig)
+	// groupDescModelsListConfig is the schema descriptor for models_list_config field.
+	groupDescModelsListConfig := groupFields[30].Descriptor()
+	// group.DefaultModelsListConfig holds the default value on creation for the models_list_config field.
+	group.DefaultModelsListConfig = groupDescModelsListConfig.Default.(domain.GroupModelsListConfig)
 	// groupDescRpmLimit is the schema descriptor for rpm_limit field.
-	groupDescRpmLimit := groupFields[30].Descriptor()
+	groupDescRpmLimit := groupFields[31].Descriptor()
 	// group.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	group.DefaultRpmLimit = groupDescRpmLimit.Default.(int)
 	// groupDescKiroCacheEmulationEnabled is the schema descriptor for kiro_cache_emulation_enabled field.
-	groupDescKiroCacheEmulationEnabled := groupFields[31].Descriptor()
+	groupDescKiroCacheEmulationEnabled := groupFields[32].Descriptor()
 	// group.DefaultKiroCacheEmulationEnabled holds the default value on creation for the kiro_cache_emulation_enabled field.
 	group.DefaultKiroCacheEmulationEnabled = groupDescKiroCacheEmulationEnabled.Default.(bool)
 	// groupDescKiroCacheEmulationRatio is the schema descriptor for kiro_cache_emulation_ratio field.
-	groupDescKiroCacheEmulationRatio := groupFields[32].Descriptor()
+	groupDescKiroCacheEmulationRatio := groupFields[33].Descriptor()
 	// group.DefaultKiroCacheEmulationRatio holds the default value on creation for the kiro_cache_emulation_ratio field.
 	group.DefaultKiroCacheEmulationRatio = groupDescKiroCacheEmulationRatio.Default.(float64)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()
