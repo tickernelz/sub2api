@@ -170,8 +170,13 @@ func TestGeminiForwardAsChatCompletions_OAuthAppliesModelMapping(t *testing.T) {
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Equal(t, "chat.completion", got["object"])
-	choices := got["choices"].([]any)
-	message := choices[0].(map[string]any)["message"].(map[string]any)
+	choices, ok := got["choices"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, choices)
+	choice, ok := choices[0].(map[string]any)
+	require.True(t, ok)
+	message, ok := choice["message"].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, "mapped ok", message["content"])
 }
 

@@ -65,8 +65,13 @@ func TestAntigravityGatewayService_ForwardAsChatCompletionsUsesAntigravityV1Inte
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
 	require.Equal(t, "chat.completion", payload["object"])
-	choices := payload["choices"].([]any)
-	message := choices[0].(map[string]any)["message"].(map[string]any)
+	choices, ok := payload["choices"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, choices)
+	choice, ok := choices[0].(map[string]any)
+	require.True(t, ok)
+	message, ok := choice["message"].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, "OK", message["content"])
 }
 

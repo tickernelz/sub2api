@@ -601,28 +601,6 @@ func isAntigravityProHighAlias(model string) bool {
 	}
 }
 
-func ensureAntigravityDefaultMappedAlias(mapping map[string]string, model, mappedModel string) {
-	if mapping == nil || model == "" || mappedModel == "" {
-		return
-	}
-	if _, exists := mapping[model]; exists {
-		mapping[model] = normalizeAntigravityMappedModelValue(model, mapping[model])
-		return
-	}
-	for pattern := range mapping {
-		if matchWildcard(pattern, model) {
-			return
-		}
-	}
-	mapping[model] = mappedModel
-}
-
-func ensureAntigravityDefaultMappedAliases(mapping map[string]string, aliases map[string]string) {
-	for model, mappedModel := range aliases {
-		ensureAntigravityDefaultMappedAlias(mapping, model, mappedModel)
-	}
-}
-
 func normalizeRequestedModelForLookup(platform, requestedModel string) string {
 	trimmed := strings.TrimSpace(requestedModel)
 	if trimmed == "" {

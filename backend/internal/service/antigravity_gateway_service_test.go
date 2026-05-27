@@ -233,7 +233,9 @@ func TestAntigravityGatewayService_BuildGeminiTestRequestDisablesThinkingForVisi
 
 	generationConfig, ok := request["generationConfig"].(map[string]any)
 	require.True(t, ok)
-	require.GreaterOrEqual(t, int(generationConfig["maxOutputTokens"].(float64)), 8)
+	maxOutputTokens, ok := generationConfig["maxOutputTokens"].(float64)
+	require.True(t, ok)
+	require.GreaterOrEqual(t, int(maxOutputTokens), 8)
 	thinkingConfig, ok := generationConfig["thinkingConfig"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, float64(0), thinkingConfig["thinkingBudget"])
