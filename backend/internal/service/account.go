@@ -508,17 +508,14 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 	result := make(map[string]string)
 	for k, v := range rawMapping {
 		if s, ok := v.(string); ok {
-			result[k] = s
+			if a.Platform == domain.PlatformAntigravity {
+				result[k] = normalizeAntigravityMappedModelValue(k, s)
+			} else {
+				result[k] = s
+			}
 		}
 	}
 	if len(result) > 0 {
-		if a.Platform == domain.PlatformAntigravity {
-			ensureAntigravityDefaultPassthroughs(result, []string{
-				"gemini-3-flash",
-				"gemini-3.1-pro-high",
-				"gemini-3.1-pro-low",
-			})
-		}
 		return result
 	}
 
@@ -531,12 +528,22 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 func defaultModelMappingForPlatform(platform string) map[string]string {
 	switch platform {
 	case domain.PlatformAntigravity:
-		return domain.DefaultAntigravityModelMapping
+		return mergeModelMappings(domain.AntigravityCompatibilityModelMapping, domain.DefaultAntigravityModelMapping)
 	case domain.PlatformKiro:
 		return domain.DefaultKiroModelMapping
 	default:
 		return nil
 	}
+}
+
+func mergeModelMappings(maps ...map[string]string) map[string]string {
+	result := make(map[string]string)
+	for _, mapping := range maps {
+		for key, value := range mapping {
+			result[key] = value
+		}
+	}
+	return result
 }
 
 func mapPtr(m map[string]any) uintptr {
@@ -570,11 +577,36 @@ func modelMappingSignature(rawMapping map[string]any) uint64 {
 	return h.Sum64()
 }
 
-func ensureAntigravityDefaultPassthrough(mapping map[string]string, model string) {
-	if mapping == nil || model == "" {
+func normalizeAntigravityMappedModelValue(_, mappedModel string) string {
+	mapped := strings.TrimSpace(mappedModel)
+	if mapped == "" {
+		return mapped
+	}
+
+	if isAntigravityProHighAlias(mapped) {
+		return "gemini-pro-agent"
+	}
+	if mapped == "gemini-3-pro-low" {
+		return "gemini-3.1-pro-low"
+	}
+	return mapped
+}
+
+func isAntigravityProHighAlias(model string) bool {
+	switch strings.TrimSpace(model) {
+	case "gemini-3.1-pro-high", "gemini-3-pro-high", "gemini-3-pro-preview", "gemini-3.1-pro-preview", "gemini-pro-agent":
+		return true
+	default:
+		return false
+	}
+}
+
+func ensureAntigravityDefaultMappedAlias(mapping map[string]string, model, mappedModel string) {
+	if mapping == nil || model == "" || mappedModel == "" {
 		return
 	}
 	if _, exists := mapping[model]; exists {
+		mapping[model] = normalizeAntigravityMappedModelValue(model, mapping[model])
 		return
 	}
 	for pattern := range mapping {
@@ -582,12 +614,12 @@ func ensureAntigravityDefaultPassthrough(mapping map[string]string, model string
 			return
 		}
 	}
-	mapping[model] = model
+	mapping[model] = mappedModel
 }
 
-func ensureAntigravityDefaultPassthroughs(mapping map[string]string, models []string) {
-	for _, model := range models {
-		ensureAntigravityDefaultPassthrough(mapping, model)
+func ensureAntigravityDefaultMappedAliases(mapping map[string]string, aliases map[string]string) {
+	for model, mappedModel := range aliases {
+		ensureAntigravityDefaultMappedAlias(mapping, model, mappedModel)
 	}
 }
 

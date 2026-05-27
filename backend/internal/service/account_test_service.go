@@ -14,10 +14,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	kiropkg "github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
@@ -129,6 +131,126 @@ func generateSessionString() (string, error) {
 	return FormatMetadataUserID(hex64, "", sessionUUID, uaVersion), nil
 }
 
+func defaultClaudeTestModelIDs() []string {
+	models := make([]string, 0, len(claude.DefaultModels))
+	for _, model := range claude.DefaultModels {
+		models = append(models, model.ID)
+	}
+	return models
+}
+
+func defaultOpenAITestModelIDs() []string {
+	models := make([]string, 0, len(openai.DefaultModels))
+	for _, model := range openai.DefaultModels {
+		models = append(models, model.ID)
+	}
+	return models
+}
+
+func defaultGeminiTestModelIDs() []string {
+	models := make([]string, 0, len(geminicli.DefaultModels))
+	for _, model := range geminicli.DefaultModels {
+		models = append(models, model.ID)
+	}
+	return models
+}
+
+func defaultAntigravityTestModelIDs() []string {
+	models := make([]string, 0, len(antigravity.DefaultModels()))
+	for _, model := range antigravity.DefaultModels() {
+		models = append(models, model.ID)
+	}
+	return models
+}
+
+func defaultKiroTestModelIDs() []string {
+	models := make([]string, 0, len(kiropkg.DefaultModels))
+	for _, model := range kiropkg.DefaultModels {
+		models = append(models, model.ID)
+	}
+	return models
+}
+
+func selectAccountTestModel(account *Account, modelID string, fallbackModelList []string) string {
+	if explicit := strings.TrimSpace(modelID); explicit != "" {
+		return explicit
+	}
+
+	mapping := map[string]string(nil)
+	if account != nil {
+		mapping = account.GetModelMapping()
+	}
+	if len(mapping) > 0 {
+		for _, candidate := range fallbackModelList {
+			candidate = strings.TrimSpace(candidate)
+			if candidate == "" || isWildcardModelPattern(candidate) {
+				continue
+			}
+			if account != nil && account.IsModelSupported(candidate) {
+				return candidate
+			}
+			if model, ok := firstConcreteModelMappingKeyForMappedValue(mapping, candidate); ok {
+				return model
+			}
+		}
+		if model, ok := firstConcreteModelMappingKey(mapping); ok {
+			return model
+		}
+	}
+
+	for _, candidate := range fallbackModelList {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || isWildcardModelPattern(candidate) {
+			continue
+		}
+		return candidate
+	}
+	return ""
+}
+
+func firstConcreteModelMappingKey(mapping map[string]string) (string, bool) {
+	if len(mapping) == 0 {
+		return "", false
+	}
+	keys := make([]string, 0, len(mapping))
+	for key := range mapping {
+		key = strings.TrimSpace(key)
+		if key == "" || isWildcardModelPattern(key) {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return "", false
+	}
+	sort.Strings(keys)
+	return keys[0], true
+}
+
+func firstConcreteModelMappingKeyForMappedValue(mapping map[string]string, mappedValue string) (string, bool) {
+	mappedValue = strings.TrimSpace(mappedValue)
+	if mappedValue == "" || len(mapping) == 0 {
+		return "", false
+	}
+	keys := make([]string, 0)
+	for key, value := range mapping {
+		key = strings.TrimSpace(key)
+		if key == "" || isWildcardModelPattern(key) || strings.TrimSpace(value) != mappedValue {
+			continue
+		}
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return "", false
+	}
+	sort.Strings(keys)
+	return keys[0], true
+}
+
+func isWildcardModelPattern(model string) bool {
+	return strings.ContainsAny(model, "*?")
+}
+
 // createTestPayload creates a Claude Code style test request payload
 func createTestPayload(modelID string) (map[string]any, error) {
 	sessionID, err := generateSessionString()
@@ -172,7 +294,7 @@ func createTestPayload(modelID string) (map[string]any, error) {
 
 // TestAccountConnection tests an account's connection by sending a test request
 // All account types use full Claude Code client characteristics, only auth header differs
-// modelID is optional - if empty, defaults to claude.DefaultTestModel
+// modelID is optional - if empty, the test model is chosen from account model_mapping, then the platform model list.
 // mode is optional - "compact" routes OpenAI accounts to the /responses/compact probe path
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string) error {
 	ctx := c.Request.Context()
@@ -207,11 +329,8 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string) error {
 	ctx := c.Request.Context()
 
-	// Determine the model to use
-	testModelID := modelID
-	if testModelID == "" {
-		testModelID = claude.DefaultTestModel
-	}
+	// Determine the model to use from the explicit request, account mapping, then platform model list.
+	testModelID := selectAccountTestModel(account, modelID, defaultClaudeTestModelIDs())
 
 	// API Key 账号测试连接时也需要应用通配符模型映射。
 	if account.Type == "apikey" {
@@ -402,10 +521,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 func (s *AccountTestService) testKiroAccountConnection(c *gin.Context, account *Account, modelID string) error {
 	ctx := c.Request.Context()
 
-	testModelID := strings.TrimSpace(modelID)
-	if testModelID == "" {
-		testModelID = "claude-sonnet-4-6"
-	}
+	testModelID := selectAccountTestModel(account, modelID, defaultKiroTestModelIDs())
 	if mappedModel := account.GetMappedModel(testModelID); strings.TrimSpace(mappedModel) != "" {
 		testModelID = mappedModel
 	}
@@ -652,11 +768,8 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	ctx := c.Request.Context()
 	mode = normalizeAccountTestMode(mode)
 
-	// Default to openai.DefaultTestModel for OpenAI testing
-	testModelID := modelID
-	if testModelID == "" {
-		testModelID = openai.DefaultTestModel
-	}
+	// Determine the model to use from the explicit request, account mapping, then platform model list.
+	testModelID := selectAccountTestModel(account, modelID, defaultOpenAITestModelIDs())
 
 	// Align test routing with gateway behavior: OpenAI accounts apply normal
 	// account model mapping, and compact mode applies compact-only mapping on top.
@@ -1002,19 +1115,13 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
-	// Determine the model to use
-	testModelID := modelID
-	if testModelID == "" {
-		testModelID = geminicli.DefaultTestModel
-	}
+	// Determine the model to use from the explicit request, account mapping, then platform model list.
+	testModelID := selectAccountTestModel(account, modelID, defaultGeminiTestModelIDs())
 
-	// For static upstream credentials with model mapping, map the model
+	// For static upstream credentials with model mapping, map the selected public model.
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mapping := account.GetModelMapping()
-		if len(mapping) > 0 {
-			if mappedModel, exists := mapping[testModelID]; exists {
-				testModelID = mappedModel
-			}
+		if mappedModel := account.GetMappedModel(testModelID); strings.TrimSpace(mappedModel) != "" {
+			testModelID = mappedModel
 		}
 	}
 
@@ -1074,25 +1181,22 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 // routeAntigravityTest 路由 Antigravity 账号的测试请求。
 // APIKey 类型走原生协议（与 gateway_handler 路由一致），OAuth/Upstream 走 CRS 中转。
 func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Account, modelID string, prompt string) error {
+	testModelID := selectAccountTestModel(account, modelID, defaultAntigravityTestModelIDs())
 	if account.Type == AccountTypeAPIKey {
-		if strings.HasPrefix(modelID, "gemini-") {
-			return s.testGeminiAccountConnection(c, account, modelID, prompt)
+		if strings.HasPrefix(testModelID, "gemini-") {
+			return s.testGeminiAccountConnection(c, account, testModelID, prompt)
 		}
-		return s.testClaudeAccountConnection(c, account, modelID)
+		return s.testClaudeAccountConnection(c, account, testModelID)
 	}
-	return s.testAntigravityAccountConnection(c, account, modelID)
+	return s.testAntigravityAccountConnection(c, account, testModelID, prompt)
 }
 
 // testAntigravityAccountConnection tests an Antigravity account's connection
 // 支持 Claude 和 Gemini 两种协议，使用非流式请求
-func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string) error {
+func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
-	// 默认模型：Claude 使用 claude-sonnet-4-5，Gemini 使用 gemini-3-pro-preview
-	testModelID := modelID
-	if testModelID == "" {
-		testModelID = "claude-sonnet-4-5"
-	}
+	testModelID := selectAccountTestModel(account, modelID, defaultAntigravityTestModelIDs())
 
 	if s.antigravityGatewayService == nil {
 		return s.sendErrorAndEnd(c, "Antigravity gateway service not configured")
@@ -1109,7 +1213,7 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 
 	// 调用 AntigravityGatewayService.TestConnection（复用协议转换逻辑）
-	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID)
+	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID, prompt)
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}

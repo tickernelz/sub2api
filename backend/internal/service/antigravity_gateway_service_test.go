@@ -206,6 +206,72 @@ func (s *antigravitySettingRepoStub) Delete(ctx context.Context, key string) err
 	panic("unexpected Delete call")
 }
 
+func TestAntigravityGatewayService_BuildGeminiTestRequestDisablesThinkingForVisibleOutput(t *testing.T) {
+	svc := &AntigravityGatewayService{}
+
+	body, err := svc.buildGeminiTestRequest("project-1", "gemini-3.5-flash-low", "hi")
+	require.NoError(t, err)
+
+	var wrapped map[string]any
+	require.NoError(t, json.Unmarshal(body, &wrapped))
+	require.Equal(t, "project-1", wrapped["project"])
+	require.Equal(t, "gemini-3.5-flash-low", wrapped["model"])
+
+	request, ok := wrapped["request"].(map[string]any)
+	require.True(t, ok)
+	contents, ok := request["contents"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, contents)
+	firstContent, ok := contents[0].(map[string]any)
+	require.True(t, ok)
+	parts, ok := firstContent["parts"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, parts)
+	firstPart, ok := parts[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "hi", firstPart["text"])
+
+	generationConfig, ok := request["generationConfig"].(map[string]any)
+	require.True(t, ok)
+	require.GreaterOrEqual(t, int(generationConfig["maxOutputTokens"].(float64)), 8)
+	thinkingConfig, ok := generationConfig["thinkingConfig"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, float64(0), thinkingConfig["thinkingBudget"])
+	require.Equal(t, false, thinkingConfig["includeThoughts"])
+}
+
+func TestAntigravityGatewayService_TestConnectionErrorsOnEmptyVisibleResponse(t *testing.T) {
+	svc := &AntigravityGatewayService{
+		tokenProvider: NewAntigravityTokenProvider(nil, nil, nil),
+		httpUpstream: &queuedHTTPUpstreamStub{responses: []*http.Response{
+			{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"\"}]},\"finishReason\":\"MAX_TOKENS\"}]}}\n\n")),
+			},
+		}},
+		settingService: &SettingService{cfg: &config.Config{}},
+	}
+	account := &Account{
+		ID:       1,
+		Name:     "acc-1",
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "tok",
+			"project_id":   "project-1",
+			"model_mapping": map[string]any{
+				"gemini-3.5-flash-low": "gemini-3.5-flash-low",
+			},
+		},
+		Concurrency: 1,
+	}
+
+	result, err := svc.TestConnection(context.Background(), account, "gemini-3.5-flash-low", "hi")
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Contains(t, err.Error(), "empty visible response")
+}
+
 func TestAntigravityGatewayService_Forward_PromptTooLong(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	writer := httptest.NewRecorder()
@@ -524,7 +590,7 @@ func TestAntigravityGatewayService_Forward_BillsWithMappedModel(t *testing.T) {
 		httpUpstream:   &httpUpstreamStub{resp: resp},
 	}
 
-	const mappedModel = "gemini-3-pro-high"
+	const mappedModel = "gemini-pro-agent"
 	account := &Account{
 		ID:          5,
 		Name:        "acc-forward-billing",
@@ -577,7 +643,7 @@ func TestAntigravityGatewayService_ForwardGemini_BillsWithMappedModel(t *testing
 		httpUpstream:   &httpUpstreamStub{resp: resp},
 	}
 
-	const mappedModel = "gemini-3-pro-high"
+	const mappedModel = "gemini-pro-agent"
 	account := &Account{
 		ID:          6,
 		Name:        "acc-gemini-billing",
@@ -648,7 +714,7 @@ func TestAntigravityGatewayService_ForwardGemini_RetriesCorruptedThoughtSignatur
 	}
 
 	const originalModel = "gemini-3.1-pro-preview"
-	const mappedModel = "gemini-3.1-pro-high"
+	const mappedModel = "gemini-pro-agent"
 	account := &Account{
 		ID:          7,
 		Name:        "acc-gemini-signature",
@@ -706,7 +772,7 @@ func TestAntigravityGatewayService_ForwardGemini_SignatureRetryPropagatesFailove
 	firstRespBody := []byte(`{"response":{"error":{"code":400,"message":"Corrupted thought signature.","status":"INVALID_ARGUMENT"}}}`)
 
 	const originalModel = "gemini-3.1-pro-preview"
-	const mappedModel = "gemini-3.1-pro-high"
+	const mappedModel = "gemini-pro-agent"
 	account := &Account{
 		ID:          8,
 		Name:        "acc-gemini-signature-failover",

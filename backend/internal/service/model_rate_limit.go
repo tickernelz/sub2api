@@ -32,15 +32,17 @@ func (a *Account) isModelRateLimitedWithContext(ctx context.Context, requestedMo
 		return false
 	}
 
-	modelKey := a.GetMappedModel(requestedModel)
+	modelKeys := []string{a.GetMappedModel(requestedModel)}
 	if a.Platform == PlatformAntigravity {
-		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
+		modelKeys = antigravityRateLimitModelKeys(ctx, a, requestedModel)
 	}
-	modelKey = strings.TrimSpace(modelKey)
-	if modelKey == "" {
-		return false
+	for _, modelKey := range modelKeys {
+		modelKey = strings.TrimSpace(modelKey)
+		if modelKey != "" && a.isRateLimitActiveForKey(modelKey) {
+			return true
+		}
 	}
-	return a.isRateLimitActiveForKey(modelKey)
+	return false
 }
 
 // GetModelRateLimitRemainingTime 获取模型限流剩余时间
@@ -54,15 +56,49 @@ func (a *Account) GetModelRateLimitRemainingTimeWithContext(ctx context.Context,
 		return 0
 	}
 
-	modelKey := a.GetMappedModel(requestedModel)
+	modelKeys := []string{a.GetMappedModel(requestedModel)}
 	if a.Platform == PlatformAntigravity {
-		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
+		modelKeys = antigravityRateLimitModelKeys(ctx, a, requestedModel)
 	}
-	modelKey = strings.TrimSpace(modelKey)
-	if modelKey == "" {
-		return 0
+	var maxRemaining time.Duration
+	for _, modelKey := range modelKeys {
+		modelKey = strings.TrimSpace(modelKey)
+		if modelKey == "" {
+			continue
+		}
+		if remaining := a.getRateLimitRemainingForKey(modelKey); remaining > maxRemaining {
+			maxRemaining = remaining
+		}
 	}
-	return a.getRateLimitRemainingForKey(modelKey)
+	return maxRemaining
+}
+
+func antigravityRateLimitModelKeys(ctx context.Context, account *Account, requestedModel string) []string {
+	keys := make([]string, 0, 5)
+	seen := make(map[string]bool, 5)
+	add := func(model string) {
+		model = strings.TrimSpace(model)
+		if model == "" || seen[model] {
+			return
+		}
+		seen[model] = true
+		keys = append(keys, model)
+	}
+
+	finalModel := resolveFinalAntigravityModelKey(ctx, account, requestedModel)
+	add(finalModel)
+	if enabled, ok := ThinkingEnabledFromContext(ctx); ok {
+		add(applyThinkingModelSuffix(requestedModel, enabled))
+	}
+	add(requestedModel)
+	normalized := normalizeRequestedModelForLookup(PlatformAntigravity, requestedModel)
+	if normalized != requestedModel {
+		if enabled, ok := ThinkingEnabledFromContext(ctx); ok {
+			add(applyThinkingModelSuffix(normalized, enabled))
+		}
+		add(normalized)
+	}
+	return keys
 }
 
 func resolveFinalAntigravityModelKey(ctx context.Context, account *Account, requestedModel string) string {

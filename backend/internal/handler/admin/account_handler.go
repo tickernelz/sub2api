@@ -11,6 +11,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -2048,10 +2049,9 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle Antigravity accounts: return Claude + Gemini models
+	// Handle Antigravity accounts: return account-aware mapped models.
 	if account.Platform == service.PlatformAntigravity {
-		// 直接复用 antigravity.DefaultModels()，与 /v1/models 端点保持同步
-		response.Success(c, antigravity.DefaultModels())
+		response.Success(c, buildMappedAntigravityModels(account.GetModelMapping()))
 		return
 	}
 
@@ -2106,6 +2106,100 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	response.Success(c, models)
+}
+
+func buildMappedAntigravityModels(mapping map[string]string) []antigravity.ClaudeModel {
+	models := make([]antigravity.ClaudeModel, 0, len(mapping))
+	seen := make(map[string]bool, len(mapping))
+	defaultModels := antigravity.DefaultModels()
+	defaultByID := make(map[string]antigravity.ClaudeModel, len(defaultModels))
+	for _, dm := range defaultModels {
+		defaultByID[dm.ID] = dm
+	}
+
+	for _, dm := range defaultModels {
+		if _, ok := mapping[dm.ID]; ok {
+			models = append(models, dm)
+			seen[dm.ID] = true
+		}
+
+		mappedKeys := make([]string, 0)
+		for requestedModel, upstreamModel := range mapping {
+			if requestedModel == dm.ID || upstreamModel != dm.ID || seen[requestedModel] || !shouldExposeAntigravityMappedModel(requestedModel, defaultByID) {
+				continue
+			}
+			mappedKeys = append(mappedKeys, requestedModel)
+		}
+		sort.Strings(mappedKeys)
+		for _, requestedModel := range mappedKeys {
+			model := dm
+			model.ID = requestedModel
+			models = append(models, model)
+			seen[requestedModel] = true
+		}
+	}
+
+	remainingKeys := make([]string, 0, len(mapping))
+	for requestedModel := range mapping {
+		if !seen[requestedModel] && shouldExposeAntigravityMappedModel(requestedModel, defaultByID) {
+			remainingKeys = append(remainingKeys, requestedModel)
+		}
+	}
+	sort.Strings(remainingKeys)
+	for _, requestedModel := range remainingKeys {
+		if dm, found := defaultByID[requestedModel]; found {
+			models = append(models, dm)
+			continue
+		}
+		models = append(models, antigravity.ClaudeModel{
+			ID:          requestedModel,
+			Type:        "model",
+			DisplayName: requestedModel,
+		})
+	}
+	return models
+}
+
+func shouldExposeAntigravityMappedModel(model string, curated map[string]antigravity.ClaudeModel) bool {
+	model = strings.TrimSpace(model)
+	if model == "" || strings.HasPrefix(model, "chat_") {
+		return false
+	}
+	if _, ok := curated[model]; ok {
+		return true
+	}
+	return !isRedundantAntigravityModel(model)
+}
+
+func isRedundantAntigravityModel(model string) bool {
+	switch strings.TrimSpace(model) {
+	case "claude-opus-4-7",
+		"claude-opus-4-6",
+		"claude-opus-4-5-thinking",
+		"claude-opus-4-5-20251101",
+		"claude-sonnet-4-5",
+		"claude-sonnet-4-5-thinking",
+		"claude-sonnet-4-5-20250929",
+		"claude-haiku-4-5",
+		"claude-haiku-4-5-20251001",
+		"gemini-2.5-pro",
+		"gemini-2.5-flash-image",
+		"gemini-2.5-flash-image-preview",
+		"gemini-3-flash-preview",
+		"gemini-3-pro-high",
+		"gemini-3-pro-low",
+		"gemini-3-pro-preview",
+		"gemini-3-pro-image",
+		"gemini-3-pro-image-preview",
+		"gemini-3.1-pro-high",
+		"gemini-3.1-pro-low",
+		"gemini-3.1-pro-preview",
+		"gemini-pro-agent",
+		"gemini-3.1-flash-image-preview":
+		return true
+	default:
+		return false
+	}
 }
 
 func buildMappedKiroModels(mapping map[string]string) []kiropkg.Model {

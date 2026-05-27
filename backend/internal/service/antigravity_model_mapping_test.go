@@ -69,10 +69,10 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "claude-sonnet-4-6",
 		},
 		{
-			name:           "默认映射 - claude-sonnet-4-5-20250929 → claude-sonnet-4-5",
+			name:           "默认映射 - claude-sonnet-4-5-20250929 → claude-sonnet-4-6",
 			requestedModel: "claude-sonnet-4-5-20250929",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-5",
+			expected:       "claude-sonnet-4-6",
 		},
 
 		// 3. 默认映射中的透传（映射到自己）
@@ -83,10 +83,10 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "claude-sonnet-4-6",
 		},
 		{
-			name:           "默认映射透传 - claude-sonnet-4-5",
+			name:           "默认映射 - claude-sonnet-4-5 → claude-sonnet-4-6",
 			requestedModel: "claude-sonnet-4-5",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-5",
+			expected:       "claude-sonnet-4-6",
 		},
 		{
 			name:           "默认映射透传 - claude-opus-4-6-thinking",
@@ -95,10 +95,10 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "claude-opus-4-6-thinking",
 		},
 		{
-			name:           "默认映射透传 - claude-sonnet-4-5-thinking",
+			name:           "默认映射 - claude-sonnet-4-5-thinking → claude-sonnet-4-6",
 			requestedModel: "claude-sonnet-4-5-thinking",
 			accountMapping: nil,
-			expected:       "claude-sonnet-4-5-thinking",
+			expected:       "claude-sonnet-4-6",
 		},
 		{
 			name:           "默认映射透传 - gemini-2.5-flash",
@@ -107,10 +107,10 @@ func TestAntigravityGatewayService_GetMappedModel(t *testing.T) {
 			expected:       "gemini-2.5-flash",
 		},
 		{
-			name:           "默认映射透传 - gemini-2.5-pro",
+			name:           "默认映射 - gemini-2.5-pro → gemini-2.5-flash",
 			requestedModel: "gemini-2.5-pro",
 			accountMapping: nil,
-			expected:       "gemini-2.5-pro",
+			expected:       "gemini-2.5-flash",
 		},
 		{
 			name:           "默认映射透传 - gemini-3-flash",
@@ -272,7 +272,7 @@ func TestMapAntigravityModel_WildcardTargetEqualsRequest(t *testing.T) {
 			name:           "customtools alias falls back to normalized preview mapping",
 			modelMapping:   map[string]any{"gemini-3.1-pro-preview": "gemini-3.1-pro-high"},
 			requestedModel: "gemini-3.1-pro-preview-customtools",
-			expected:       "gemini-3.1-pro-high",
+			expected:       "gemini-pro-agent",
 		},
 	}
 

@@ -431,7 +431,7 @@ func TestAccountResolveMappedModel(t *testing.T) {
 	}
 }
 
-func TestAccountGetModelMapping_AntigravityEnsuresGeminiDefaultPassthroughs(t *testing.T) {
+func TestAccountGetModelMapping_AntigravityNormalizesProvidedAliasesWithoutAutofill(t *testing.T) {
 	account := &Account{
 		Platform: PlatformAntigravity,
 		Credentials: map[string]any{
@@ -442,14 +442,17 @@ func TestAccountGetModelMapping_AntigravityEnsuresGeminiDefaultPassthroughs(t *t
 	}
 
 	mapping := account.GetModelMapping()
-	if mapping["gemini-3-flash"] != "gemini-3-flash" {
-		t.Fatalf("expected gemini-3-flash passthrough to be auto-filled, got: %q", mapping["gemini-3-flash"])
+	if mapping["gemini-3-pro-high"] != "gemini-pro-agent" {
+		t.Fatalf("expected stale gemini-3-pro-high mapping to normalize to gemini-pro-agent, got: %q", mapping["gemini-3-pro-high"])
 	}
-	if mapping["gemini-3.1-pro-high"] != "gemini-3.1-pro-high" {
-		t.Fatalf("expected gemini-3.1-pro-high passthrough to be auto-filled, got: %q", mapping["gemini-3.1-pro-high"])
+	if _, exists := mapping["gemini-3-flash"]; exists {
+		t.Fatalf("did not expect gemini-3-flash passthrough to be auto-filled")
 	}
-	if mapping["gemini-3.1-pro-low"] != "gemini-3.1-pro-low" {
-		t.Fatalf("expected gemini-3.1-pro-low passthrough to be auto-filled, got: %q", mapping["gemini-3.1-pro-low"])
+	if _, exists := mapping["gemini-3.1-pro-high"]; exists {
+		t.Fatalf("did not expect gemini-3.1-pro-high alias to be auto-filled")
+	}
+	if _, exists := mapping["gemini-3.1-pro-low"]; exists {
+		t.Fatalf("did not expect gemini-3.1-pro-low passthrough to be auto-filled")
 	}
 }
 
@@ -473,8 +476,8 @@ func TestAccountGetModelMapping_AntigravityRespectsWildcardOverride(t *testing.T
 	if _, exists := mapping["gemini-3.1-pro-low"]; exists {
 		t.Fatalf("did not expect explicit gemini-3.1-pro-low passthrough when wildcard already exists")
 	}
-	if mapped := account.GetMappedModel("gemini-3-flash"); mapped != "gemini-3.1-pro-high" {
-		t.Fatalf("expected wildcard mapping to stay effective, got: %q", mapped)
+	if mapped := account.GetMappedModel("gemini-3-flash"); mapped != "gemini-pro-agent" {
+		t.Fatalf("expected stale wildcard high mapping to normalize to gemini-pro-agent, got: %q", mapped)
 	}
 }
 

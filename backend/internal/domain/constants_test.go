@@ -5,25 +5,59 @@ import (
 	"testing"
 )
 
-func TestDefaultAntigravityModelMapping_ImageCompatibilityAliases(t *testing.T) {
+func TestDefaultAntigravityModelMapping_IsCuratedToSmokePassingModels(t *testing.T) {
 	t.Parallel()
 
-	cases := map[string]string{
-		"gemini-2.5-flash-image":         "gemini-2.5-flash-image",
-		"gemini-2.5-flash-image-preview": "gemini-2.5-flash-image",
-		"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
-		"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
-		"gemini-3-pro-image":             "gemini-3.1-flash-image",
-		"gemini-3-pro-image-preview":     "gemini-3.1-flash-image",
+	expected := map[string]string{
+		"claude-opus-4-6-thinking":    "claude-opus-4-6-thinking",
+		"claude-sonnet-4-6":           "claude-sonnet-4-6",
+		"gemini-2.5-flash":            "gemini-2.5-flash",
+		"gemini-2.5-flash-lite":       "gemini-2.5-flash-lite",
+		"gemini-2.5-flash-thinking":   "gemini-2.5-flash-thinking",
+		"gemini-3-flash":              "gemini-3-flash",
+		"gemini-3-flash-agent":        "gemini-3-flash-agent",
+		"gemini-3.1-flash-image":      "gemini-3.1-flash-image",
+		"gemini-3.1-flash-lite":       "gemini-3.1-flash-lite",
+		"gemini-3.5-flash-extra-low":  "gemini-3.5-flash-extra-low",
+		"gemini-3.5-flash-low":        "gemini-3.5-flash-low",
+		"gpt-oss-120b-medium":         "gpt-oss-120b-medium",
+		"tab_flash_lite_preview":      "tab_flash_lite_preview",
+		"tab_jump_flash_lite_preview": "tab_jump_flash_lite_preview",
 	}
 
-	for from, want := range cases {
-		got, ok := DefaultAntigravityModelMapping[from]
-		if !ok {
-			t.Fatalf("expected mapping for %q to exist", from)
+	if len(DefaultAntigravityModelMapping) != len(expected) {
+		t.Fatalf("expected %d curated Antigravity mappings, got %d: %v", len(expected), len(DefaultAntigravityModelMapping), DefaultAntigravityModelMapping)
+	}
+	for from, want := range expected {
+		if got := DefaultAntigravityModelMapping[from]; got != want {
+			t.Fatalf("unexpected Antigravity mapping for %q: got %q want %q", from, got, want)
 		}
-		if got != want {
-			t.Fatalf("unexpected mapping for %q: got %q want %q", from, got, want)
+	}
+
+	for _, model := range []string{
+		"chat_20706",
+		"gemini-2.5-pro",
+		"gemini-2.5-flash-image",
+		"gemini-2.5-flash-image-preview",
+		"gemini-3-pro-high",
+		"gemini-3-pro-low",
+		"gemini-3-pro-preview",
+		"gemini-3.1-pro-high",
+		"gemini-3.1-pro-low",
+		"gemini-3.1-pro-preview",
+		"gemini-pro-agent",
+		"gemini-3-pro-image",
+		"gemini-3-pro-image-preview",
+		"gemini-3.1-flash-image-preview",
+		"claude-opus-4-7",
+		"claude-opus-4-6",
+		"claude-opus-4-5-thinking",
+		"claude-sonnet-4-5",
+		"claude-sonnet-4-5-thinking",
+		"claude-haiku-4-5",
+	} {
+		if _, ok := DefaultAntigravityModelMapping[model]; ok {
+			t.Fatalf("did not expect redundant or non-smoke-passing Antigravity model %q in default mapping", model)
 		}
 	}
 }
