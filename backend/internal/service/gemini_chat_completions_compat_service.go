@@ -462,11 +462,12 @@ func geminiResponseToChatCompletions(
 	usageOverride *ClaudeUsage,
 ) (*apicompat.ChatCompletionsResponse, *ClaudeUsage, error) {
 	claudeRespMap, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, rawData)
-	if usageOverride != nil && (usageOverride.InputTokens > 0 || usageOverride.OutputTokens > 0 || usageOverride.CacheReadInputTokens > 0) {
+	if usageOverride != nil && (usageOverride.InputTokens > 0 || usageOverride.OutputTokens > 0 || usageOverride.ReasoningTokens > 0 || usageOverride.CacheReadInputTokens > 0) {
 		usage = usageOverride
 		if usageMap, ok := claudeRespMap["usage"].(map[string]any); ok {
 			usageMap["input_tokens"] = usage.InputTokens
 			usageMap["output_tokens"] = usage.OutputTokens
+			usageMap["reasoning_tokens"] = usage.ReasoningTokens
 			usageMap["cache_read_input_tokens"] = usage.CacheReadInputTokens
 		}
 	}
@@ -561,6 +562,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	openBlockIndex := -1
 	openBlockType := ""
 	seenText := ""
+	seenThinking := ""
 	openToolIndex := -1
 	openToolName := ""
 	seenToolJSON := ""
@@ -621,36 +623,55 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 									}
 								}
-								delta, newSeen := computeGeminiTextDelta(seenText, text)
-								seenText = newSeen
+
+								blockType := "text"
+								deltaType := "text_delta"
+								var delta string
+								if isGeminiThoughtPart(part) {
+									blockType = "thinking"
+									deltaType = "thinking_delta"
+									var newSeen string
+									delta, newSeen = computeGeminiTextDelta(seenThinking, text)
+									seenThinking = newSeen
+								} else {
+									var newSeen string
+									delta, newSeen = computeGeminiTextDelta(seenText, text)
+									seenText = newSeen
+								}
 								if delta == "" {
 									continue
 								}
-								if openBlockType != "text" {
+								if openBlockType != blockType {
 									if closeOpenBlock() {
 										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 									}
 									idx := nextBlockIndex
 									nextBlockIndex++
 									openBlockIndex = idx
-									openBlockType = "text"
+									openBlockType = blockType
+									contentBlock := &apicompat.AnthropicContentBlock{Type: blockType}
+									if blockType == "text" {
+										contentBlock.Text = ""
+									} else {
+										contentBlock.Thinking = ""
+									}
 									if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
-										Type:  "content_block_start",
-										Index: &idx,
-										ContentBlock: &apicompat.AnthropicContentBlock{
-											Type: "text",
-											Text: "",
-										},
+										Type:         "content_block_start",
+										Index:        &idx,
+										ContentBlock: contentBlock,
 									}) {
 										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 									}
 								}
+								deltaEvent := &apicompat.AnthropicDelta{Type: deltaType}
+								if blockType == "text" {
+									deltaEvent.Text = delta
+								} else {
+									deltaEvent.Thinking = delta
+								}
 								if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
-									Type: "content_block_delta",
-									Delta: &apicompat.AnthropicDelta{
-										Type: "text_delta",
-										Text: delta,
-									},
+									Type:  "content_block_delta",
+									Delta: deltaEvent,
 								}) {
 									return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 								}
@@ -743,6 +764,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	}
 	anthState.InputTokens = usage.InputTokens
 	anthState.CacheReadInputTokens = usage.CacheReadInputTokens
+	anthState.ReasoningTokens = usage.ReasoningTokens
 	if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
 		Type: "message_delta",
 		Delta: &apicompat.AnthropicDelta{
@@ -752,6 +774,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 		Usage: &apicompat.AnthropicUsage{
 			InputTokens:          usage.InputTokens,
 			OutputTokens:         usage.OutputTokens,
+			ReasoningTokens:      usage.ReasoningTokens,
 			CacheReadInputTokens: usage.CacheReadInputTokens,
 		},
 	}) {

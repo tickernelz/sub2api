@@ -2243,7 +2243,7 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 
 	var last map[string]any
 	var lastWithParts map[string]any
-	var collectedTextParts []string // Collect all text parts for aggregation
+	var collectedParts []map[string]any
 	usage := &ClaudeUsage{}
 
 	for {
@@ -2255,7 +2255,7 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 				switch payload {
 				case "", "[DONE]":
 					if payload == "[DONE]" {
-						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, nil
+						return mergeCollectedGeminiParts(pickGeminiCollectResult(last, lastWithParts), collectedParts), usage, nil
 					}
 				default:
 					var parsed map[string]any
@@ -2277,12 +2277,7 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 						}
 						if parts := extractGeminiParts(parsed); len(parts) > 0 {
 							lastWithParts = parsed
-							// Collect text from each part for aggregation
-							for _, part := range parts {
-								if text, ok := part["text"].(string); ok && text != "" {
-									collectedTextParts = append(collectedTextParts, text)
-								}
-							}
+							collectedParts = append(collectedParts, cloneGeminiPartsForAggregation(parts)...)
 						}
 					}
 				}
@@ -2297,7 +2292,7 @@ func collectGeminiSSE(body io.Reader, isOAuth bool) (map[string]any, *ClaudeUsag
 		}
 	}
 
-	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, nil
+	return mergeCollectedGeminiParts(pickGeminiCollectResult(last, lastWithParts), collectedParts), usage, nil
 }
 
 func pickGeminiCollectResult(last map[string]any, lastWithParts map[string]any) map[string]any {
@@ -2310,81 +2305,60 @@ func pickGeminiCollectResult(last map[string]any, lastWithParts map[string]any) 
 	return map[string]any{}
 }
 
-// mergeCollectedTextParts merges all collected text chunks into the final response.
-// This fixes the issue where non-streaming responses only returned the last chunk
-// instead of the complete aggregated text.
-func mergeCollectedTextParts(response map[string]any, textParts []string) map[string]any {
-	if len(textParts) == 0 {
+// mergeCollectedGeminiParts preserves streamed Gemini part semantics while aggregating
+// OAuth non-streaming fallback responses. Thought parts must remain thought parts so
+// Chat Completions can expose them as reasoning_content instead of visible content.
+func mergeCollectedGeminiParts(response map[string]any, parts []map[string]any) map[string]any {
+	if len(parts) == 0 {
 		return response
 	}
 
-	// Join all text parts
-	mergedText := strings.Join(textParts, "")
-
-	// Deep copy response
-	result := make(map[string]any)
+	result := make(map[string]any, len(response))
 	for k, v := range response {
 		result[k] = v
 	}
 
-	// Get or create candidates
 	candidates, ok := result["candidates"].([]any)
 	if !ok || len(candidates) == 0 {
 		candidates = []any{map[string]any{}}
 	}
-
-	// Get first candidate
 	candidate, ok := candidates[0].(map[string]any)
 	if !ok {
 		candidate = make(map[string]any)
 		candidates[0] = candidate
 	}
-
-	// Get or create content
 	content, ok := candidate["content"].(map[string]any)
 	if !ok {
 		content = map[string]any{"role": "model"}
 		candidate["content"] = content
 	}
 
-	// Get existing parts
-	existingParts, ok := content["parts"].([]any)
-	if !ok {
-		existingParts = []any{}
+	merged := make([]any, 0, len(parts))
+	for _, part := range parts {
+		merged = append(merged, cloneGeminiPart(part))
 	}
+	content["parts"] = merged
+	result["candidates"] = candidates
+	return result
+}
 
-	// Find and update first text part, or create new one
-	newParts := make([]any, 0, len(existingParts)+1)
-	textUpdated := false
-
-	for _, p := range existingParts {
-		pm, ok := p.(map[string]any)
-		if !ok {
-			newParts = append(newParts, p)
+func cloneGeminiPartsForAggregation(parts []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(parts))
+	for _, part := range parts {
+		if text, ok := part["text"].(string); ok && text == "" && part["functionCall"] == nil {
 			continue
 		}
-		if _, hasText := pm["text"]; hasText && !textUpdated {
-			// Replace with merged text
-			newPart := make(map[string]any)
-			for k, v := range pm {
-				newPart[k] = v
-			}
-			newPart["text"] = mergedText
-			newParts = append(newParts, newPart)
-			textUpdated = true
-		} else {
-			newParts = append(newParts, pm)
-		}
+		out = append(out, cloneGeminiPart(part))
 	}
+	return out
+}
 
-	if !textUpdated {
-		newParts = append([]any{map[string]any{"text": mergedText}}, newParts...)
+func cloneGeminiPart(part map[string]any) map[string]any {
+	out := make(map[string]any, len(part))
+	for k, v := range part {
+		out[k] = v
 	}
-
-	content["parts"] = newParts
-	result["candidates"] = candidates
-
-	return result
+	return out
 }
 
 type geminiNativeStreamResult struct {
@@ -2687,10 +2661,22 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 							continue
 						}
 						if text, ok := pm["text"].(string); ok && text != "" {
-							contentBlocks = append(contentBlocks, map[string]any{
-								"type": "text",
+							blockType := "text"
+							block := map[string]any{
+								"type": blockType,
 								"text": text,
-							})
+							}
+							if isGeminiThoughtPart(pm) {
+								blockType = "thinking"
+								block = map[string]any{
+									"type":     blockType,
+									"thinking": text,
+								}
+								if signature, ok := pm["thoughtSignature"].(string); ok && strings.TrimSpace(signature) != "" {
+									block["signature"] = signature
+								}
+							}
+							contentBlocks = append(contentBlocks, block)
 						}
 						if fc, ok := pm["functionCall"].(map[string]any); ok {
 							name, _ := fc["name"].(string)
@@ -2726,8 +2712,9 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 		"stop_reason":   stopReason,
 		"stop_sequence": nil,
 		"usage": map[string]any{
-			"input_tokens":  usage.InputTokens,
-			"output_tokens": usage.OutputTokens,
+			"input_tokens":     usage.InputTokens,
+			"output_tokens":    usage.OutputTokens,
+			"reasoning_tokens": usage.ReasoningTokens,
 		},
 	}
 
@@ -2762,6 +2749,7 @@ func extractGeminiUsage(data []byte) *ClaudeUsage {
 	return &ClaudeUsage{
 		InputTokens:          prompt - cached,
 		OutputTokens:         cand + thoughts,
+		ReasoningTokens:      thoughts,
 		CacheReadInputTokens: cached,
 		ImageOutputTokens:    imageTokens,
 	}
@@ -2959,6 +2947,11 @@ func extractGeminiFinishReason(geminiResp map[string]any) string {
 		}
 	}
 	return ""
+}
+
+func isGeminiThoughtPart(part map[string]any) bool {
+	thought, _ := part["thought"].(bool)
+	return thought
 }
 
 func extractGeminiParts(geminiResp map[string]any) []map[string]any {
@@ -3414,8 +3407,27 @@ func convertClaudeGenerationConfig(req map[string]any) map[string]any {
 	if stopSeq, ok := req["stop_sequences"].([]any); ok && len(stopSeq) > 0 {
 		out["stopSequences"] = stopSeq
 	}
+	if thinkingConfig := convertClaudeThinkingConfig(req["thinking"]); thinkingConfig != nil {
+		out["thinkingConfig"] = thinkingConfig
+	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+func convertClaudeThinkingConfig(thinking any) map[string]any {
+	m, ok := thinking.(map[string]any)
+	if !ok {
+		return nil
+	}
+	thinkingType, _ := m["type"].(string)
+	if thinkingType != "enabled" && thinkingType != "adaptive" {
+		return nil
+	}
+	out := map[string]any{"includeThoughts": true}
+	if budget, ok := asInt(m["budget_tokens"]); ok && budget > 0 {
+		out["thinkingBudget"] = budget
 	}
 	return out
 }

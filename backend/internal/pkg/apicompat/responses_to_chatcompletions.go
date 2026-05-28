@@ -92,6 +92,11 @@ func ResponsesToChatCompletions(resp *ResponsesResponse, model string) *ChatComp
 				CachedTokens: resp.Usage.InputTokensDetails.CachedTokens,
 			}
 		}
+		if resp.Usage.OutputTokensDetails != nil && resp.Usage.OutputTokensDetails.ReasoningTokens > 0 {
+			usage.CompletionTokensDetails = &ChatCompletionTokenDetails{
+				ReasoningTokens: resp.Usage.OutputTokensDetails.ReasoningTokens,
+			}
+		}
 		out.Usage = usage
 	}
 
@@ -344,6 +349,11 @@ func chatUsageFromResponsesUsage(u *ResponsesUsage) *ChatUsage {
 	if u.InputTokensDetails != nil && u.InputTokensDetails.CachedTokens > 0 {
 		usage.PromptTokensDetails = &ChatTokenDetails{
 			CachedTokens: u.InputTokensDetails.CachedTokens,
+		}
+	}
+	if u.OutputTokensDetails != nil && u.OutputTokensDetails.ReasoningTokens > 0 {
+		usage.CompletionTokensDetails = &ChatCompletionTokenDetails{
+			ReasoningTokens: u.OutputTokensDetails.ReasoningTokens,
 		}
 	}
 	return usage

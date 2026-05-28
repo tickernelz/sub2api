@@ -38,6 +38,7 @@ type StreamingProcessor struct {
 	// 累计 usage
 	inputTokens       int
 	outputTokens      int
+	reasoningTokens   int
 	cacheReadTokens   int
 	imageOutputTokens int
 }
@@ -59,6 +60,9 @@ func usageToMap(u ClaudeUsage) map[string]any {
 	m := map[string]any{
 		"input_tokens":  u.InputTokens,
 		"output_tokens": u.OutputTokens,
+	}
+	if u.ReasoningTokens > 0 {
+		m["reasoning_tokens"] = u.ReasoningTokens
 	}
 	if u.CacheCreationInputTokens > 0 {
 		m["cache_creation_input_tokens"] = u.CacheCreationInputTokens
@@ -113,6 +117,7 @@ func (p *StreamingProcessor) ProcessLine(line string) []byte {
 		cached := geminiResp.UsageMetadata.CachedContentTokenCount
 		p.inputTokens = geminiResp.UsageMetadata.PromptTokenCount - cached
 		p.outputTokens = geminiResp.UsageMetadata.CandidatesTokenCount + geminiResp.UsageMetadata.ThoughtsTokenCount
+		p.reasoningTokens = geminiResp.UsageMetadata.ThoughtsTokenCount
 		p.cacheReadTokens = cached
 		p.imageOutputTokens = geminiResp.UsageMetadata.ImageOutputTokens()
 	}
@@ -154,6 +159,7 @@ func (p *StreamingProcessor) Finish() ([]byte, *ClaudeUsage) {
 	usage := &ClaudeUsage{
 		InputTokens:          p.inputTokens,
 		OutputTokens:         p.outputTokens,
+		ReasoningTokens:      p.reasoningTokens,
 		CacheReadInputTokens: p.cacheReadTokens,
 		ImageOutputTokens:    p.imageOutputTokens,
 	}
@@ -186,6 +192,7 @@ func (p *StreamingProcessor) emitMessageStart(v1Resp *V1InternalResponse) []byte
 		cached := v1Resp.Response.UsageMetadata.CachedContentTokenCount
 		usage.InputTokens = v1Resp.Response.UsageMetadata.PromptTokenCount - cached
 		usage.OutputTokens = v1Resp.Response.UsageMetadata.CandidatesTokenCount + v1Resp.Response.UsageMetadata.ThoughtsTokenCount
+		usage.ReasoningTokens = v1Resp.Response.UsageMetadata.ThoughtsTokenCount
 		usage.CacheReadInputTokens = cached
 		usage.ImageOutputTokens = v1Resp.Response.UsageMetadata.ImageOutputTokens()
 	}
@@ -521,6 +528,7 @@ func (p *StreamingProcessor) emitFinish(finishReason string) []byte {
 	usage := ClaudeUsage{
 		InputTokens:          p.inputTokens,
 		OutputTokens:         p.outputTokens,
+		ReasoningTokens:      p.reasoningTokens,
 		CacheReadInputTokens: p.cacheReadTokens,
 		ImageOutputTokens:    p.imageOutputTokens,
 	}

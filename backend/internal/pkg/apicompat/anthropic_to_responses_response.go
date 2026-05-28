@@ -105,6 +105,11 @@ func AnthropicToResponsesResponse(resp *AnthropicResponse) *ResponsesResponse {
 			CachedTokens: resp.Usage.CacheReadInputTokens,
 		}
 	}
+	if resp.Usage.ReasoningTokens > 0 {
+		out.Usage.OutputTokensDetails = &ResponsesOutputTokensDetails{
+			ReasoningTokens: resp.Usage.ReasoningTokens,
+		}
+	}
 
 	return out
 }
@@ -153,6 +158,7 @@ type AnthropicEventToResponsesState struct {
 	// Usage from message_delta
 	InputTokens          int
 	OutputTokens         int
+	ReasoningTokens      int
 	CacheReadInputTokens int
 }
 
@@ -224,6 +230,9 @@ func anthToResHandleMessageStart(evt *AnthropicStreamEvent, state *AnthropicEven
 		}
 		if evt.Message.Usage.InputTokens > 0 {
 			state.InputTokens = evt.Message.Usage.InputTokens
+		}
+		if evt.Message.Usage.ReasoningTokens > 0 {
+			state.ReasoningTokens = evt.Message.Usage.ReasoningTokens
 		}
 	}
 
@@ -392,6 +401,9 @@ func anthToResHandleMessageDelta(evt *AnthropicStreamEvent, state *AnthropicEven
 	// Update usage
 	if evt.Usage != nil {
 		state.OutputTokens = evt.Usage.OutputTokens
+		if evt.Usage.ReasoningTokens > 0 {
+			state.ReasoningTokens = evt.Usage.ReasoningTokens
+		}
 		if evt.Usage.CacheReadInputTokens > 0 {
 			state.CacheReadInputTokens = evt.Usage.CacheReadInputTokens
 		}
@@ -480,6 +492,11 @@ func makeResponsesCompletedEvent(
 	if state.CacheReadInputTokens > 0 {
 		usage.InputTokensDetails = &ResponsesInputTokensDetails{
 			CachedTokens: state.CacheReadInputTokens,
+		}
+	}
+	if state.ReasoningTokens > 0 {
+		usage.OutputTokensDetails = &ResponsesOutputTokensDetails{
+			ReasoningTokens: state.ReasoningTokens,
 		}
 	}
 

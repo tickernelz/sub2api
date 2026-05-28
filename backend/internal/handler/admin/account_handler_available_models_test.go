@@ -300,6 +300,86 @@ func TestAccountHandlerGetAvailableModels_KiroAPIKeyWithoutMappingFallsBackToDef
 	require.False(t, slices.Contains(ids, "kiro-claude-opus-4-7"))
 }
 
+func collectAvailableModelIDsForTest(t *testing.T, body []byte) []string {
+	t.Helper()
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(body, &resp))
+	ids := make([]string, 0, len(resp.Data))
+	for _, model := range resp.Data {
+		ids = append(ids, model.ID)
+	}
+	return ids
+}
+
+func TestAccountHandlerGetAvailableModels_AntigravityIntersectsAccountMappingWithGroupCustomList(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       50,
+			Name:     "antigravity-mapped-group-filtered",
+			Platform: service.PlatformAntigravity,
+			Type:     service.AccountTypeOAuth,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"gemini-3.5-flash-low":       "gemini-3.5-flash-low",
+					"gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low",
+					"claude-sonnet-4-6":          "claude-sonnet-4-6",
+				},
+			},
+			Groups: []*service.Group{
+				{
+					ID:       5,
+					Platform: service.PlatformAntigravity,
+					Status:   service.StatusActive,
+					ModelsListConfig: service.GroupModelsListConfig{
+						Enabled: true,
+						Models:  []string{"gemini-3.5-flash-low", "not-mapped", "claude-sonnet-4-6"},
+					},
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/50/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, []string{"gemini-3.5-flash-low", "claude-sonnet-4-6"}, collectAvailableModelIDsForTest(t, rec.Body.Bytes()))
+}
+
+func TestAccountHandlerGetAvailableModels_GeminiOAuthUsesExplicitModelMappingBeforeDefaults(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       51,
+			Name:     "gemini-oauth-mapped",
+			Platform: service.PlatformGemini,
+			Type:     service.AccountTypeOAuth,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"gemini-2.5-flash": "models/gemini-2.5-flash",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/51/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, []string{"gemini-2.5-flash"}, collectAvailableModelIDsForTest(t, rec.Body.Bytes()))
+}
+
 func TestAccountHandlerSyncUpstreamModels_ConfigErrorReturnsBadRequest(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),

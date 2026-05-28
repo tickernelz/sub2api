@@ -263,7 +263,7 @@ func TestBuildTools_CustomTypeTools(t *testing.T) {
 	}
 }
 
-func TestBuildTools_PreservesWebSearchAlongsideFunctions(t *testing.T) {
+func TestBuildTools_PrefersFunctionDeclarationsOverWebSearchWhenBothPresent(t *testing.T) {
 	tools := []ClaudeTool{
 		{
 			Name:        "get_weather",
@@ -277,13 +277,26 @@ func TestBuildTools_PreservesWebSearchAlongsideFunctions(t *testing.T) {
 	}
 
 	result := buildTools(tools)
-	require.Len(t, result, 2)
+	require.Len(t, result, 1)
 	require.Len(t, result[0].FunctionDeclarations, 1)
 	require.Equal(t, "get_weather", result[0].FunctionDeclarations[0].Name)
-	require.NotNil(t, result[1].GoogleSearch)
-	require.NotNil(t, result[1].GoogleSearch.EnhancedContent)
-	require.NotNil(t, result[1].GoogleSearch.EnhancedContent.ImageSearch)
-	require.Equal(t, 5, result[1].GoogleSearch.EnhancedContent.ImageSearch.MaxResultCount)
+	require.Nil(t, result[0].GoogleSearch)
+}
+
+func TestBuildTools_PreservesWebSearchWhenNoFunctionToolsPresent(t *testing.T) {
+	tools := []ClaudeTool{
+		{
+			Type: "web_search_20250305",
+			Name: "web_search",
+		},
+	}
+
+	result := buildTools(tools)
+	require.Len(t, result, 1)
+	require.NotNil(t, result[0].GoogleSearch)
+	require.NotNil(t, result[0].GoogleSearch.EnhancedContent)
+	require.NotNil(t, result[0].GoogleSearch.EnhancedContent.ImageSearch)
+	require.Equal(t, 5, result[0].GoogleSearch.EnhancedContent.ImageSearch.MaxResultCount)
 }
 
 func TestBuildGenerationConfig_ThinkingDynamicBudget(t *testing.T) {
@@ -424,7 +437,7 @@ func TestTransformClaudeToGeminiWithOptions_PreservesBillingHeaderSystemBlock(t 
 	}
 }
 
-func TestTransformClaudeToGeminiWithOptions_PreservesWebSearchAlongsideFunctions(t *testing.T) {
+func TestTransformClaudeToGeminiWithOptions_PrefersFunctionToolsWhenWebSearchAlsoPresent(t *testing.T) {
 	claudeReq := &ClaudeRequest{
 		Model: "claude-3-5-sonnet-latest",
 		Messages: []ClaudeMessage{
@@ -446,13 +459,84 @@ func TestTransformClaudeToGeminiWithOptions_PreservesWebSearchAlongsideFunctions
 		},
 	}
 
+	body, err := TransformClaudeToGeminiWithOptions(claudeReq, "project-1", "gemini-3.5-flash-low", DefaultTransformOptions())
+	require.NoError(t, err)
+
+	var req V1InternalRequest
+	require.NoError(t, json.Unmarshal(body, &req))
+	require.Equal(t, "agent", req.RequestType)
+	require.Equal(t, "gemini-3.5-flash-low", req.Model)
+	require.Len(t, req.Request.Tools, 1)
+	require.Len(t, req.Request.Tools[0].FunctionDeclarations, 1)
+	require.Equal(t, "get_weather", req.Request.Tools[0].FunctionDeclarations[0].Name)
+	require.Nil(t, req.Request.Tools[0].GoogleSearch)
+	require.NotNil(t, req.Request.ToolConfig)
+	require.NotNil(t, req.Request.ToolConfig.FunctionCallingConfig)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(body, &raw))
+	request := raw["request"].(map[string]any)
+	toolConfig := request["toolConfig"].(map[string]any)
+	require.NotContains(t, toolConfig, "includeServerSideToolInvocations")
+	require.NotContains(t, toolConfig, "include_server_side_tool_invocations")
+}
+
+func TestTransformClaudeToGeminiWithOptions_WebSearchOnlyUsesSearchRouteAndFallbackModel(t *testing.T) {
+	claudeReq := &ClaudeRequest{
+		Model: "claude-3-5-sonnet-latest",
+		Messages: []ClaudeMessage{
+			{
+				Role:    "user",
+				Content: json.RawMessage(`[{"type":"text","text":"hello"}]`),
+			},
+		},
+		Tools: []ClaudeTool{
+			{
+				Type: "web_search_20250305",
+				Name: "web_search",
+			},
+		},
+	}
+
+	body, err := TransformClaudeToGeminiWithOptions(claudeReq, "project-1", "gemini-3.5-flash-low", DefaultTransformOptions())
+	require.NoError(t, err)
+
+	var req V1InternalRequest
+	require.NoError(t, json.Unmarshal(body, &req))
+	require.Equal(t, "web_search", req.RequestType)
+	require.Equal(t, webSearchFallbackModel, req.Model)
+	require.Len(t, req.Request.Tools, 1)
+	require.NotNil(t, req.Request.Tools[0].GoogleSearch)
+}
+
+func TestTransformClaudeToGeminiWithOptions_FunctionOnlyDoesNotEmitServerSideToolFlag(t *testing.T) {
+	claudeReq := &ClaudeRequest{
+		Model: "claude-3-5-sonnet-latest",
+		Messages: []ClaudeMessage{
+			{
+				Role:    "user",
+				Content: json.RawMessage(`[{"type":"text","text":"hello"}]`),
+			},
+		},
+		Tools: []ClaudeTool{
+			{
+				Name:        "get_weather",
+				Description: "Get weather information",
+				InputSchema: map[string]any{"type": "object"},
+			},
+		},
+	}
+
 	body, err := TransformClaudeToGeminiWithOptions(claudeReq, "project-1", "gemini-2.5-flash", DefaultTransformOptions())
 	require.NoError(t, err)
 
 	var req V1InternalRequest
 	require.NoError(t, json.Unmarshal(body, &req))
-	require.Len(t, req.Request.Tools, 2)
-	require.Len(t, req.Request.Tools[0].FunctionDeclarations, 1)
-	require.Equal(t, "get_weather", req.Request.Tools[0].FunctionDeclarations[0].Name)
-	require.NotNil(t, req.Request.Tools[1].GoogleSearch)
+	require.NotNil(t, req.Request.ToolConfig)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(body, &raw))
+	request := raw["request"].(map[string]any)
+	toolConfig := request["toolConfig"].(map[string]any)
+	require.NotContains(t, toolConfig, "includeServerSideToolInvocations")
 }

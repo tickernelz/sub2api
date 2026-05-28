@@ -1975,137 +1975,260 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 	// Handle OpenAI accounts
 	if account.IsOpenAI() {
-		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
-		if account.IsOpenAIPassthroughEnabled() {
-			response.Success(c, openai.DefaultModels)
-			return
+		ids := accountVisibleModelIDs(account, openai.DefaultModelIDs(), nil)
+		if len(ids) == 0 || account.IsOpenAIPassthroughEnabled() {
+			ids = openai.DefaultModelIDs()
 		}
-
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
-			response.Success(c, openai.DefaultModels)
-			return
-		}
-
-		// Return mapped models
-		var models []openai.Model
-		for requestedModel := range mapping {
-			var found bool
-			for _, dm := range openai.DefaultModels {
-				if dm.ID == requestedModel {
-					models = append(models, dm)
-					found = true
-					break
-				}
-			}
-			if !found {
-				models = append(models, openai.Model{
-					ID:          requestedModel,
-					Object:      "model",
-					Type:        "model",
-					DisplayName: requestedModel,
-				})
-			}
-		}
-		response.Success(c, models)
+		ids = filterAccountModelIDsByCustomList(account, ids)
+		response.Success(c, buildOpenAIModelsFromIDs(ids))
 		return
 	}
 
 	// Handle Gemini accounts
 	if account.IsGemini() {
-		// For OAuth accounts: return default Gemini models
-		if account.IsOAuth() {
-			response.Success(c, geminicli.DefaultModels)
-			return
+		ids := accountVisibleModelIDs(account, defaultGeminiModelIDs(), nil)
+		if len(ids) == 0 {
+			ids = defaultGeminiModelIDs()
 		}
-
-		// For API Key accounts: return models based on model_mapping
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
-			response.Success(c, geminicli.DefaultModels)
-			return
-		}
-
-		var models []geminicli.Model
-		for requestedModel := range mapping {
-			var found bool
-			for _, dm := range geminicli.DefaultModels {
-				if dm.ID == requestedModel {
-					models = append(models, dm)
-					found = true
-					break
-				}
-			}
-			if !found {
-				models = append(models, geminicli.Model{
-					ID:          requestedModel,
-					Type:        "model",
-					DisplayName: requestedModel,
-					CreatedAt:   "",
-				})
-			}
-		}
-		response.Success(c, models)
+		ids = filterAccountModelIDsByCustomList(account, ids)
+		response.Success(c, buildGeminiModelsFromIDs(ids))
 		return
 	}
 
 	// Handle Antigravity accounts: return account-aware mapped models.
 	if account.Platform == service.PlatformAntigravity {
-		response.Success(c, buildMappedAntigravityModels(account.GetModelMapping()))
+		models := buildMappedAntigravityModels(account.GetModelMapping())
+		models = filterAntigravityModelsByCustomList(account, models)
+		response.Success(c, models)
 		return
 	}
 
 	// Handle Kiro accounts
 	if account.Platform == service.PlatformKiro {
-		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
-			response.Success(c, kiropkg.DefaultModels)
-			return
+		ids := accountVisibleModelIDs(account, defaultKiroModelIDs(), nil)
+		if len(ids) == 0 {
+			ids = defaultKiroModelIDs()
 		}
-
-		response.Success(c, buildMappedKiroModels(mapping))
+		ids = filterAccountModelIDsByCustomList(account, ids)
+		response.Success(c, buildKiroModelsFromIDs(ids))
 		return
 	}
 
 	// Handle Claude/Anthropic accounts
-	// For OAuth and Setup-Token accounts: return default models
-	if account.IsOAuth() {
-		response.Success(c, claude.DefaultModels)
-		return
+	ids := accountVisibleModelIDs(account, defaultClaudeModelIDs(), nil)
+	if len(ids) == 0 {
+		ids = defaultClaudeModelIDs()
 	}
+	ids = filterAccountModelIDsByCustomList(account, ids)
+	response.Success(c, buildClaudeModelsFromIDs(ids))
+}
 
-	// For API Key accounts: return models based on model_mapping
+func defaultClaudeModelIDs() []string {
+	ids := make([]string, 0, len(claude.DefaultModels))
+	for _, model := range claude.DefaultModels {
+		ids = append(ids, model.ID)
+	}
+	return ids
+}
+
+func defaultGeminiModelIDs() []string {
+	ids := make([]string, 0, len(geminicli.DefaultModels))
+	for _, model := range geminicli.DefaultModels {
+		ids = append(ids, model.ID)
+	}
+	return ids
+}
+
+func defaultKiroModelIDs() []string {
+	ids := make([]string, 0, len(kiropkg.DefaultModels))
+	for _, model := range kiropkg.DefaultModels {
+		ids = append(ids, model.ID)
+	}
+	return ids
+}
+
+func accountVisibleModelIDs(account *service.Account, defaultIDs []string, expose func(string) bool) []string {
+	if account == nil {
+		return nil
+	}
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
-		// No mapping configured, return default models
-		response.Success(c, claude.DefaultModels)
-		return
+		return nil
+	}
+	if expose == nil {
+		expose = func(string) bool { return true }
 	}
 
-	// Return mapped models (keys of the mapping are the available model IDs)
-	var models []claude.Model
-	for requestedModel := range mapping {
-		// Try to find display info from default models
-		var found bool
-		for _, dm := range claude.DefaultModels {
-			if dm.ID == requestedModel {
-				models = append(models, dm)
-				found = true
-				break
+	seen := make(map[string]bool, len(mapping)+len(defaultIDs))
+	ids := make([]string, 0, len(mapping)+len(defaultIDs))
+	add := func(model string) {
+		model = strings.TrimSpace(model)
+		if model == "" || seen[model] || isAccountModelWildcardPattern(model) || !expose(model) {
+			return
+		}
+		seen[model] = true
+		ids = append(ids, model)
+	}
+
+	for _, model := range defaultIDs {
+		model = strings.TrimSpace(model)
+		if model != "" && account.IsModelSupported(model) {
+			add(model)
+		}
+	}
+
+	remaining := make([]string, 0, len(mapping))
+	for model := range mapping {
+		model = strings.TrimSpace(model)
+		if model == "" || seen[model] || isAccountModelWildcardPattern(model) || !expose(model) {
+			continue
+		}
+		remaining = append(remaining, model)
+	}
+	sort.Strings(remaining)
+	for _, model := range remaining {
+		add(model)
+	}
+	return ids
+}
+
+func isAccountModelWildcardPattern(model string) bool {
+	return strings.ContainsAny(model, "*?")
+}
+
+func accountCustomModelList(account *service.Account) []string {
+	if account == nil || len(account.Groups) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	models := make([]string, 0)
+	for _, group := range account.Groups {
+		if group == nil || group.Platform != account.Platform || !group.CustomModelsListEnabled() {
+			continue
+		}
+		for _, model := range group.ModelsListConfig.Models {
+			model = strings.TrimSpace(model)
+			if model == "" || seen[model] {
+				continue
 			}
-		}
-		// If not found in defaults, create a basic entry
-		if !found {
-			models = append(models, claude.Model{
-				ID:          requestedModel,
-				Type:        "model",
-				DisplayName: requestedModel,
-				CreatedAt:   "",
-			})
+			seen[model] = true
+			models = append(models, model)
 		}
 	}
+	return models
+}
 
-	response.Success(c, models)
+func filterAccountModelIDsByCustomList(account *service.Account, ids []string) []string {
+	return filterModelIDsByCustomList(ids, accountCustomModelList(account))
+}
+
+func filterModelIDsByCustomList(ids, custom []string) []string {
+	if len(custom) == 0 {
+		return ids
+	}
+	available := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			available[id] = true
+		}
+	}
+	out := make([]string, 0, len(custom))
+	seen := make(map[string]bool, len(custom))
+	for _, id := range custom {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] || !available[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+func buildClaudeModelsFromIDs(ids []string) []claude.Model {
+	defaultsByID := make(map[string]claude.Model, len(claude.DefaultModels))
+	for _, model := range claude.DefaultModels {
+		defaultsByID[model.ID] = model
+	}
+	models := make([]claude.Model, 0, len(ids))
+	for _, id := range ids {
+		if model, ok := defaultsByID[id]; ok {
+			models = append(models, model)
+			continue
+		}
+		models = append(models, claude.Model{ID: id, Type: "model", DisplayName: id, CreatedAt: ""})
+	}
+	return models
+}
+
+func buildGeminiModelsFromIDs(ids []string) []geminicli.Model {
+	defaultsByID := make(map[string]geminicli.Model, len(geminicli.DefaultModels))
+	for _, model := range geminicli.DefaultModels {
+		defaultsByID[model.ID] = model
+	}
+	models := make([]geminicli.Model, 0, len(ids))
+	for _, id := range ids {
+		if model, ok := defaultsByID[id]; ok {
+			models = append(models, model)
+			continue
+		}
+		models = append(models, geminicli.Model{ID: id, Type: "model", DisplayName: id, CreatedAt: ""})
+	}
+	return models
+}
+
+func buildOpenAIModelsFromIDs(ids []string) []openai.Model {
+	defaultsByID := make(map[string]openai.Model, len(openai.DefaultModels))
+	for _, model := range openai.DefaultModels {
+		defaultsByID[model.ID] = model
+	}
+	models := make([]openai.Model, 0, len(ids))
+	for _, id := range ids {
+		if model, ok := defaultsByID[id]; ok {
+			models = append(models, model)
+			continue
+		}
+		models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id})
+	}
+	return models
+}
+
+func buildKiroModelsFromIDs(ids []string) []kiropkg.Model {
+	defaultsByID := make(map[string]kiropkg.Model, len(kiropkg.DefaultModels))
+	for _, model := range kiropkg.DefaultModels {
+		defaultsByID[model.ID] = model
+	}
+	models := make([]kiropkg.Model, 0, len(ids))
+	for _, id := range ids {
+		if model, ok := defaultsByID[id]; ok {
+			models = append(models, model)
+			continue
+		}
+		models = append(models, kiropkg.Model{ID: id, Type: "model", DisplayName: id})
+	}
+	return models
+}
+
+func filterAntigravityModelsByCustomList(account *service.Account, models []antigravity.ClaudeModel) []antigravity.ClaudeModel {
+	custom := accountCustomModelList(account)
+	if len(custom) == 0 {
+		return models
+	}
+	byID := make(map[string]antigravity.ClaudeModel, len(models))
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		byID[model.ID] = model
+		ids = append(ids, model.ID)
+	}
+	filteredIDs := filterModelIDsByCustomList(ids, custom)
+	out := make([]antigravity.ClaudeModel, 0, len(filteredIDs))
+	for _, id := range filteredIDs {
+		if model, ok := byID[id]; ok {
+			out = append(out, model)
+		}
+	}
+	return out
 }
 
 func buildMappedAntigravityModels(mapping map[string]string) []antigravity.ClaudeModel {

@@ -136,6 +136,7 @@ type AnthropicResponse struct {
 type AnthropicUsage struct {
 	InputTokens              int `json:"input_tokens"`
 	OutputTokens             int `json:"output_tokens"`
+	ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 }
@@ -517,15 +518,21 @@ type ChatChoice struct {
 
 // ChatUsage holds token counts in Chat Completions format.
 type ChatUsage struct {
-	PromptTokens        int               `json:"prompt_tokens"`
-	CompletionTokens    int               `json:"completion_tokens"`
-	TotalTokens         int               `json:"total_tokens"`
-	PromptTokensDetails *ChatTokenDetails `json:"prompt_tokens_details,omitempty"`
+	PromptTokens            int                         `json:"prompt_tokens"`
+	CompletionTokens        int                         `json:"completion_tokens"`
+	TotalTokens             int                         `json:"total_tokens"`
+	PromptTokensDetails     *ChatTokenDetails           `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *ChatCompletionTokenDetails `json:"completion_tokens_details,omitempty"`
 }
 
 // ChatTokenDetails provides a breakdown of token usage.
 type ChatTokenDetails struct {
 	CachedTokens int `json:"cached_tokens,omitempty"`
+}
+
+// ChatCompletionTokenDetails provides a breakdown of output token usage.
+type ChatCompletionTokenDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 // ChatCompletionsChunk is a single streaming chunk from POST /v1/chat/completions.

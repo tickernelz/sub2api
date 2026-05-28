@@ -88,11 +88,14 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 	// 用于存储 tool_use id -> name 映射
 	toolIDToName := make(map[string]string)
 
-	// 检测是否有 web_search 工具
-	hasWebSearchTool := hasWebSearchTool(claudeReq.Tools)
+	// Build tools first: the v1internal route/model decision depends on the
+	// final tool declaration set that will actually be sent upstream.
+	tools := buildTools(claudeReq.Tools)
+	usesWebSearchDeclaration := hasGoogleSearchToolDeclaration(tools)
+
 	requestType := "agent"
 	targetModel := mappedModel
-	if hasWebSearchTool {
+	if usesWebSearchDeclaration {
 		requestType = "web_search"
 		if targetModel != webSearchFallbackModel {
 			targetModel = webSearchFallbackModel
@@ -130,9 +133,6 @@ func TransformClaudeToGeminiWithOptions(claudeReq *ClaudeRequest, projectID, map
 		reqForConfig = &reqCopy
 	}
 	generationConfig := buildGenerationConfig(reqForConfig)
-
-	// 4. 构建 tools
-	tools := buildTools(claudeReq.Tools)
 
 	// 5. 构建内部请求
 	innerRequest := GeminiRequest{
@@ -676,6 +676,15 @@ func isWebSearchTool(tool ClaudeTool) bool {
 	}
 }
 
+func hasGoogleSearchToolDeclaration(tools []GeminiToolDeclaration) bool {
+	for _, tool := range tools {
+		if tool.GoogleSearch != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // buildTools 构建 tools
 func buildTools(tools []ClaudeTool) []GeminiToolDeclaration {
 	if len(tools) == 0 {
@@ -734,14 +743,19 @@ func buildTools(tools []ClaudeTool) []GeminiToolDeclaration {
 		})
 	}
 
-	var declarations []GeminiToolDeclaration
+	// Antigravity v1internal rejects built-in Google Search combined with
+	// functionDeclarations. Its error suggests include_server_side_tool_invocations,
+	// but this endpoint also rejects both camelCase and snake_case variants under
+	// toolConfig. Prefer client function tools when both are present; preserve
+	// googleSearch only for web-search-only requests.
 	if len(funcDecls) > 0 {
-		declarations = append(declarations, GeminiToolDeclaration{
+		return []GeminiToolDeclaration{{
 			FunctionDeclarations: funcDecls,
-		})
+		}}
 	}
+
 	if hasWebSearch {
-		declarations = append(declarations, GeminiToolDeclaration{
+		return []GeminiToolDeclaration{{
 			GoogleSearch: &GeminiGoogleSearch{
 				EnhancedContent: &GeminiEnhancedContent{
 					ImageSearch: &GeminiImageSearch{
@@ -749,11 +763,8 @@ func buildTools(tools []ClaudeTool) []GeminiToolDeclaration {
 					},
 				},
 			},
-		})
-	}
-	if len(declarations) == 0 {
-		return nil
+		}}
 	}
 
-	return declarations
+	return nil
 }
