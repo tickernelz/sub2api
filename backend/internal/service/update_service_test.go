@@ -76,6 +76,6 @@ func TestPerformUpdateRejectsDockerDeployment(t *testing.T) {
 
 	err := svc.PerformUpdate(context.Background())
 
-	require.ErrorContains(t, err, "Docker deployments must be updated by pulling the Docker image")
+	require.ErrorContains(t, err, "docker deployments must be updated by pulling the Docker image")
 	require.False(t, client.downloadCalled)
 }

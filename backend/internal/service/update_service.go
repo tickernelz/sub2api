@@ -154,7 +154,7 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 // Uses atomic file replacement pattern for safe in-place updates
 func (s *UpdateService) PerformUpdate(ctx context.Context) error {
 	if s.buildType == dockerDeploymentType {
-		return fmt.Errorf("Docker deployments must be updated by pulling the Docker image (%s:<version> or latest) and recreating the container", dockerImageRepo)
+		return fmt.Errorf("docker deployments must be updated by pulling the Docker image (%s:<version> or latest) and recreating the container", dockerImageRepo)
 	}
 
 	info, err := s.CheckUpdate(ctx, true)
