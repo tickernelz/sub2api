@@ -109,10 +109,10 @@ func collectChatCompletionsStreamReasoningFields(t *testing.T, body string) (str
 		}
 		parsed := gjson.Parse(payload)
 		if rc := parsed.Get("choices.0.delta.reasoning_content"); rc.Exists() {
-			reasoning.WriteString(rc.String())
+			_, _ = reasoning.WriteString(rc.String())
 		}
 		if text := parsed.Get("choices.0.delta.content"); text.Exists() {
-			content.WriteString(text.String())
+			_, _ = content.WriteString(text.String())
 		}
 		if rt := parsed.Get("usage.completion_tokens_details.reasoning_tokens"); rt.Exists() {
 			usageReasoningTokens = int(rt.Int())

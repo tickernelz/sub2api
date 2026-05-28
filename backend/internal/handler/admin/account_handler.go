@@ -2325,28 +2325,6 @@ func isRedundantAntigravityModel(model string) bool {
 	}
 }
 
-func buildMappedKiroModels(mapping map[string]string) []kiropkg.Model {
-	models := make([]kiropkg.Model, 0, len(mapping))
-	for requestedModel := range mapping {
-		var found bool
-		for _, dm := range kiropkg.DefaultModels {
-			if dm.ID == requestedModel {
-				models = append(models, dm)
-				found = true
-				break
-			}
-		}
-		if !found {
-			models = append(models, kiropkg.Model{
-				ID:          requestedModel,
-				Type:        "model",
-				DisplayName: requestedModel,
-			})
-		}
-	}
-	return models
-}
-
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.
 // POST /api/v1/admin/accounts/:id/models/sync-upstream
 func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {

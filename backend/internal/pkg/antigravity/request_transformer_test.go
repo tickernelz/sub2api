@@ -475,8 +475,10 @@ func TestTransformClaudeToGeminiWithOptions_PrefersFunctionToolsWhenWebSearchAls
 
 	var raw map[string]any
 	require.NoError(t, json.Unmarshal(body, &raw))
-	request := raw["request"].(map[string]any)
-	toolConfig := request["toolConfig"].(map[string]any)
+	request, ok := raw["request"].(map[string]any)
+	require.True(t, ok)
+	toolConfig, ok := request["toolConfig"].(map[string]any)
+	require.True(t, ok)
 	require.NotContains(t, toolConfig, "includeServerSideToolInvocations")
 	require.NotContains(t, toolConfig, "include_server_side_tool_invocations")
 }
@@ -536,7 +538,9 @@ func TestTransformClaudeToGeminiWithOptions_FunctionOnlyDoesNotEmitServerSideToo
 
 	var raw map[string]any
 	require.NoError(t, json.Unmarshal(body, &raw))
-	request := raw["request"].(map[string]any)
-	toolConfig := request["toolConfig"].(map[string]any)
+	request, ok := raw["request"].(map[string]any)
+	require.True(t, ok)
+	toolConfig, ok := request["toolConfig"].(map[string]any)
+	require.True(t, ok)
 	require.NotContains(t, toolConfig, "includeServerSideToolInvocations")
 }
