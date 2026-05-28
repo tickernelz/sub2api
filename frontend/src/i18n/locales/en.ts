@@ -6583,6 +6583,7 @@ export default {
     refresh: 'Refresh',
     sourceMode: 'Source Build',
     sourceModeHint: 'Source build, use git pull to update',
+    dockerModeHint: 'Docker deployment, pull the latest image and recreate the container to update',
     updateNow: 'Update Now',
     updating: 'Updating...',
     updateComplete: 'Update Complete',

@@ -20,9 +20,12 @@ import (
 )
 
 const (
-	updateCacheKey = "update_check_cache"
-	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	updateCacheKey       = "update_check_cache"
+	updateCacheTTL       = 1200 // 20 minutes
+	githubRepo           = "tickernelz/sub2api"
+	dockerImageRepo      = "ghcr.io/tickernelz/sub2api"
+	deploymentEnvKey     = "SUB2API_DEPLOYMENT"
+	dockerDeploymentType = "docker"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -59,8 +62,18 @@ func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, versi
 		cache:          cache,
 		githubClient:   githubClient,
 		currentVersion: version,
-		buildType:      buildType,
+		buildType:      effectiveBuildType(buildType),
 	}
+}
+
+func effectiveBuildType(buildType string) string {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv(deploymentEnvKey)), dockerDeploymentType) {
+		return dockerDeploymentType
+	}
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return dockerDeploymentType
+	}
+	return buildType
 }
 
 // UpdateInfo contains update information
@@ -140,6 +153,10 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 // PerformUpdate downloads and applies the update
 // Uses atomic file replacement pattern for safe in-place updates
 func (s *UpdateService) PerformUpdate(ctx context.Context) error {
+	if s.buildType == dockerDeploymentType {
+		return fmt.Errorf("Docker deployments must be updated by pulling the Docker image (%s:<version> or latest) and recreating the container", dockerImageRepo)
+	}
+
 	info, err := s.CheckUpdate(ctx, true)
 	if err != nil {
 		return err

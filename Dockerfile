@@ -92,6 +92,8 @@ LABEL maintainer="tickernelz <github.com/tickernelz>"
 LABEL description="Sub2API - AI API Gateway Platform"
 LABEL org.opencontainers.image.source="https://github.com/tickernelz/sub2api"
 
+ENV SUB2API_DEPLOYMENT=docker
+
 # Install runtime dependencies
 RUN apk add --no-cache \
     ca-certificates \
