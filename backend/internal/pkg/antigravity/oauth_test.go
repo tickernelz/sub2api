@@ -127,6 +127,31 @@ func TestForwardBaseURLs_不修改原切片(t *testing.T) {
 	}
 }
 
+func TestBaseURLs_IncludeReferenceFallbackOrder(t *testing.T) {
+	want := []string{
+		antigravityDailyBaseURL,
+		antigravityProdBaseURL,
+		antigravitySandboxBaseURLDaily,
+	}
+	if len(BaseURLs) != len(want) {
+		t.Fatalf("BaseURLs length = %d, want %d: %v", len(BaseURLs), len(want), BaseURLs)
+	}
+	for i := range want {
+		if BaseURLs[i] != want[i] {
+			t.Fatalf("BaseURLs[%d] = %s, want %s; full=%v", i, BaseURLs[i], want[i], BaseURLs)
+		}
+	}
+}
+
+func TestGetFetchAvailableModelsUserAgent_DesktopClient(t *testing.T) {
+	ua := GetFetchAvailableModelsUserAgentForContext(nil)
+	for _, fragment := range []string{"Antigravity/", "Chrome/", "Electron/"} {
+		if !strings.Contains(ua, fragment) {
+			t.Fatalf("fetchAvailableModels User-Agent = %q, missing %q", ua, fragment)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // URLAvailability
 // ---------------------------------------------------------------------------

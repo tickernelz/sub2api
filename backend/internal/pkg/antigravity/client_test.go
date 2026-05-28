@@ -1481,7 +1481,7 @@ func TestClient_FetchAvailableModels_Success_RealCall(t *testing.T) {
 		if ct := r.Header.Get("Content-Type"); ct != "application/json" {
 			t.Errorf("Content-Type 不匹配: got %s", ct)
 		}
-		if ua := r.Header.Get("User-Agent"); ua != GetUserAgent() {
+		if ua := r.Header.Get("User-Agent"); ua != GetFetchAvailableModelsUserAgentForContext(r.Context()) {
 			t.Errorf("User-Agent 不匹配: got %s", ua)
 		}
 
@@ -1559,6 +1559,47 @@ func TestClient_FetchAvailableModels_Success_RealCall(t *testing.T) {
 	}
 	if rawResp["models"] == nil {
 		t.Error("rawResp models 不应为 nil")
+	}
+}
+
+func TestClient_FetchAvailableModels_SkipsQuotaInfoWithoutRemainingFraction_RealCall(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{
+			"models": {
+				"gemini-3-flash": {
+					"quotaInfo": {
+						"resetTime": "2026-05-28T16:13:47Z"
+					}
+				},
+				"claude-sonnet-4-6": {
+					"quotaInfo": {
+						"remainingFraction": 0,
+						"resetTime": "2026-05-28T18:00:00Z"
+					}
+				}
+			}
+		}`))
+	}))
+	defer server.Close()
+
+	withMockBaseURLs(t, []string{server.URL})
+
+	client := mustNewClient(t, "")
+	resp, _, err := client.FetchAvailableModels(context.Background(), "token", "proj")
+	if err != nil {
+		t.Fatalf("FetchAvailableModels 失败: %v", err)
+	}
+	if resp.Models["gemini-3-flash"].QuotaInfo != nil {
+		t.Fatal("missing remainingFraction should not be treated as usable quota info")
+	}
+	claudeQuota := resp.Models["claude-sonnet-4-6"].QuotaInfo
+	if claudeQuota == nil {
+		t.Fatal("explicit remainingFraction=0 must be preserved")
+	}
+	if claudeQuota.RemainingFraction != 0 {
+		t.Fatalf("RemainingFraction = %v, want 0", claudeQuota.RemainingFraction)
 	}
 }
 

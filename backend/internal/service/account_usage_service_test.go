@@ -3,8 +3,11 @@ package service
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 )
 
 type accountUsageCodexProbeRepo struct {
@@ -154,6 +157,84 @@ func TestAccountUsageService_GetOpenAIUsage_DoesNotPromoteCodexExtraToRateLimit(
 	case got := <-repo.rateLimitCh:
 		t.Fatalf("不应将已耗尽的 codex extra 持久化为运行时限流状态: %v", got)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestAccountUsageService_AntigravityForceBypassesCache(t *testing.T) {
+	fetchAvailableCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1internal:fetchAvailableModels":
+			fetchAvailableCalls++
+			remainingFraction := "1.0"
+			if fetchAvailableCalls > 1 {
+				remainingFraction = "0.25"
+			}
+			_, _ = w.Write([]byte(`{"models":{"gemini-3-flash":{"quotaInfo":{"remainingFraction":` + remainingFraction + `,"resetTime":"2026-05-28T18:00:00Z"}}}}`))
+		case "/v1internal:loadCodeAssist":
+			_, _ = w.Write([]byte(`{"paidTier":{"id":"g1-pro-tier"}}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	oldBaseURLs := antigravity.BaseURLs
+	oldBaseURL := antigravity.BaseURL
+	oldAvailability := antigravity.DefaultURLAvailability
+	antigravity.BaseURLs = []string{server.URL}
+	antigravity.BaseURL = server.URL
+	antigravity.DefaultURLAvailability = antigravity.NewURLAvailability(time.Minute)
+	t.Cleanup(func() {
+		antigravity.BaseURLs = oldBaseURLs
+		antigravity.BaseURL = oldBaseURL
+		antigravity.DefaultURLAvailability = oldAvailability
+	})
+
+	repo := stubOpenAIAccountRepo{accounts: []Account{{
+		ID:       707,
+		Platform: PlatformAntigravity,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "token",
+			"project_id":   "project-abc",
+		},
+	}}}
+	svc := &AccountUsageService{
+		accountRepo:             repo,
+		cache:                   NewUsageCache(),
+		antigravityQuotaFetcher: NewAntigravityQuotaFetcher(nil),
+	}
+
+	first, err := svc.GetUsage(context.Background(), 707)
+	if err != nil {
+		t.Fatalf("first GetUsage() error = %v", err)
+	}
+	if got := first.AntigravityQuota["gemini-3-flash"].Utilization; got != 0 {
+		t.Fatalf("first utilization = %d, want 0", got)
+	}
+
+	second, err := svc.GetUsage(context.Background(), 707)
+	if err != nil {
+		t.Fatalf("second GetUsage() error = %v", err)
+	}
+	if fetchAvailableCalls != 1 {
+		t.Fatalf("non-force request should use cache; fetchAvailableCalls = %d, want 1", fetchAvailableCalls)
+	}
+	if got := second.AntigravityQuota["gemini-3-flash"].Utilization; got != 0 {
+		t.Fatalf("cached utilization = %d, want 0", got)
+	}
+
+	forced, err := svc.GetUsage(context.Background(), 707, true)
+	if err != nil {
+		t.Fatalf("forced GetUsage() error = %v", err)
+	}
+	if fetchAvailableCalls != 2 {
+		t.Fatalf("force=true should bypass cache; fetchAvailableCalls = %d, want 2", fetchAvailableCalls)
+	}
+	if got := forced.AntigravityQuota["gemini-3-flash"].Utilization; got != 75 {
+		t.Fatalf("forced utilization = %d, want 75", got)
 	}
 }
 

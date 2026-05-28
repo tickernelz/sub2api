@@ -747,7 +747,15 @@ const getAntigravityUsageFromAPI = (
 
 // Gemini 3 Pro from API
 const antigravity3ProUsageFromAPI = computed(() =>
-  getAntigravityUsageFromAPI(['gemini-3-pro-low', 'gemini-3-pro-high', 'gemini-3-pro-preview'])
+  getAntigravityUsageFromAPI([
+    'gemini-pro-agent',
+    'gemini-3.1-pro-low',
+    'gemini-3.1-pro-high',
+    'gemini-3.1-pro-preview',
+    'gemini-3-pro-low',
+    'gemini-3-pro-high',
+    'gemini-3-pro-preview'
+  ])
 )
 
 // Gemini 3 Flash from API
@@ -1298,9 +1306,16 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
   error.value = null
 
   try {
-    const fetchFn = () => options?.source
-      ? adminAPI.accounts.getUsage(props.account.id, options.source)
-      : adminAPI.accounts.getUsage(props.account.id)
+    const fetchFn = () => {
+      const forceRefresh = options?.bypassCache === true
+      if (forceRefresh) {
+        return adminAPI.accounts.getUsage(props.account.id, options?.source, true)
+      }
+      if (options?.source) {
+        return adminAPI.accounts.getUsage(props.account.id, options.source)
+      }
+      return adminAPI.accounts.getUsage(props.account.id)
+    }
     const result = await enqueueUsageRequest(props.account, fetchFn)
     if (!unmounted.value) {
       usageInfo.value = result

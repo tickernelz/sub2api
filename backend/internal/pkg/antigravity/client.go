@@ -450,7 +450,7 @@ func (c *Client) LoadCodeAssist(ctx context.Context, accessToken string) (*LoadC
 		return nil, nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	// 固定顺序：prod -> daily
+	// 固定顺序：daily -> prod -> sandbox daily
 	availableURLs := BaseURLs
 
 	var lastErr error
@@ -623,6 +623,30 @@ func extractProjectIDFromOnboardResponse(resp map[string]any) string {
 type ModelQuotaInfo struct {
 	RemainingFraction float64 `json:"remainingFraction"`
 	ResetTime         string  `json:"resetTime,omitempty"`
+	hasFraction       bool
+}
+
+func (q *ModelQuotaInfo) UnmarshalJSON(data []byte) error {
+	type modelQuotaInfoAlias ModelQuotaInfo
+	var raw struct {
+		RemainingFraction *json.RawMessage `json:"remainingFraction"`
+		ResetTime         string           `json:"resetTime,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var decoded modelQuotaInfoAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*q = ModelQuotaInfo(decoded)
+	q.hasFraction = raw.RemainingFraction != nil
+	q.ResetTime = raw.ResetTime
+	return nil
+}
+
+func (q *ModelQuotaInfo) HasRemainingFraction() bool {
+	return q != nil && (q.hasFraction || q.RemainingFraction != 0)
 }
 
 // ModelInfo 模型信息
@@ -654,8 +678,20 @@ type FetchAvailableModelsResponse struct {
 	DeprecatedModelIDs map[string]DeprecatedModelInfo `json:"deprecatedModelIds,omitempty"`
 }
 
+func (r *FetchAvailableModelsResponse) DropQuotaInfoWithoutRemainingFraction() {
+	if r == nil || r.Models == nil {
+		return
+	}
+	for modelID, modelInfo := range r.Models {
+		if modelInfo.QuotaInfo != nil && !modelInfo.QuotaInfo.HasRemainingFraction() {
+			modelInfo.QuotaInfo = nil
+			r.Models[modelID] = modelInfo
+		}
+	}
+}
+
 // FetchAvailableModels 获取可用模型和配额信息，返回解析后的结构体和原始 JSON
-// 支持 URL fallback：sandbox → daily → prod
+// 支持 URL fallback：daily → prod → sandbox daily
 func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectID string) (*FetchAvailableModelsResponse, map[string]any, error) {
 	if c == nil || c.httpClient == nil {
 		return nil, nil, errors.New("antigravity client is not configured")
@@ -667,7 +703,7 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 		return nil, nil, fmt.Errorf("序列化请求失败: %w", err)
 	}
 
-	// 固定顺序：prod -> daily
+	// 固定顺序：daily -> prod -> sandbox daily
 	availableURLs := BaseURLs
 
 	fetchClient := c.fetchAvailableModelsHTTPClient()
@@ -681,7 +717,7 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", GetUserAgentForContext(ctx))
+		req.Header.Set("User-Agent", GetFetchAvailableModelsUserAgentForContext(ctx))
 
 		resp, err := fetchClient.Do(req)
 		if err != nil {
@@ -723,6 +759,7 @@ func (c *Client) FetchAvailableModels(ctx context.Context, accessToken, projectI
 		if err := json.Unmarshal(respBodyBytes, &modelsResp); err != nil {
 			return nil, nil, fmt.Errorf("响应解析失败: %w", err)
 		}
+		modelsResp.DropQuotaInfoWithoutRemainingFraction()
 
 		// 解析原始 JSON 为 map
 		var rawResp map[string]any

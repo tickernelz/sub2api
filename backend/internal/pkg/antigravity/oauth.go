@@ -53,8 +53,12 @@ const (
 	URLAvailabilityTTL = 5 * time.Minute
 
 	// Antigravity API 端点
-	antigravityProdBaseURL  = "https://cloudcode-pa.googleapis.com"
-	antigravityDailyBaseURL = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+	antigravityProdBaseURL         = "https://cloudcode-pa.googleapis.com"
+	antigravityDailyBaseURL        = "https://daily-cloudcode-pa.googleapis.com"
+	antigravitySandboxBaseURLDaily = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+
+	antigravityChromeVersion   = "132.0.6834.160"
+	antigravityElectronVersion = "39.2.3"
 )
 
 var userAgentVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
@@ -128,6 +132,21 @@ func BuildUserAgent(version string) string {
 	return fmt.Sprintf("antigravity/%s windows/amd64", defaultUserAgentVersion)
 }
 
+// BuildFetchAvailableModelsUserAgent returns the desktop Antigravity User-Agent shape
+// used by the real client for model/quota discovery. Some upstreams omit
+// quota.remainingFraction for the CLI-style User-Agent.
+func BuildFetchAvailableModelsUserAgent(version string) string {
+	if normalized := NormalizeUserAgentVersion(version); normalized != "" {
+		return fmt.Sprintf("Antigravity/%s (Windows NT 10.0; Win64; x64) Chrome/%s Electron/%s", normalized, antigravityChromeVersion, antigravityElectronVersion)
+	}
+	return fmt.Sprintf("Antigravity/%s (Windows NT 10.0; Win64; x64) Chrome/%s Electron/%s", defaultUserAgentVersion, antigravityChromeVersion, antigravityElectronVersion)
+}
+
+// GetFetchAvailableModelsUserAgentForContext 返回 fetchAvailableModels 应使用的 User-Agent。
+func GetFetchAvailableModelsUserAgentForContext(ctx context.Context) string {
+	return BuildFetchAvailableModelsUserAgent(GetUserAgentVersionForContext(ctx))
+}
+
 // GetUserAgentForContext 返回当前请求应使用的 User-Agent。
 func GetUserAgentForContext(ctx context.Context) string {
 	return BuildUserAgent(GetUserAgentVersionForContext(ctx))
@@ -145,10 +164,11 @@ func getClientSecret() (string, error) {
 	return "", infraerrors.Newf(http.StatusBadRequest, "ANTIGRAVITY_OAUTH_CLIENT_SECRET_MISSING", "missing antigravity oauth client_secret; set %s", AntigravityOAuthClientSecretEnv)
 }
 
-// BaseURLs 定义 Antigravity API 端点（与 Antigravity-Manager 保持一致）
+// BaseURLs 定义 Antigravity API 端点（与官方客户端/CLIProxyAPI fallback 顺序保持一致）
 var BaseURLs = []string{
-	antigravityProdBaseURL,  // prod (优先)
-	antigravityDailyBaseURL, // daily sandbox (备用)
+	antigravityDailyBaseURL,
+	antigravityProdBaseURL,
+	antigravitySandboxBaseURLDaily,
 }
 
 // BaseURL 默认 URL（保持向后兼容）
