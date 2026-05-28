@@ -15,6 +15,7 @@ func TestBuildMappedAntigravityModels_FiltersRedundantAliasesAndChatPseudoModels
 		"gemini-3-pro-high":              "gemini-pro-agent",
 		"gemini-3.1-pro-high":            "gemini-pro-agent",
 		"gemini-pro-agent":               "gemini-pro-agent",
+		"gemini-3.1-pro-low":             "gemini-3.1-pro-low",
 		"gemini-3.1-flash-image":         "gemini-3.1-flash-image",
 		"gemini-3.1-flash-image-preview": "gemini-3.1-flash-image",
 		"tab_flash_lite_preview":         "tab_flash_lite_preview",
@@ -32,6 +33,8 @@ func TestBuildMappedAntigravityModels_FiltersRedundantAliasesAndChatPseudoModels
 		"gemini-2.5-flash",
 		"gemini-3-flash",
 		"gemini-3.1-flash-image",
+		"gemini-pro-agent",
+		"gemini-3.1-pro-low",
 		"tab_flash_lite_preview",
 		"z-custom-model",
 	}

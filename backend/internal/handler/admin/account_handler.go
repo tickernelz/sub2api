@@ -2315,9 +2315,7 @@ func isRedundantAntigravityModel(model string) bool {
 		"gemini-3-pro-image",
 		"gemini-3-pro-image-preview",
 		"gemini-3.1-pro-high",
-		"gemini-3.1-pro-low",
 		"gemini-3.1-pro-preview",
-		"gemini-pro-agent",
 		"gemini-3.1-flash-image-preview":
 		return true
 	default:

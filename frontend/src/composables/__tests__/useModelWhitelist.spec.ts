@@ -33,12 +33,30 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gpt-5.2-codex')
   })
 
-  it('antigravity 模型列表包含图片模型兼容项', () => {
+  it('antigravity 模型列表只暴露当前 verified canonical IDs', () => {
     const models = getModelsByPlatform('antigravity')
 
-    expect(models).toContain('gemini-2.5-flash-image')
-    expect(models).toContain('gemini-3.1-flash-image')
-    expect(models).toContain('gemini-3-pro-image')
+    expect(models).toEqual([
+      'claude-opus-4-6-thinking',
+      'claude-sonnet-4-6',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-2.5-flash-thinking',
+      'gemini-3-flash',
+      'gemini-3-flash-agent',
+      'gemini-3.1-flash-image',
+      'gemini-3.1-flash-lite',
+      'gemini-pro-agent',
+      'gemini-3.1-pro-low',
+      'gemini-3.5-flash-extra-low',
+      'gemini-3.5-flash-low',
+      'gpt-oss-120b-medium',
+      'tab_flash_lite_preview',
+      'tab_jump_flash_lite_preview'
+    ])
+    expect(models).not.toContain('gemini-2.5-flash-image')
+    expect(models).not.toContain('gemini-3-pro-image')
+    expect(models).not.toContain('gemini-3.1-pro-high')
   })
 
   it('gemini 模型列表包含原生生图模型', () => {
@@ -48,13 +66,6 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('gemini-3.1-flash-image')
     expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.0-flash'))
     expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
-  })
-
-  it('antigravity 模型列表会把新的 Gemini 图片模型排在前面', () => {
-    const models = getModelsByPlatform('antigravity')
-
-    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
-    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash-lite'))
   })
 
   it('kiro 模型列表不暴露旧的 -agentic / -chat 后缀', () => {
@@ -200,6 +211,18 @@ describe('useModelWhitelist', () => {
     expect(mappings.every(item => item.from.startsWith('claude-'))).toBe(true)
     expect(mappings.every(item => item.to.startsWith('claude-'))).toBe(true)
     expect(mappings.some(item => item.to === 'claude-opus-4-7')).toBe(false)
+  })
+
+  it('antigravity 预设映射使用 upstream verified Gemini display tiers', () => {
+    const mappings = getPresetMappingsByPlatform('antigravity')
+
+    expect(mappings.map(({ label, from, to }) => ({ label, from, to }))).toEqual(expect.arrayContaining([
+      { label: '3.5 Flash High', from: 'gemini-3-flash-agent', to: 'gemini-3-flash-agent' },
+      { label: '3.5 Flash Medium', from: 'gemini-3.5-flash-low', to: 'gemini-3.5-flash-low' },
+      { label: '3.5 Flash Low', from: 'gemini-3.5-flash-extra-low', to: 'gemini-3.5-flash-extra-low' },
+      { label: '3.1 Pro High', from: 'gemini-pro-agent', to: 'gemini-pro-agent' },
+      { label: '3.1 Pro Low', from: 'gemini-3.1-pro-low', to: 'gemini-3.1-pro-low' }
+    ]))
   })
 
   it('combined 模式会同时保留白名单身份映射和模型映射', () => {

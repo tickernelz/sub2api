@@ -81,6 +81,8 @@ var DefaultAntigravityModelMapping = map[string]string{
 	"gemini-3-flash-agent":        "gemini-3-flash-agent",
 	"gemini-3.1-flash-image":      "gemini-3.1-flash-image",
 	"gemini-3.1-flash-lite":       "gemini-3.1-flash-lite",
+	"gemini-pro-agent":            "gemini-pro-agent",
+	"gemini-3.1-pro-low":          "gemini-3.1-pro-low",
 	"gemini-3.5-flash-extra-low":  "gemini-3.5-flash-extra-low",
 	"gemini-3.5-flash-low":        "gemini-3.5-flash-low",
 	"gpt-oss-120b-medium":         "gpt-oss-120b-medium",
