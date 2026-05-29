@@ -19,24 +19,34 @@ func NewGatewayCache(rdb *redis.Client) service.GatewayCache {
 	return &gatewayCache{rdb: rdb}
 }
 
-// buildSessionKey 构建 session key，包含 groupID 实现分组隔离
+// buildSessionKey 构建 legacy session key，包含 groupID 实现分组隔离。
 // 格式: sticky_session:{groupID}:{sessionHash}
 func buildSessionKey(groupID int64, sessionHash string) string {
 	return fmt.Sprintf("%s%d:%s", stickySessionPrefix, groupID, sessionHash)
 }
 
+// buildScopedSessionKey 构建当前 session key。
+// 当请求上下文携带 api_key_id 时，使用 api_key_id + groupID 隔离粘性会话；
+// 否则保留 legacy group-only key，避免破坏旧调用者和迁移期缓存。
+func buildScopedSessionKey(ctx context.Context, groupID int64, sessionHash string) string {
+	if apiKeyID, ok := service.APIKeyIDFromContext(ctx); ok && apiKeyID > 0 {
+		return fmt.Sprintf("%sapi_key:%d:%d:%s", stickySessionPrefix, apiKeyID, groupID, sessionHash)
+	}
+	return buildSessionKey(groupID, sessionHash)
+}
+
 func (c *gatewayCache) GetSessionAccountID(ctx context.Context, groupID int64, sessionHash string) (int64, error) {
-	key := buildSessionKey(groupID, sessionHash)
+	key := buildScopedSessionKey(ctx, groupID, sessionHash)
 	return c.rdb.Get(ctx, key).Int64()
 }
 
 func (c *gatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
-	key := buildSessionKey(groupID, sessionHash)
+	key := buildScopedSessionKey(ctx, groupID, sessionHash)
 	return c.rdb.Set(ctx, key, accountID, ttl).Err()
 }
 
 func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, sessionHash string, ttl time.Duration) error {
-	key := buildSessionKey(groupID, sessionHash)
+	key := buildScopedSessionKey(ctx, groupID, sessionHash)
 	return c.rdb.Expire(ctx, key, ttl).Err()
 }
 
@@ -48,6 +58,6 @@ func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, ses
 // Called when the bound account becomes unavailable (e.g., error status, disabled,
 // or unschedulable), allowing subsequent requests to select a new available account.
 func (c *gatewayCache) DeleteSessionAccountID(ctx context.Context, groupID int64, sessionHash string) error {
-	key := buildSessionKey(groupID, sessionHash)
+	key := buildScopedSessionKey(ctx, groupID, sessionHash)
 	return c.rdb.Del(ctx, key).Err()
 }

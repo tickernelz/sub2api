@@ -14,6 +14,7 @@ var requestMetadataKey = requestMetadataContextKey{}
 type RequestMetadata struct {
 	IsMaxTokensOneHaikuRequest *bool
 	ThinkingEnabled            *bool
+	APIKeyID                   *int64
 	PrefetchedStickyAccountID  *int64
 	PrefetchedStickyGroupID    *int64
 	SingleAccountRetry         *bool
@@ -84,6 +85,20 @@ func WithThinkingEnabled(ctx context.Context, value bool, bridgeOldKeys bool) co
 	}, func(base context.Context) context.Context {
 		return context.WithValue(base, ctxkey.ThinkingEnabled, value)
 	})
+}
+
+func WithAPIKeyID(ctx context.Context, apiKeyID int64, bridgeOldKeys bool) context.Context {
+	return updateRequestMetadata(ctx, bridgeOldKeys, func(md *RequestMetadata) {
+		id := apiKeyID
+		md.APIKeyID = &id
+	}, nil)
+}
+
+func APIKeyIDFromContext(ctx context.Context) (int64, bool) {
+	if md := metadataFromContext(ctx); md != nil && md.APIKeyID != nil {
+		return *md.APIKeyID, true
+	}
+	return 0, false
 }
 
 func WithPrefetchedStickySession(ctx context.Context, accountID, groupID int64, bridgeOldKeys bool) context.Context {

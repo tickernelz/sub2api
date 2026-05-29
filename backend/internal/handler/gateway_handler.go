@@ -1220,9 +1220,11 @@ func setSelectedAPIKeyGroup(c *gin.Context, apiKey *service.APIKey, group *servi
 	}
 	selected := cloneAPIKeyWithGroup(apiKey, group)
 	c.Set(string(middleware2.ContextKeyAPIKey), selected)
+	ctx := service.WithAPIKeyID(c.Request.Context(), apiKey.ID, false)
 	if service.IsGroupContextValid(group) {
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.Group, group))
+		ctx = context.WithValue(ctx, ctxkey.Group, group)
 	}
+	c.Request = c.Request.WithContext(ctx)
 }
 
 // GET /v1/models
