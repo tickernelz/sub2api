@@ -89,9 +89,9 @@ function mountModal() {
 describe('AccountTestModal', () => {
   beforeEach(() => {
     getAvailableModels.mockResolvedValue([
-      { id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },
+      { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' },
       { id: 'gemini-2.5-flash-image', display_name: 'Gemini 2.5 Flash Image' },
-      { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }
+      { id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' }
     ])
     copyToClipboard.mockReset()
     Object.defineProperty(globalThis, 'localStorage', {

@@ -96,7 +96,8 @@ describe('BulkEditAccountModal', () => {
     await selector.find('div.cursor-pointer').trigger('click')
 
     expect(wrapper.text()).toContain('gemini-3.1-flash-image')
-    expect(wrapper.text()).toContain('gemini-2.5-flash-image')
+    expect(wrapper.text()).toContain('gemini-2.5-flash')
+    expect(wrapper.text()).not.toContain('gemini-2.5-flash-image')
     expect(wrapper.text()).not.toContain('gpt-5.3-codex')
   })
 
@@ -107,8 +108,8 @@ describe('BulkEditAccountModal', () => {
     expect(mappingTab).toBeTruthy()
     await mappingTab!.trigger('click')
 
-    expect(wrapper.text()).toContain('3.1-Flash-Image透传')
-    expect(wrapper.text()).toContain('3-Pro-Image→3.1')
+    expect(wrapper.text()).toContain('3.1 Flash Image')
+    expect(wrapper.text()).toContain('3.1 Pro High')
     expect(wrapper.text()).not.toContain('GPT-5.3 Codex Spark')
   })
 
