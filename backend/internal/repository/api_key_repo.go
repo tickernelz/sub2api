@@ -45,6 +45,9 @@ func (r *apiKeyRepository) withTx(ctx context.Context, fn func(context.Context) 
 	}
 	tx, err := r.client.Tx(ctx)
 	if err != nil {
+		if err == dbent.ErrTxStarted {
+			return fn(ctx)
+		}
 		return err
 	}
 	txCtx := dbent.NewTxContext(ctx, tx)
