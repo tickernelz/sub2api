@@ -65,4 +65,28 @@ describe('VersionBadge', () => {
     expect(wrapper.text()).not.toContain('version.updateNow')
     expect(wrapper.find('a[href="https://github.com/tickernelz/sub2api/releases/tag/v0.1.140"]').exists()).toBe(true)
   })
+
+  it('wraps Docker update guidance instead of clipping it inside the fixed-width dropdown', async () => {
+    const wrapper = mount(VersionBadge, {
+      props: { version: '0.1.139' },
+      global: {
+        stubs: {
+          Icon: { template: '<span />' }
+        }
+      }
+    })
+
+    await wrapper.get('button').trigger('click')
+
+    const hint = wrapper
+      .findAll('p')
+      .find((node) =>
+        node.text() === 'Docker deployment, pull the latest image and recreate the container to update'
+      )
+
+    expect(hint).toBeTruthy()
+    expect(hint?.classes()).toEqual(
+      expect.arrayContaining(['min-w-0', 'flex-1', 'whitespace-normal', 'break-words', 'leading-4'])
+    )
+  })
 })
