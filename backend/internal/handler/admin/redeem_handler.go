@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/tickernelz/sub2api/internal/handler/dto"
+	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
+	"github.com/tickernelz/sub2api/internal/pkg/response"
+	"github.com/tickernelz/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )

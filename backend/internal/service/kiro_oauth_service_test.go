@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	kiropkg "github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
+	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
 	"github.com/stretchr/testify/require"
 )
 

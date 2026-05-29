@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	kiropkg "github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
+	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
 )
 
 const (

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	kiropkg "github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
+	"github.com/tickernelz/sub2api/internal/config"
+	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
 )
 
 // tokenRefreshTempUnschedDuration token 刷新重试耗尽后临时不可调度的持续时间

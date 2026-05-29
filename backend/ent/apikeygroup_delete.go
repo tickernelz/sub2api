@@ -7,8 +7,8 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
-	"github.com/Wei-Shaw/sub2api/ent/apikeygroup"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
+	"github.com/tickernelz/sub2api/ent/apikeygroup"
+	"github.com/tickernelz/sub2api/ent/predicate"
 )
 
 // APIKeyGroupDelete is the builder for deleting a APIKeyGroup entity.

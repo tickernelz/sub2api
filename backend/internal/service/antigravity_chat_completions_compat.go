@@ -10,7 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/tickernelz/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
 )
 

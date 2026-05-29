@@ -3,8 +3,8 @@
 package repository
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/tickernelz/sub2api/internal/pkg/pagination"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 func (s *AccountRepoSuite) TestList_DefaultSortByNameAsc() {

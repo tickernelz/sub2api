@@ -3,7 +3,7 @@ package provider
 import (
 	"fmt"
 
-	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/tickernelz/sub2api/internal/payment"
 )
 
 // CreateProvider creates a Provider from a provider key, instance ID and decrypted config.

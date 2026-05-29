@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
-	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/tickernelz/sub2api/ent"
+	"github.com/tickernelz/sub2api/ent/channelmonitor"
+	"github.com/tickernelz/sub2api/ent/channelmonitorhistory"
+	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/lib/pq"
 )
 

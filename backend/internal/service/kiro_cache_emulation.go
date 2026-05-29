@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/anthropictokenizer"
-	kiropkg "github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
+	"github.com/tickernelz/sub2api/internal/pkg/anthropictokenizer"
+	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
 )
 
 const (

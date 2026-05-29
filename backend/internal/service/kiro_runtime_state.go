@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/kirocooldown"
+	"github.com/tickernelz/sub2api/internal/pkg/kirocooldown"
 )
 
 var errKiroCooldownStoreUnavailable = errors.New("kiro cooldown store unavailable")

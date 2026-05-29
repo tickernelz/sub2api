@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	kiropkg "github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
+	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
 	"github.com/google/uuid"
 )
 

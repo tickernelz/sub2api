@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	kiropkg "github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
+	"github.com/tickernelz/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"

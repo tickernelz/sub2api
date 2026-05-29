@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"testing"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
+	"github.com/tickernelz/sub2api/internal/pkg/openai"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )

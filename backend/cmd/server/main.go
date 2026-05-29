@@ -15,13 +15,13 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/setup"
-	"github.com/Wei-Shaw/sub2api/internal/web"
+	_ "github.com/tickernelz/sub2api/ent/runtime"
+	"github.com/tickernelz/sub2api/internal/config"
+	"github.com/tickernelz/sub2api/internal/handler"
+	"github.com/tickernelz/sub2api/internal/pkg/logger"
+	"github.com/tickernelz/sub2api/internal/server/middleware"
+	"github.com/tickernelz/sub2api/internal/setup"
+	"github.com/tickernelz/sub2api/internal/web"
 
 	"github.com/gin-gonic/gin"
 )

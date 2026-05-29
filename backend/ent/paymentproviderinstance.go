@@ -9,7 +9,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
+	"github.com/tickernelz/sub2api/ent/paymentproviderinstance"
 )
 
 // PaymentProviderInstance is the model entity for the PaymentProviderInstance schema.

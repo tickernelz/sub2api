@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
-	kiropkg "github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
+	"github.com/tickernelz/sub2api/internal/pkg/httpclient"
+	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
 	"github.com/google/uuid"
 )
 

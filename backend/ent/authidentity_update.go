@@ -11,11 +11,11 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/authidentity"
-	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
-	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
-	"github.com/Wei-Shaw/sub2api/ent/user"
+	"github.com/tickernelz/sub2api/ent/authidentity"
+	"github.com/tickernelz/sub2api/ent/authidentitychannel"
+	"github.com/tickernelz/sub2api/ent/identityadoptiondecision"
+	"github.com/tickernelz/sub2api/ent/predicate"
+	"github.com/tickernelz/sub2api/ent/user"
 )
 
 // AuthIdentityUpdate is the builder for updating AuthIdentity entities.

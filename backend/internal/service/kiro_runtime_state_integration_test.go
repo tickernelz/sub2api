@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/kirocooldown"
+	"github.com/tickernelz/sub2api/internal/pkg/kirocooldown"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"

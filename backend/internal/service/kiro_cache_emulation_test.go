@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/anthropictokenizer"
+	"github.com/tickernelz/sub2api/internal/pkg/anthropictokenizer"
 )
 
 func TestKiroCacheEmulationGroupDefaultsAndNonKiro(t *testing.T) {

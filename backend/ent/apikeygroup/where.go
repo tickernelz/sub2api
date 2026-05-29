@@ -7,7 +7,7 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
+	"github.com/tickernelz/sub2api/ent/predicate"
 )
 
 // APIKeyID applies equality check predicate on the "api_key_id" field. It's identical to APIKeyIDEQ.

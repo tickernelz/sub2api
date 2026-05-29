@@ -11,8 +11,8 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
-	"github.com/Wei-Shaw/sub2api/ent/setting"
+	"github.com/tickernelz/sub2api/ent/predicate"
+	"github.com/tickernelz/sub2api/ent/setting"
 )
 
 // SettingUpdate is the builder for updating Setting entities.

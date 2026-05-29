@@ -3,7 +3,7 @@ package service
 import (
 	"encoding/json"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/tickernelz/sub2api/internal/pkg/apicompat"
 )
 
 const openAICompatAnthropicReplayMaxTailMessages = 12

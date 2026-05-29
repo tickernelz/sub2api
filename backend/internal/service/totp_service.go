@@ -11,7 +11,7 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
 )
 
 var (
