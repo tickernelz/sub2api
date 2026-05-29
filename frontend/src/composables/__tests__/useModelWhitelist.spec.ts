@@ -37,6 +37,7 @@ describe('useModelWhitelist', () => {
     const models = getModelsByPlatform('antigravity')
 
     expect(models).toEqual([
+      'claude-opus-4-8',
       'claude-opus-4-6-thinking',
       'claude-sonnet-4-6',
       'gemini-2.5-flash',
@@ -57,6 +58,11 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gemini-2.5-flash-image')
     expect(models).not.toContain('gemini-3-pro-image')
     expect(models).not.toContain('gemini-3.1-pro-high')
+  })
+
+  it('Claude 模型列表包含 Opus 4.8', () => {
+    expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
+    expect(getModelsByPlatform('antigravity')).toContain('claude-opus-4-8')
   })
 
   it('gemini 模型列表包含原生生图模型', () => {

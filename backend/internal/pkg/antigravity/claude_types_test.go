@@ -12,6 +12,7 @@ func TestDefaultModels_ExposeOnlyCuratedSmokePassingAntigravityModels(t *testing
 	}
 
 	want := []string{
+		"claude-opus-4-8",
 		"claude-opus-4-6-thinking",
 		"claude-sonnet-4-6",
 		"gemini-2.5-flash",
@@ -50,6 +51,7 @@ func TestDefaultModels_UsesCurrentAntigravityDisplayNames(t *testing.T) {
 	}
 
 	expected := map[string]string{
+		"claude-opus-4-8":            "Claude Opus 4.8",
 		"claude-opus-4-6-thinking":   "Claude Opus 4.6 (Thinking)",
 		"claude-sonnet-4-6":          "Claude Sonnet 4.6 (Thinking)",
 		"gemini-3-flash-agent":       "Gemini 3.5 Flash (High)",

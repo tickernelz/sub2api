@@ -9,6 +9,7 @@ func TestDefaultAntigravityModelMapping_IsCuratedToSmokePassingModels(t *testing
 	t.Parallel()
 
 	expected := map[string]string{
+		"claude-opus-4-8":             "claude-opus-4-8",
 		"claude-opus-4-6-thinking":    "claude-opus-4-6-thinking",
 		"claude-sonnet-4-6":           "claude-sonnet-4-6",
 		"gemini-2.5-flash":            "gemini-2.5-flash",
@@ -113,5 +114,29 @@ func TestDefaultKiroModelMapping_MatchesKiroReferenceModels(t *testing.T) {
 		if strings.HasSuffix(model, "-chat") {
 			t.Fatalf("did not expect chat-only Kiro mapping %q", model)
 		}
+	}
+}
+
+func TestDefaultAntigravityModelMapping_ContainsOpus48(t *testing.T) {
+	t.Parallel()
+
+	got, ok := DefaultAntigravityModelMapping["claude-opus-4-8"]
+	if !ok {
+		t.Fatal("expected mapping for claude-opus-4-8 to exist")
+	}
+	if got != "claude-opus-4-8" {
+		t.Fatalf("unexpected claude-opus-4-8 mapping: got %q", got)
+	}
+}
+
+func TestDefaultBedrockModelMapping_ContainsOpus48(t *testing.T) {
+	t.Parallel()
+
+	got, ok := DefaultBedrockModelMapping["claude-opus-4-8"]
+	if !ok {
+		t.Fatal("expected Bedrock mapping for claude-opus-4-8 to exist")
+	}
+	if got != "us.anthropic.claude-opus-4-8-v1" {
+		t.Fatalf("unexpected Bedrock claude-opus-4-8 mapping: got %q", got)
 	}
 }
