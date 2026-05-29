@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/pkg/proxyurl"
 	"github.com/google/uuid"
+	"github.com/tickernelz/sub2api/internal/pkg/proxyurl"
 )
 
 const (

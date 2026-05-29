@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 func TestAPIKeyFromService_MapsLastUsedAt(t *testing.T) {

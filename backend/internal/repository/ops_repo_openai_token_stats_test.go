@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 func TestOpsRepositoryGetOpenAITokenStats_PaginationMode(t *testing.T) {

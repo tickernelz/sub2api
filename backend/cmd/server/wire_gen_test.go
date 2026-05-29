@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tickernelz/sub2api/internal/handler"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/stretchr/testify/require"
 )
 
 func TestProvideServiceBuildInfo(t *testing.T) {

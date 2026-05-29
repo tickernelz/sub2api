@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/pkg/apicompat"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/pkg/apicompat"
 )
 
 func mustRawJSON(t *testing.T, s string) json.RawMessage {

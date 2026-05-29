@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
+	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
 )
 
 type openAITokenStatsRepoStub struct {

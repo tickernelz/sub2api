@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/internal/pkg/pagination"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
 )
 
 type APIKeyRepoSuite struct {

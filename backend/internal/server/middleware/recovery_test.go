@@ -9,10 +9,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
-	"github.com/tickernelz/sub2api/internal/pkg/response"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
+	"github.com/tickernelz/sub2api/internal/pkg/response"
 )
 
 func TestRecovery_PanicLogContainsInfo(t *testing.T) {

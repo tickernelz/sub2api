@@ -11,13 +11,13 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/internal/pkg/pagination"
 	"github.com/tickernelz/sub2api/internal/pkg/timezone"
 	"github.com/tickernelz/sub2api/internal/pkg/usagestats"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
 )
 
 type UsageLogRepoSuite struct {

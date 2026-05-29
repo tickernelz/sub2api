@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
 	"github.com/google/uuid"
+	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
 )
 
 func buildKiroAccountKey(account *Account) string {

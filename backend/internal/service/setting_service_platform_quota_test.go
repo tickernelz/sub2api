@@ -6,9 +6,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tickernelz/sub2api/internal/config"
 	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
-	"github.com/stretchr/testify/require"
 )
 
 func TestMergePlatformQuotaDefaults_PatchSemantics(t *testing.T) {

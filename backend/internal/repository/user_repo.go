@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/ent/apikey"
 	"github.com/tickernelz/sub2api/ent/authidentity"
@@ -21,7 +22,6 @@ import (
 	"github.com/tickernelz/sub2api/ent/usersubscription"
 	"github.com/tickernelz/sub2api/internal/pkg/pagination"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/lib/pq"
 
 	entsql "entgo.io/ent/dialect/sql"
 )

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tickernelz/sub2api/internal/pkg/websearch"
-	"github.com/stretchr/testify/require"
 )
 
 func TestWriteSSEMessageStart_IncludesCacheUsageFields(t *testing.T) {

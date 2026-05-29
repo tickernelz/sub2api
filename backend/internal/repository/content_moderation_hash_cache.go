@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 const contentModerationFlaggedHashSetKey = "content_moderation:flagged_hashes"

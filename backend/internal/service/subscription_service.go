@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dgraph-io/ristretto"
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/internal/config"
 	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
 	"github.com/tickernelz/sub2api/internal/pkg/pagination"
-	"github.com/dgraph-io/ristretto"
 	"golang.org/x/sync/singleflight"
 )
 

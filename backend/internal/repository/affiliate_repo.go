@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/ent/user"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/lib/pq"
 )
 
 const (

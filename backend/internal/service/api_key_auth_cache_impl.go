@@ -10,8 +10,8 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/dgraph-io/ristretto"
+	"github.com/tickernelz/sub2api/internal/config"
 )
 
 const apiKeyAuthSnapshotVersion = 13 // v13: include multi-group API key assignments in auth snapshots

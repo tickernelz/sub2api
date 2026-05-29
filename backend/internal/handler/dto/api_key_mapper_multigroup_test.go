@@ -5,8 +5,8 @@ package dto
 import (
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 func TestAPIKeyFromService_MapsAssignedGroups(t *testing.T) {

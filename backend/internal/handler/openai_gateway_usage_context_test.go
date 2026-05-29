@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
 )
 
 func TestSubmitUsageRecordTaskCopiesRequestContext(t *testing.T) {

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/ent/channelmonitor"
 	"github.com/tickernelz/sub2api/ent/channelmonitorhistory"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/lib/pq"
 )
 
 // channelMonitorRepository 实现 service.ChannelMonitorRepository。

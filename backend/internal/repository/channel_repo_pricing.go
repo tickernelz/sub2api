@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/lib/pq"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 // --- 模型定价 ---

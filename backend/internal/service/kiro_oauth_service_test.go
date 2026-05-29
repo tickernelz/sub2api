@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
 	"github.com/stretchr/testify/require"
+	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
 )
 
 func TestKiroIDCAuthRedirectURIUsesLoopbackIP(t *testing.T) {

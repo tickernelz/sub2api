@@ -17,10 +17,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/imroc/req/v3"
 	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tickernelz/sub2api/internal/pkg/antigravity"
 	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
-	"github.com/imroc/req/v3"
 	"golang.org/x/sync/singleflight"
 )
 

@@ -9,11 +9,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tickernelz/sub2api/internal/pkg/response"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/require"
 )
 
 type settingHandlerRepoStub struct {

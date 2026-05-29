@@ -6,8 +6,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
+	"github.com/tickernelz/sub2api/internal/config"
 )
 
 var ErrUpstreamResponseBodyTooLarge = errors.New("upstream response body too large")

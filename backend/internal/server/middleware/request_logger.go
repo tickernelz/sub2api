@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
-	"github.com/tickernelz/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
+	"github.com/tickernelz/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
 )
 

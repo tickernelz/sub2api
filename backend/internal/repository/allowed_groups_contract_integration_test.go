@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 func uniqueTestValue(t *testing.T, prefix string) string {

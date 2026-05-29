@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/stretchr/testify/require"
 )
 
 // mustCreateUserForQuota 在指定 client 上创建测试用户（满足 FK 约束）。

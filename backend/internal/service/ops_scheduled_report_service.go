@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
+	"github.com/tickernelz/sub2api/internal/config"
 )
 
 const (

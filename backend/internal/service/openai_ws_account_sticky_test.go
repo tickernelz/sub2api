@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/config"
 )
 
 func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_Hit(t *testing.T) {

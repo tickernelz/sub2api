@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/config"
 )
 
 func TestBuildRedisOptions(t *testing.T) {

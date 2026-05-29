@@ -6,8 +6,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/pkg/websearch"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/pkg/websearch"
 )
 
 // --- validateWebSearchConfig ---

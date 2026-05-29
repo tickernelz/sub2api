@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 type EmailCacheSuite struct {

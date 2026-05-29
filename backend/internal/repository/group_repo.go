@@ -8,12 +8,12 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/lib/pq"
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/ent/group"
 	"github.com/tickernelz/sub2api/internal/pkg/logger"
 	"github.com/tickernelz/sub2api/internal/pkg/pagination"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/lib/pq"
 
 	entsql "entgo.io/ent/dialect/sql"
 )

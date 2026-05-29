@@ -9,10 +9,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/model"
 )
 
 func TestApplyErrorPassthroughRule_NoBoundService(t *testing.T) {

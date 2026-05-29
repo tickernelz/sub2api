@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tickernelz/sub2api/ent/group"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/stretchr/testify/require"
 )
 
 func TestEnsureSimpleModeDefaultGroups_CreatesMissingDefaults(t *testing.T) {

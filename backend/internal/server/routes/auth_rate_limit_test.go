@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/handler"
-	servermiddleware "github.com/tickernelz/sub2api/internal/server/middleware"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/handler"
+	servermiddleware "github.com/tickernelz/sub2api/internal/server/middleware"
 )
 
 func newAuthRoutesTestRouter(redisClient *redis.Client) *gin.Engine {

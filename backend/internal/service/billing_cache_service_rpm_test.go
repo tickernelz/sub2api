@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/config"
 )
 
 // userRPMCacheStub 记录每种计数器被调用的次数，并可注入返回值与错误。

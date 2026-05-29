@@ -6,8 +6,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/stretchr/testify/suite"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 type SettingRepoSuite struct {

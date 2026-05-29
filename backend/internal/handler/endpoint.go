@@ -3,8 +3,8 @@ package handler
 import (
 	"strings"
 
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 // ──────────────────────────────────────────────────────────

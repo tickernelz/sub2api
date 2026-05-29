@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
-	"github.com/stretchr/testify/require"
 )
 
 func TestGetStickySessionAccountID_FallbackToLegacyKey(t *testing.T) {

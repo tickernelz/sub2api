@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/server/middleware"
 	"github.com/gin-gonic/gin"
+	"github.com/tickernelz/sub2api/internal/server/middleware"
 )
 
 const (

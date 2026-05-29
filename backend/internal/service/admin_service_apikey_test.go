@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
 	"github.com/tickernelz/sub2api/internal/pkg/pagination"
-	"github.com/stretchr/testify/require"
 )
 
 // ---------------------------------------------------------------------------

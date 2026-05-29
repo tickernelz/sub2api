@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imroc/req/v3"
 	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
 	"github.com/tickernelz/sub2api/internal/pkg/openai"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/imroc/req/v3"
 )
 
 // NewOpenAIOAuthClient creates a new OpenAI OAuth client

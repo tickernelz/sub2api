@@ -17,8 +17,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/tickernelz/sub2api/internal/pkg/anthropictokenizer"
 	"github.com/google/uuid"
+	"github.com/tickernelz/sub2api/internal/pkg/anthropictokenizer"
 	"github.com/tidwall/gjson"
 )
 

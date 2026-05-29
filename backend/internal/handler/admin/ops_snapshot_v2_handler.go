@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tickernelz/sub2api/internal/pkg/response"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
 )
 

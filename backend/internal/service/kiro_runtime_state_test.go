@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
-	"github.com/tickernelz/sub2api/internal/pkg/kirocooldown"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
+	"github.com/tickernelz/sub2api/internal/pkg/kirocooldown"
 )
 
 type stubKiroCooldownStore struct {

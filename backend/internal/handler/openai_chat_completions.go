@@ -7,13 +7,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	pkghttputil "github.com/tickernelz/sub2api/internal/pkg/httputil"
 	"github.com/tickernelz/sub2api/internal/pkg/ip"
 	"github.com/tickernelz/sub2api/internal/pkg/logger"
 	"github.com/tickernelz/sub2api/internal/pkg/openai_compat"
 	middleware2 "github.com/tickernelz/sub2api/internal/server/middleware"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )

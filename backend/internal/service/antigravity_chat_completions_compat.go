@@ -10,8 +10,8 @@ import (
 	"net/http/httptest"
 	"strings"
 
-	"github.com/tickernelz/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
+	"github.com/tickernelz/sub2api/internal/pkg/apicompat"
 )
 
 // ForwardAsChatCompletions routes OpenAI Chat Completions requests through the

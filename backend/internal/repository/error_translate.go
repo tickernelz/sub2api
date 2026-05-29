@@ -6,9 +6,9 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/lib/pq"
 	dbent "github.com/tickernelz/sub2api/ent"
 	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
-	"github.com/lib/pq"
 )
 
 // clientFromContext 从 context 中获取事务 client，如果不存在则返回默认 client。

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tickernelz/sub2api/internal/config"
 	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
-	"github.com/stretchr/testify/require"
 )
 
 type settingRepoStub struct {

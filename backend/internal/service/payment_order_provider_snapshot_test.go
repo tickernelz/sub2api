@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/payment"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/payment"
 )
 
 func TestBuildPaymentOrderProviderSnapshot_ExcludesSensitiveConfig(t *testing.T) {

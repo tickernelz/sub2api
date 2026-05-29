@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 // RPM 计数器缓存常量定义

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 func newUsageRecordTestPool(t *testing.T) *service.UsageRecordWorkerPool {

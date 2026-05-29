@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tickernelz/sub2api/internal/pkg/response"
 	"github.com/tickernelz/sub2api/internal/pkg/usagestats"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/gin-gonic/gin"
 )
 
 var dashboardSnapshotV2Cache = newSnapshotCache(30 * time.Second)

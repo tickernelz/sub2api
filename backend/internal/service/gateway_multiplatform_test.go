@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
 	"github.com/tickernelz/sub2api/internal/pkg/pagination"
-	"github.com/stretchr/testify/require"
 )
 
 // testConfig 返回一个用于测试的默认配置

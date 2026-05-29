@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/google/wire"
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/internal/config"
-	"github.com/google/wire"
 )
 
 // EncryptionKey is a named type for the payment encryption key (AES-256, 32 bytes).

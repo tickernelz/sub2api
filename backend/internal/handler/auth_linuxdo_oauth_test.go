@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/ent/authidentity"
 	"github.com/tickernelz/sub2api/ent/identityadoptiondecision"
@@ -18,8 +20,6 @@ import (
 	"github.com/tickernelz/sub2api/internal/config"
 	servermiddleware "github.com/tickernelz/sub2api/internal/server/middleware"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/require"
 )
 
 func TestSanitizeFrontendRedirectPath(t *testing.T) {

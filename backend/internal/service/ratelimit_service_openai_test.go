@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/config"
 )
 
 func TestCalculateOpenAI429ResetTime_7dExhausted(t *testing.T) {

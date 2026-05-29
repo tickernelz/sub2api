@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/config"
 )
 
 // dbFallbackRepoStub extends errorPolicyRepoStub with a configurable DB account

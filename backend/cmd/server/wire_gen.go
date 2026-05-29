@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"github.com/redis/go-redis/v9"
 	"github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tickernelz/sub2api/internal/handler"
@@ -17,7 +18,6 @@ import (
 	"github.com/tickernelz/sub2api/internal/server"
 	"github.com/tickernelz/sub2api/internal/server/middleware"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/redis/go-redis/v9"
 	"log"
 	"net/http"
 	"sync"

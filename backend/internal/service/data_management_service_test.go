@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
+	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
 )
 
 func TestDataManagementService_GetAgentHealth_Deprecated(t *testing.T) {

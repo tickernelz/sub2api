@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/tickernelz/sub2api/internal/domain"
 	"github.com/tickernelz/sub2api/internal/pkg/antigravity"
 	"github.com/tickernelz/sub2api/internal/pkg/gemini"
@@ -21,7 +22,6 @@ import (
 	"github.com/tickernelz/sub2api/internal/pkg/logger"
 	"github.com/tickernelz/sub2api/internal/server/middleware"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/google/uuid"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"

@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/pkg/websearch"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/tickernelz/sub2api/internal/pkg/websearch"
 	"github.com/tidwall/gjson"
 )
 

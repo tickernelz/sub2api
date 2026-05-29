@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lib/pq"
+	gocache "github.com/patrickmn/go-cache"
 	dbent "github.com/tickernelz/sub2api/ent"
 	dbaccount "github.com/tickernelz/sub2api/ent/account"
 	dbapikey "github.com/tickernelz/sub2api/ent/apikey"
@@ -24,8 +26,6 @@ import (
 	"github.com/tickernelz/sub2api/internal/pkg/timezone"
 	"github.com/tickernelz/sub2api/internal/pkg/usagestats"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/lib/pq"
-	gocache "github.com/patrickmn/go-cache"
 )
 
 const usageLogSelectColumns = "id, user_id, api_key_id, account_id, request_id, model, requested_model, upstream_model, group_id, subscription_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cache_creation_5m_tokens, cache_creation_1h_tokens, image_output_tokens, image_output_cost, input_cost, output_cost, cache_creation_cost, cache_read_cost, total_cost, actual_cost, rate_multiplier, account_rate_multiplier, billing_type, request_type, stream, openai_ws_mode, duration_ms, first_token_ms, user_agent, ip_address, image_count, image_size, image_input_size, image_output_size, image_size_source, image_size_breakdown, service_tier, reasoning_effort, inbound_endpoint, upstream_endpoint, cache_ttl_overridden, channel_id, model_mapping_chain, billing_tier, billing_mode, account_stats_cost, created_at"

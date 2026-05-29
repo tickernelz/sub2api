@@ -6,8 +6,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/config"
 )
 
 type turnstileVerifierSpy struct {

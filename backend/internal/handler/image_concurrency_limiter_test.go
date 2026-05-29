@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 	"github.com/tickernelz/sub2api/internal/config"
 	middleware2 "github.com/tickernelz/sub2api/internal/server/middleware"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
 

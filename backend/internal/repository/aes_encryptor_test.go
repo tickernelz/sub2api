@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/config"
 )
 
 // ── 测试辅助 ─────────────────────────────────────────────────────────────────

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/pkg/oauth"
 	"github.com/imroc/req/v3"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	"github.com/tickernelz/sub2api/internal/pkg/oauth"
 )
 
 type ClaudeOAuthServiceSuite struct {

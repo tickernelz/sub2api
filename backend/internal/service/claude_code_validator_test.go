@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
 )
 
 func TestClaudeCodeValidator_ProbeBypass(t *testing.T) {

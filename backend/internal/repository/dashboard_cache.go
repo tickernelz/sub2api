@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tickernelz/sub2api/internal/service"
-	"github.com/redis/go-redis/v9"
 )
 
 const dashboardStatsCacheKey = "dashboard:stats:v1"

@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tickernelz/sub2api/internal/pkg/antigravity"
 	"github.com/tickernelz/sub2api/internal/pkg/claude"
@@ -26,8 +28,6 @@ import (
 	"github.com/tickernelz/sub2api/internal/pkg/openai"
 	"github.com/tickernelz/sub2api/internal/pkg/openai_compat"
 	"github.com/tickernelz/sub2api/internal/util/urlvalidator"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 // sseDataPrefix matches SSE data lines with optional whitespace after colon.

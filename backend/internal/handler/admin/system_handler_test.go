@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/service"
 )
 
 type systemHandlerUpdateServiceStub struct {

@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tickernelz/sub2api/internal/config"
-	"github.com/tickernelz/sub2api/internal/pkg/pagination"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/config"
+	"github.com/tickernelz/sub2api/internal/pkg/pagination"
 )
 
 type authRepoStub struct {

@@ -13,11 +13,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tickernelz/sub2api/internal/pkg/apicompat"
 	"github.com/tickernelz/sub2api/internal/pkg/claude"
 	"github.com/tickernelz/sub2api/internal/pkg/logger"
 	"github.com/tickernelz/sub2api/internal/util/responseheaders"
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 

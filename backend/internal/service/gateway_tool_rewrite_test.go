@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
+	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tidwall/gjson"
 )
 

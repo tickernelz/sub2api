@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tickernelz/sub2api/internal/payment"
 	"github.com/smartwalle/alipay/v3"
+	"github.com/tickernelz/sub2api/internal/payment"
 )
 
 func TestIsTradeNotExist(t *testing.T) {

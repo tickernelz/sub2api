@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tickernelz/sub2api/internal/pkg/claude"
-	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
 
