@@ -1638,6 +1638,29 @@ func HasAllowedUsersWith(preds ...predicate.User) predicate.Group {
 	})
 }
 
+// HasAssignedAPIKeys applies the HasEdge predicate on the "assigned_api_keys" edge.
+func HasAssignedAPIKeys() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, AssignedAPIKeysTable, AssignedAPIKeysPrimaryKey...),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAssignedAPIKeysWith applies the HasEdge predicate on the "assigned_api_keys" edge with a given conditions (other predicates).
+func HasAssignedAPIKeysWith(preds ...predicate.APIKey) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newAssignedAPIKeysStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasAccountGroups applies the HasEdge predicate on the "account_groups" edge.
 func HasAccountGroups() predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {
@@ -1676,6 +1699,29 @@ func HasUserAllowedGroups() predicate.Group {
 func HasUserAllowedGroupsWith(preds ...predicate.UserAllowedGroup) predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {
 		step := newUserAllowedGroupsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasAPIKeyGroups applies the HasEdge predicate on the "api_key_groups" edge.
+func HasAPIKeyGroups() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, APIKeyGroupsTable, APIKeyGroupsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAPIKeyGroupsWith applies the HasEdge predicate on the "api_key_groups" edge with a given conditions (other predicates).
+func HasAPIKeyGroupsWith(preds ...predicate.APIKeyGroup) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newAPIKeyGroupsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

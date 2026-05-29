@@ -133,8 +133,9 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		// ── 5. 加载订阅（订阅模式时始终加载） ───────────────────────
 
-		// skipBilling: /v1/usage 只需鉴权，跳过所有计费执行
-		skipBilling := c.Request.URL.Path == "/v1/usage"
+		// skipBilling: /v1/usage 只需鉴权，跳过所有计费执行；multi-group gateway
+		// requests select the effective group after model parsing, then handlers re-check billing.
+		skipBilling := c.Request.URL.Path == "/v1/usage" || len(apiKey.Groups) > 1
 
 		var subscription *service.UserSubscription
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
@@ -269,15 +270,33 @@ func abortIfAPIKeyGroupUnavailable(c *gin.Context, apiKey *service.APIKey) bool 
 }
 
 func validateAPIKeyGroupAvailable(apiKey *service.APIKey) (string, string, bool) {
-	if apiKey == nil || apiKey.GroupID == nil {
+	if apiKey == nil || (apiKey.GroupID == nil && len(apiKey.GroupIDs) == 0) {
 		return "", "", true
 	}
 	group := apiKey.Group
 	if group == nil || strings.EqualFold(group.Status, "deleted") {
+		if apiKeyHasUsableAssignedGroup(apiKey) {
+			return "", "", true
+		}
 		return "GROUP_DELETED", "API Key 所属分组已删除", false
 	}
 	if !group.IsActive() {
+		if apiKeyHasUsableAssignedGroup(apiKey) {
+			return "", "", true
+		}
 		return "GROUP_DISABLED", "API Key 所属分组已停用", false
 	}
 	return "", "", true
+}
+
+func apiKeyHasUsableAssignedGroup(apiKey *service.APIKey) bool {
+	if apiKey == nil {
+		return false
+	}
+	for i := range apiKey.Groups {
+		if apiKey.Groups[i].ID > 0 && apiKey.Groups[i].IsActive() {
+			return true
+		}
+	}
+	return false
 }

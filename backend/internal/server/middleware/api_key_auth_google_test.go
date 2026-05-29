@@ -527,6 +527,64 @@ func TestApiKeyAuthWithSubscriptionGoogle_InsufficientBalance(t *testing.T) {
 	require.Equal(t, "PERMISSION_DENIED", resp.Error.Status)
 }
 
+func TestApiKeyAuthWithSubscriptionGoogle_MultiGroupDefersBillingUntilSelectedGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	defaultGroupID := int64(10)
+	selectedGroupID := int64(20)
+	defaultGroup := &service.Group{
+		ID:               defaultGroupID,
+		Name:             "default-sub",
+		Status:           service.StatusActive,
+		Platform:         service.PlatformAnthropic,
+		SubscriptionType: service.SubscriptionTypeSubscription,
+	}
+	apiKey := &service.APIKey{
+		ID:       204,
+		UserID:   12,
+		Key:      "multi-google-defer",
+		Status:   service.StatusActive,
+		GroupID:  &defaultGroupID,
+		Group:    defaultGroup,
+		GroupIDs: []int64{defaultGroupID, selectedGroupID},
+		Groups: []service.Group{
+			*defaultGroup,
+			{ID: selectedGroupID, Status: service.StatusActive, Platform: service.PlatformGemini},
+		},
+		User: &service.User{ID: 12, Status: service.StatusActive, Balance: 0, Concurrency: 3},
+	}
+
+	subscriptionCalls := 0
+	r := gin.New()
+	apiKeyService := newTestAPIKeyService(fakeAPIKeyRepo{
+		getByKey: func(ctx context.Context, key string) (*service.APIKey, error) {
+			if key != apiKey.Key {
+				return nil, service.ErrAPIKeyNotFound
+			}
+			clone := *apiKey
+			return &clone, nil
+		},
+	})
+	subscriptionService := service.NewSubscriptionService(nil,
+		fakeGoogleSubscriptionRepo{
+			getActive: func(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
+				subscriptionCalls++
+				return nil, errors.New("should defer")
+			},
+		}, nil, nil, &config.Config{},
+	)
+	r.Use(APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, &config.Config{RunMode: config.RunModeStandard}))
+	r.GET("/v1beta/test", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
+
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/test", nil)
+	req.Header.Set("Authorization", "Bearer "+apiKey.Key)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 0, subscriptionCalls)
+}
+
 func TestApiKeyAuthWithSubscriptionGoogle_TouchesLastUsedOnSuccess(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

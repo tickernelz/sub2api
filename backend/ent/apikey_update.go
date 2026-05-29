@@ -448,6 +448,21 @@ func (_u *APIKeyUpdate) SetGroup(v *Group) *APIKeyUpdate {
 	return _u.SetGroupID(v.ID)
 }
 
+// AddAssignedGroupIDs adds the "assigned_groups" edge to the Group entity by IDs.
+func (_u *APIKeyUpdate) AddAssignedGroupIDs(ids ...int64) *APIKeyUpdate {
+	_u.mutation.AddAssignedGroupIDs(ids...)
+	return _u
+}
+
+// AddAssignedGroups adds the "assigned_groups" edges to the Group entity.
+func (_u *APIKeyUpdate) AddAssignedGroups(v ...*Group) *APIKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAssignedGroupIDs(ids...)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *APIKeyUpdate) AddUsageLogIDs(ids ...int64) *APIKeyUpdate {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -478,6 +493,27 @@ func (_u *APIKeyUpdate) ClearUser() *APIKeyUpdate {
 func (_u *APIKeyUpdate) ClearGroup() *APIKeyUpdate {
 	_u.mutation.ClearGroup()
 	return _u
+}
+
+// ClearAssignedGroups clears all "assigned_groups" edges to the Group entity.
+func (_u *APIKeyUpdate) ClearAssignedGroups() *APIKeyUpdate {
+	_u.mutation.ClearAssignedGroups()
+	return _u
+}
+
+// RemoveAssignedGroupIDs removes the "assigned_groups" edge to Group entities by IDs.
+func (_u *APIKeyUpdate) RemoveAssignedGroupIDs(ids ...int64) *APIKeyUpdate {
+	_u.mutation.RemoveAssignedGroupIDs(ids...)
+	return _u
+}
+
+// RemoveAssignedGroups removes "assigned_groups" edges to Group entities.
+func (_u *APIKeyUpdate) RemoveAssignedGroups(v ...*Group) *APIKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAssignedGroupIDs(ids...)
 }
 
 // ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
@@ -752,6 +788,63 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.AssignedGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.AssignedGroupsTable,
+			Columns: apikey.AssignedGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAssignedGroupsIDs(); len(nodes) > 0 && !_u.mutation.AssignedGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.AssignedGroupsTable,
+			Columns: apikey.AssignedGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AssignedGroupsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.AssignedGroupsTable,
+			Columns: apikey.AssignedGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.UsageLogsCleared() {
@@ -1235,6 +1328,21 @@ func (_u *APIKeyUpdateOne) SetGroup(v *Group) *APIKeyUpdateOne {
 	return _u.SetGroupID(v.ID)
 }
 
+// AddAssignedGroupIDs adds the "assigned_groups" edge to the Group entity by IDs.
+func (_u *APIKeyUpdateOne) AddAssignedGroupIDs(ids ...int64) *APIKeyUpdateOne {
+	_u.mutation.AddAssignedGroupIDs(ids...)
+	return _u
+}
+
+// AddAssignedGroups adds the "assigned_groups" edges to the Group entity.
+func (_u *APIKeyUpdateOne) AddAssignedGroups(v ...*Group) *APIKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAssignedGroupIDs(ids...)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *APIKeyUpdateOne) AddUsageLogIDs(ids ...int64) *APIKeyUpdateOne {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -1265,6 +1373,27 @@ func (_u *APIKeyUpdateOne) ClearUser() *APIKeyUpdateOne {
 func (_u *APIKeyUpdateOne) ClearGroup() *APIKeyUpdateOne {
 	_u.mutation.ClearGroup()
 	return _u
+}
+
+// ClearAssignedGroups clears all "assigned_groups" edges to the Group entity.
+func (_u *APIKeyUpdateOne) ClearAssignedGroups() *APIKeyUpdateOne {
+	_u.mutation.ClearAssignedGroups()
+	return _u
+}
+
+// RemoveAssignedGroupIDs removes the "assigned_groups" edge to Group entities by IDs.
+func (_u *APIKeyUpdateOne) RemoveAssignedGroupIDs(ids ...int64) *APIKeyUpdateOne {
+	_u.mutation.RemoveAssignedGroupIDs(ids...)
+	return _u
+}
+
+// RemoveAssignedGroups removes "assigned_groups" edges to Group entities.
+func (_u *APIKeyUpdateOne) RemoveAssignedGroups(v ...*Group) *APIKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAssignedGroupIDs(ids...)
 }
 
 // ClearUsageLogs clears all "usage_logs" edges to the UsageLog entity.
@@ -1569,6 +1698,63 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.AssignedGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.AssignedGroupsTable,
+			Columns: apikey.AssignedGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAssignedGroupsIDs(); len(nodes) > 0 && !_u.mutation.AssignedGroupsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.AssignedGroupsTable,
+			Columns: apikey.AssignedGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AssignedGroupsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
+			Table:   apikey.AssignedGroupsTable,
+			Columns: apikey.AssignedGroupsPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.UsageLogsCleared() {

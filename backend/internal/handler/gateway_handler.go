@@ -1,13 +1,16 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -45,6 +48,7 @@ type GatewayHandler struct {
 	billingCacheService       *service.BillingCacheService
 	usageService              *service.UsageService
 	apiKeyService             *service.APIKeyService
+	subscriptionService       *service.SubscriptionService
 	usageRecordWorkerPool     *service.UsageRecordWorkerPool
 	errorPassthroughService   *service.ErrorPassthroughService
 	contentModerationService  *service.ContentModerationService
@@ -66,6 +70,7 @@ func NewGatewayHandler(
 	billingCacheService *service.BillingCacheService,
 	usageService *service.UsageService,
 	apiKeyService *service.APIKeyService,
+	subscriptionService *service.SubscriptionService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
 	errorPassthroughService *service.ErrorPassthroughService,
 	contentModerationService *service.ContentModerationService,
@@ -100,6 +105,7 @@ func NewGatewayHandler(
 		billingCacheService:       billingCacheService,
 		usageService:              usageService,
 		apiKeyService:             apiKeyService,
+		subscriptionService:       subscriptionService,
 		usageRecordWorkerPool:     usageRecordWorkerPool,
 		errorPassthroughService:   errorPassthroughService,
 		contentModerationService:  contentModerationService,
@@ -796,6 +802,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						zap.Bool("fallback_used", fallbackUsed),
 					)
 					if !fallbackUsed && fallbackGroupID != nil && *fallbackGroupID > 0 {
+						if !apiKeyAllowsFallbackGroup(apiKey, *fallbackGroupID) {
+							reqLog.Warn("gateway.fallback_group_not_assigned", zap.Int64("fallback_group_id", *fallbackGroupID))
+							_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
+							return
+						}
 						fallbackGroup, err := h.gatewayService.ResolveGroupByID(c.Request.Context(), *fallbackGroupID)
 						if err != nil {
 							reqLog.Warn("gateway.resolve_fallback_group_failed", zap.Int64("fallback_group_id", *fallbackGroupID), zap.Error(err))
@@ -944,27 +955,328 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 }
 
 // Models handles listing available models
+type GatewayEndpoint string
+
+const (
+	GatewayEndpointMessages        GatewayEndpoint = "messages"
+	GatewayEndpointResponses       GatewayEndpoint = "responses"
+	GatewayEndpointChatCompletions GatewayEndpoint = "chat_completions"
+	GatewayEndpointEmbeddings      GatewayEndpoint = "embeddings"
+	GatewayEndpointImages          GatewayEndpoint = "images"
+	GatewayEndpointGeminiV1Beta    GatewayEndpoint = "gemini_v1beta"
+	GatewayEndpointOpenAI          GatewayEndpoint = "openai"
+)
+
+// SelectAPIKeyGroupForRequest resolves the active group for a model-bearing gateway
+// request. It keeps client usage unchanged while downstream code continues to see a
+// single request-scoped apiKey.GroupID/apiKey.Group.
+func (h *GatewayHandler) SelectAPIKeyGroupForRequest(c *gin.Context, endpoint GatewayEndpoint) bool {
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil || len(apiKey.Groups) == 0 {
+		return true
+	}
+
+	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+	if err != nil {
+		if maxErr, ok := extractMaxBytesError(err); ok {
+			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+			return false
+		}
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		return false
+	}
+	restoreRequestBody(c, body)
+
+	forcedPlatform := ""
+	if platform, ok := middleware2.GetForcePlatformFromContext(c); ok {
+		forcedPlatform = strings.TrimSpace(platform)
+	}
+	requestedModel := extractGatewayRequestModelForEndpoint(c, endpoint, body)
+	selected, noModelCandidate := h.resolveAPIKeyGroupForGatewayRequest(c.Request.Context(), apiKey, endpoint, requestedModel, forcedPlatform)
+	if noModelCandidate {
+		writeSelectedGroupModelNotFound(c, endpoint, requestedModel)
+		return false
+	}
+	if selected == nil {
+		return true
+	}
+	if !h.setSelectedGroupSubscription(c, apiKey, selected, endpoint) {
+		return false
+	}
+	setSelectedAPIKeyGroup(c, apiKey, selected)
+	return true
+}
+
+func restoreRequestBody(c *gin.Context, body []byte) {
+	if c == nil || c.Request == nil {
+		return
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	c.Request.ContentLength = int64(len(body))
+	c.Request.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(body)), nil
+	}
+}
+
+func extractGatewayRequestModel(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var req struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(req.Model)
+}
+
+func extractGatewayRequestModelForEndpoint(c *gin.Context, endpoint GatewayEndpoint, body []byte) string {
+	if endpoint != GatewayEndpointGeminiV1Beta || c == nil {
+		return extractGatewayRequestModel(body)
+	}
+	if model := strings.TrimSpace(c.Param("model")); model != "" {
+		return model
+	}
+	if action := strings.TrimPrefix(strings.TrimSpace(c.Param("modelAction")), "/"); action != "" {
+		model, _, err := parseGeminiModelAction(action)
+		if err == nil {
+			return strings.TrimSpace(model)
+		}
+	}
+	return extractGatewayRequestModel(body)
+}
+
+func (h *GatewayHandler) resolveAPIKeyGroupForGatewayRequest(ctx context.Context, apiKey *service.APIKey, endpoint GatewayEndpoint, requestedModel string, forcedPlatform string) (*service.Group, bool) {
+	groups := apiKeyModelListGroups(apiKey, forcedPlatform)
+	if len(groups) == 0 {
+		return nil, false
+	}
+
+	compatible := groups[:0]
+	for i := range groups {
+		if gatewayEndpointAllowsPlatform(endpoint, groups[i].Platform) {
+			compatible = append(compatible, groups[i])
+		}
+	}
+	if len(compatible) == 0 {
+		return nil, false
+	}
+
+	candidates := compatible
+	if requestedModel != "" {
+		candidates = make([]service.Group, 0, len(compatible))
+		for i := range compatible {
+			if h.groupCanServeGatewayModel(ctx, &compatible[i], requestedModel) {
+				candidates = append(candidates, compatible[i])
+			}
+		}
+		if len(candidates) == 0 {
+			return nil, true
+		}
+	}
+
+	if len(candidates) > 1 {
+		eligible := make([]service.Group, 0, len(candidates))
+		for i := range candidates {
+			if h.groupPreflightEligibleForSelection(ctx, apiKey, &candidates[i]) {
+				eligible = append(eligible, candidates[i])
+			}
+		}
+		if len(eligible) > 0 {
+			candidates = eligible
+		}
+	}
+
+	if group := defaultAPIKeyGroupFromCandidates(apiKey, candidates); group != nil {
+		return group, false
+	}
+	return &candidates[0], false
+}
+
+func gatewayEndpointAllowsPlatform(endpoint GatewayEndpoint, platform string) bool {
+	switch endpoint {
+	case GatewayEndpointEmbeddings, GatewayEndpointImages, GatewayEndpointOpenAI:
+		return platform == service.PlatformOpenAI
+	case GatewayEndpointGeminiV1Beta:
+		return platform == service.PlatformGemini || platform == service.PlatformAntigravity
+	default:
+		return platform != ""
+	}
+}
+
+func (h *GatewayHandler) groupCanServeGatewayModel(ctx context.Context, group *service.Group, requestedModel string) bool {
+	if group == nil || strings.TrimSpace(requestedModel) == "" {
+		return false
+	}
+	groupID := group.ID
+	models := h.gatewayService.GetAvailableModels(ctx, &groupID, group.Platform)
+	if group.CustomModelsListEnabled() {
+		models = filterModelsByCustomList(models, defaultModelIDsForPlatform(group.Platform), group.ModelsListConfig.Models)
+	} else if len(models) == 0 {
+		models = defaultModelIDsForPlatform(group.Platform)
+	}
+	return customModelsListAllowsModel(models, requestedModel)
+}
+
+func defaultAPIKeyGroupFromCandidates(apiKey *service.APIKey, candidates []service.Group) *service.Group {
+	if apiKey == nil || apiKey.GroupID == nil {
+		return nil
+	}
+	for i := range candidates {
+		if candidates[i].ID == *apiKey.GroupID {
+			return &candidates[i]
+		}
+	}
+	return nil
+}
+
+func (h *GatewayHandler) groupPreflightEligibleForSelection(ctx context.Context, apiKey *service.APIKey, group *service.Group) bool {
+	if group == nil || !group.IsSubscriptionType() {
+		return true
+	}
+	if h == nil || h.subscriptionService == nil || apiKey == nil || apiKey.User == nil {
+		return false
+	}
+	subscription, err := h.subscriptionService.GetActiveSubscription(ctx, apiKey.User.ID, group.ID)
+	if err != nil {
+		return false
+	}
+	needsMaintenance, err := h.subscriptionService.ValidateAndCheckLimits(subscription, group)
+	if err != nil {
+		return false
+	}
+	if needsMaintenance {
+		maintenanceCopy := *subscription
+		h.subscriptionService.DoWindowMaintenance(&maintenanceCopy)
+	}
+	return true
+}
+
+func (h *GatewayHandler) setSelectedGroupSubscription(c *gin.Context, apiKey *service.APIKey, group *service.Group, endpoint GatewayEndpoint) bool {
+	if c == nil || apiKey == nil || group == nil {
+		return true
+	}
+	if !group.IsSubscriptionType() {
+		if c.Keys != nil {
+			delete(c.Keys, string(middleware2.ContextKeySubscription))
+		}
+		return true
+	}
+	existing, ok := middleware2.GetSubscriptionFromContext(c)
+	if ok && existing != nil && existing.GroupID == group.ID {
+		return true
+	}
+	if h.subscriptionService == nil || apiKey.User == nil {
+		writeSelectedGroupSubscriptionError(c, endpoint, http.StatusForbidden, "No active subscription found for this group")
+		return false
+	}
+	subscription, err := h.subscriptionService.GetActiveSubscription(c.Request.Context(), apiKey.User.ID, group.ID)
+	if err != nil {
+		writeSelectedGroupSubscriptionError(c, endpoint, http.StatusForbidden, "No active subscription found for this group")
+		return false
+	}
+	c.Set(string(middleware2.ContextKeySubscription), subscription)
+	return true
+}
+
+func writeSelectedGroupSubscriptionError(c *gin.Context, endpoint GatewayEndpoint, status int, message string) {
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
+	if endpoint == GatewayEndpointGeminiV1Beta {
+		googleError(c, status, message)
+		return
+	}
+	c.JSON(status, gin.H{
+		"type": "error",
+		"error": gin.H{
+			"type":    "permission_error",
+			"message": message,
+		},
+	})
+}
+
+func writeSelectedGroupModelNotFound(c *gin.Context, endpoint GatewayEndpoint, model string) {
+	message := "Requested model is not available for this API key"
+	if strings.TrimSpace(model) != "" {
+		message = "Requested model is not available for this API key: " + strings.TrimSpace(model)
+	}
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+	if endpoint == GatewayEndpointGeminiV1Beta {
+		googleError(c, http.StatusNotFound, message)
+		return
+	}
+	c.JSON(http.StatusNotFound, gin.H{
+		"type": "error",
+		"error": gin.H{
+			"type":    "not_found_error",
+			"message": message,
+		},
+	})
+}
+
+func setSelectedAPIKeyGroup(c *gin.Context, apiKey *service.APIKey, group *service.Group) {
+	if c == nil || apiKey == nil || group == nil {
+		return
+	}
+	selected := cloneAPIKeyWithGroup(apiKey, group)
+	c.Set(string(middleware2.ContextKeyAPIKey), selected)
+	if service.IsGroupContextValid(group) {
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.Group, group))
+	}
+}
+
 // GET /v1/models
 // Returns models based on account configurations (model_mapping whitelist)
 // Falls back to default models if no whitelist is configured
 func (h *GatewayHandler) Models(c *gin.Context) {
 	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
 
+	forcedPlatform := ""
+	if platform, ok := middleware2.GetForcePlatformFromContext(c); ok {
+		forcedPlatform = strings.TrimSpace(platform)
+	}
+
+	rawModelGroups := apiKeyModelListGroups(apiKey, forcedPlatform)
+	modelGroups := h.usableAPIKeyModelListGroups(c.Request.Context(), apiKey, forcedPlatform)
+	if apiKeyHasExplicitGroupAssignments(apiKey) && len(modelGroups) == 0 {
+		if modelGroupsUseOpenAIModelListFormat(rawModelGroups, forcedPlatform) {
+			writeOpenAIModelsList(c, nil)
+			return
+		}
+		writeModelsList(c, nil)
+		return
+	}
+	if len(modelGroups) > 1 {
+		models := h.unionAvailableModelsForGroups(c.Request.Context(), modelGroups)
+		if modelGroupsUseOpenAIModelListFormat(modelGroups, forcedPlatform) {
+			writeOpenAIModelsList(c, models)
+			return
+		}
+		writeModelsList(c, models)
+		return
+	}
+
 	var groupID *int64
 	var platform string
+	var selectedModelGroup *service.Group
 
-	if apiKey != nil && apiKey.Group != nil {
+	if len(modelGroups) == 1 {
+		selectedModelGroup = &modelGroups[0]
+		groupID = &modelGroups[0].ID
+		platform = modelGroups[0].Platform
+	} else if apiKey != nil && apiKey.Group != nil {
+		selectedModelGroup = apiKey.Group
 		groupID = &apiKey.Group.ID
 		platform = apiKey.Group.Platform
 	}
-	if forcedPlatform, ok := middleware2.GetForcePlatformFromContext(c); ok && strings.TrimSpace(forcedPlatform) != "" {
+	if forcedPlatform != "" {
 		platform = forcedPlatform
 	}
 
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
-		availableModels = filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(platform), apiKey.Group.ModelsListConfig.Models)
+	if selectedModelGroup != nil && selectedModelGroup.CustomModelsListEnabled() {
+		availableModels = filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(platform), selectedModelGroup.ModelsListConfig.Models)
 		writeCustomModelsList(c, platform, availableModels)
 		return
 	}
@@ -995,6 +1307,99 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		"object": "list",
 		"data":   claude.DefaultModels,
 	})
+}
+
+func (h *GatewayHandler) unionAvailableModelsForGroups(ctx context.Context, groups []service.Group) []string {
+	modelSet := make(map[string]struct{})
+	for i := range groups {
+		group := groups[i]
+		groupID := group.ID
+		models := h.gatewayService.GetAvailableModels(ctx, &groupID, group.Platform)
+		if group.CustomModelsListEnabled() {
+			models = filterModelsByCustomList(models, defaultModelIDsForPlatform(group.Platform), group.ModelsListConfig.Models)
+		} else if len(models) == 0 {
+			models = defaultModelIDsForPlatform(group.Platform)
+		}
+		for _, model := range models {
+			model = strings.TrimSpace(model)
+			if model == "" {
+				continue
+			}
+			modelSet[model] = struct{}{}
+		}
+	}
+	models := make([]string, 0, len(modelSet))
+	for model := range modelSet {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+	return models
+}
+
+func (h *GatewayHandler) usableAPIKeyModelListGroups(ctx context.Context, apiKey *service.APIKey, forcedPlatform string) []service.Group {
+	groups := apiKeyModelListGroups(apiKey, forcedPlatform)
+	if !apiKeyHasExplicitGroupAssignments(apiKey) {
+		return groups
+	}
+	usable := make([]service.Group, 0, len(groups))
+	for i := range groups {
+		if h.groupPreflightEligibleForSelection(ctx, apiKey, &groups[i]) {
+			usable = append(usable, groups[i])
+		}
+	}
+	return usable
+}
+
+func apiKeyHasExplicitGroupAssignments(apiKey *service.APIKey) bool {
+	return apiKey != nil && (len(apiKey.GroupIDs) > 0 || len(apiKey.Groups) > 0)
+}
+
+func apiKeyModelListGroups(apiKey *service.APIKey, forcedPlatform string) []service.Group {
+	if apiKey == nil {
+		return nil
+	}
+	forcedPlatform = strings.TrimSpace(forcedPlatform)
+	seen := make(map[int64]struct{}, len(apiKey.Groups)+1)
+	groups := make([]service.Group, 0, len(apiKey.Groups)+1)
+	appendGroup := func(group *service.Group) {
+		if group == nil || group.ID <= 0 || strings.TrimSpace(group.Platform) == "" {
+			return
+		}
+		if forcedPlatform != "" && group.Platform != forcedPlatform {
+			return
+		}
+		if group.Status != "" && group.Status != service.StatusActive {
+			return
+		}
+		if _, ok := seen[group.ID]; ok {
+			return
+		}
+		seen[group.ID] = struct{}{}
+		groups = append(groups, *group)
+	}
+	for i := range apiKey.Groups {
+		appendGroup(&apiKey.Groups[i])
+	}
+	if apiKey.Group != nil && apiKeyAllowsFallbackGroup(apiKey, apiKey.Group.ID) {
+		appendGroup(apiKey.Group)
+	}
+	return groups
+}
+
+func modelGroupsUseOpenAIModelListFormat(groups []service.Group, forcedPlatform string) bool {
+	forcedPlatform = strings.TrimSpace(forcedPlatform)
+	if forcedPlatform != "" {
+		return forcedPlatform == service.PlatformOpenAI
+	}
+	if len(groups) == 0 {
+		return false
+	}
+	for i := range groups {
+		if groups[i].Platform != service.PlatformOpenAI {
+			return false
+		}
+	}
+	return true
 }
 
 func writeModelsList(c *gin.Context, modelIDs []string) {
@@ -1134,6 +1539,29 @@ func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
 	})
 }
 
+func apiKeyAllowsFallbackGroup(apiKey *service.APIKey, groupID int64) bool {
+	if apiKey == nil || groupID <= 0 {
+		return false
+	}
+	if len(apiKey.GroupIDs) == 0 && len(apiKey.Groups) == 0 {
+		if apiKey.GroupID != nil {
+			return *apiKey.GroupID == groupID
+		}
+		return apiKey.Group != nil && apiKey.Group.ID == groupID
+	}
+	for _, id := range apiKey.GroupIDs {
+		if id == groupID {
+			return true
+		}
+	}
+	for i := range apiKey.Groups {
+		if apiKey.Groups[i].ID == groupID {
+			return true
+		}
+	}
+	return false
+}
+
 func cloneAPIKeyWithGroup(apiKey *service.APIKey, group *service.Group) *service.APIKey {
 	if apiKey == nil || group == nil {
 		return apiKey
@@ -1142,6 +1570,13 @@ func cloneAPIKeyWithGroup(apiKey *service.APIKey, group *service.Group) *service
 	groupID := group.ID
 	cloned.GroupID = &groupID
 	cloned.Group = group
+	if cloned.User != nil {
+		userCopy := *cloned.User
+		if apiKey.Group == nil || apiKey.Group.ID != group.ID {
+			userCopy.UserGroupRPMOverride = nil
+		}
+		cloned.User = &userCopy
+	}
 	return &cloned
 }
 

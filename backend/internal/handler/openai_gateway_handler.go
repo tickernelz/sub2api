@@ -28,6 +28,8 @@ import (
 // OpenAIGatewayHandler handles OpenAI API gateway requests
 type OpenAIGatewayHandler struct {
 	gatewayService           *service.OpenAIGatewayService
+	gatewayGroupResolver     *GatewayHandler
+	subscriptionService      *service.SubscriptionService
 	billingCacheService      *service.BillingCacheService
 	apiKeyService            *service.APIKeyService
 	usageRecordWorkerPool    *service.UsageRecordWorkerPool
@@ -37,6 +39,46 @@ type OpenAIGatewayHandler struct {
 	imageLimiter             *imageConcurrencyLimiter
 	maxAccountSwitches       int
 	cfg                      *config.Config
+}
+
+func (h *OpenAIGatewayHandler) selectAPIKeyGroupForOpenAIWSRequest(c *gin.Context, apiKey *service.APIKey, requestedModel string) (*service.APIKey, *service.UserSubscription, bool) {
+	if h == nil || h.gatewayGroupResolver == nil || c == nil || apiKey == nil {
+		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+		return apiKey, subscription, true
+	}
+	forcedPlatform := ""
+	if platform, ok := middleware2.GetForcePlatformFromContext(c); ok {
+		forcedPlatform = strings.TrimSpace(platform)
+	}
+	modelGroups := apiKeyModelListGroups(apiKey, forcedPlatform)
+	if len(modelGroups) == 0 {
+		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+		return apiKey, subscription, true
+	}
+	selectedGroup, noModelCandidate := h.gatewayGroupResolver.resolveAPIKeyGroupForGatewayRequest(c.Request.Context(), apiKey, GatewayEndpointOpenAI, requestedModel, forcedPlatform)
+	if noModelCandidate || selectedGroup == nil {
+		return apiKey, nil, false
+	}
+	var subscription *service.UserSubscription
+	if selectedGroup.IsSubscriptionType() {
+		if h.subscriptionService == nil || apiKey.User == nil {
+			return apiKey, nil, false
+		}
+		var err error
+		subscription, err = h.subscriptionService.GetActiveSubscription(c.Request.Context(), apiKey.User.ID, selectedGroup.ID)
+		if err != nil {
+			return apiKey, nil, false
+		}
+		c.Set(string(middleware2.ContextKeySubscription), subscription)
+	} else if c.Keys != nil {
+		delete(c.Keys, string(middleware2.ContextKeySubscription))
+	}
+	setSelectedAPIKeyGroup(c, apiKey, selectedGroup)
+	selectedAPIKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok {
+		return apiKey, subscription, false
+	}
+	return selectedAPIKey, subscription, true
 }
 
 func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedModel string) string {
@@ -49,6 +91,8 @@ func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedM
 // NewOpenAIGatewayHandler creates a new OpenAIGatewayHandler
 func NewOpenAIGatewayHandler(
 	gatewayService *service.OpenAIGatewayService,
+	gatewayGroupResolver *GatewayHandler,
+	subscriptionService *service.SubscriptionService,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
 	apiKeyService *service.APIKeyService,
@@ -67,6 +111,8 @@ func NewOpenAIGatewayHandler(
 	}
 	return &OpenAIGatewayHandler{
 		gatewayService:           gatewayService,
+		gatewayGroupResolver:     gatewayGroupResolver,
+		subscriptionService:      subscriptionService,
 		billingCacheService:      billingCacheService,
 		apiKeyService:            apiKeyService,
 		usageRecordWorkerPool:    usageRecordWorkerPool,
@@ -1193,6 +1239,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	setOpsRequestContext(c, reqModel, true)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeWSV2))
 
+	apiKey, subscription, ok := h.selectAPIKeyGroupForOpenAIWSRequest(c, apiKey, reqModel)
+	if !ok {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "requested model is not available for this API key")
+		return
+	}
+	reqLog = reqLog.With(zap.Any("selected_group_id", apiKey.GroupID))
+
 	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, firstMessage); decision != nil && decision.Blocked {
 		writeContentModerationWSError(ctx, wsConn, decision)
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, decision.Message)
@@ -1254,7 +1307,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return true
 	}
 
-	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai.websocket_billing_eligibility_check_failed", zap.Error(err))
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")

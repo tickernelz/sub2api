@@ -24,6 +24,43 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+func TestOpenAISelectAPIKeyGroupForWebSocketUsesRequestedModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	defaultGroupID := int64(101)
+	modelGroupID := int64(102)
+	resolver := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			defaultGroupID: {{ID: 1, Platform: service.PlatformOpenAI, Credentials: map[string]any{"model_mapping": map[string]any{"gpt-default": "gpt-default"}}}},
+			modelGroupID:   {{ID: 2, Platform: service.PlatformOpenAI, Credentials: map[string]any{"model_mapping": map[string]any{"gpt-selected": "gpt-selected"}}}},
+		},
+	})
+	h := &OpenAIGatewayHandler{gatewayGroupResolver: resolver}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+	apiKey := &service.APIKey{
+		ID:      1,
+		GroupID: &defaultGroupID,
+		Group:   &service.Group{ID: defaultGroupID, Platform: service.PlatformOpenAI, Status: service.StatusActive},
+		User:    &service.User{ID: 1, Status: service.StatusActive, Balance: 10},
+		Groups: []service.Group{
+			{ID: defaultGroupID, Platform: service.PlatformOpenAI, Status: service.StatusActive},
+			{ID: modelGroupID, Platform: service.PlatformOpenAI, Status: service.StatusActive},
+		},
+	}
+	c.Set(string(middleware.ContextKeyAPIKey), apiKey)
+
+	selected, subscription, ok := h.selectAPIKeyGroupForOpenAIWSRequest(c, apiKey, "gpt-selected")
+
+	require.True(t, ok)
+	require.Nil(t, subscription)
+	require.NotNil(t, selected)
+	require.NotNil(t, selected.GroupID)
+	require.Equal(t, modelGroupID, *selected.GroupID)
+}
+
 func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -106,16 +106,22 @@
                 :title="t('keys.clickToChangeGroup')"
               >
                 <GroupBadge
-                  v-if="row.group"
-                  :name="row.group.name"
-                  :platform="row.group.platform"
-                  :subscription-type="row.group.subscription_type"
-                  :rate-multiplier="row.group.rate_multiplier"
-                  :user-rate-multiplier="userGroupRates[row.group.id]"
+                  v-if="displayGroupForApiKey(row)"
+                  :name="displayGroupForApiKey(row)!.name"
+                  :platform="displayGroupForApiKey(row)!.platform"
+                  :subscription-type="displayGroupForApiKey(row)!.subscription_type"
+                  :rate-multiplier="displayGroupForApiKey(row)!.rate_multiplier"
+                  :user-rate-multiplier="userGroupRates[displayGroupForApiKey(row)!.id]"
                 />
                 <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{
                   t('keys.noGroup')
                 }}</span>
+                <span
+                  v-if="assignedGroupCount(row) > 1"
+                  class="rounded-full bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-dark-700 dark:text-gray-400"
+                >
+                  +{{ assignedGroupCount(row) - 1 }}
+                </span>
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('keys.selectGroup') }}</span>
                 <svg
                   class="h-3.5 w-3.5 text-gray-400 opacity-60 transition-opacity group-hover/dropdown:opacity-100"
@@ -405,10 +411,39 @@
         </div>
 
         <div>
-          <label class="input-label">{{ t('keys.groupLabel') }}</label>
+          <label class="input-label">{{ t('keys.assignedGroupsLabel') }}</label>
+          <div class="rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-dark-600 dark:bg-dark-800">
+            <div class="grid max-h-40 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2">
+              <label
+                v-for="option in groupOptions"
+                :key="option.value"
+                class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 transition-colors hover:bg-white dark:hover:bg-dark-700"
+              >
+                <input
+                  type="checkbox"
+                  :value="option.value"
+                  :checked="formData.group_ids.includes(option.value)"
+                  class="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+                  @change="toggleAssignedGroup(option.value, ($event.target as HTMLInputElement).checked)"
+                />
+                <GroupBadge
+                  :name="option.label"
+                  :platform="option.platform"
+                  :subscription-type="option.subscriptionType"
+                  :rate-multiplier="option.rate"
+                  :user-rate-multiplier="option.userRate"
+                />
+              </label>
+            </div>
+          </div>
+          <p class="input-hint">{{ t('keys.assignedGroupsHint') }}</p>
+        </div>
+
+        <div>
+          <label class="input-label">{{ t('keys.defaultGroupLabel') }}</label>
           <Select
             v-model="formData.group_id"
-            :options="groupOptions"
+            :options="defaultGroupOptions"
             :placeholder="t('keys.selectGroup')"
             :searchable="true"
             :search-placeholder="t('keys.searchGroup')"
@@ -925,8 +960,8 @@
       :show="showUseKeyModal"
       :api-key="selectedKey?.key || ''"
       :base-url="publicSettings?.api_base_url || ''"
-      :platform="selectedKey?.group?.platform || null"
-      :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
+      :platform="selectedKey ? displayGroupForApiKey(selectedKey)?.platform || null : null"
+      :allow-messages-dispatch="selectedKey ? displayGroupForApiKey(selectedKey)?.allow_messages_dispatch || false : false"
       @close="closeUseKeyModal"
     />
 
@@ -1014,8 +1049,7 @@
             :class="[
               'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors',
               'border-b border-gray-100 last:border-0 dark:border-dark-700',
-              selectedKeyForGroup?.group_id === option.value ||
-              (!selectedKeyForGroup?.group_id && option.value === null)
+              effectiveDefaultGroupId(selectedKeyForGroup) === option.value
                 ? 'bg-primary-50 dark:bg-primary-900/20'
                 : 'hover:bg-gray-100 dark:hover:bg-dark-700'
             ]"
@@ -1028,10 +1062,7 @@
               :rate-multiplier="option.rate"
               :user-rate-multiplier="option.userRate"
               :description="option.description"
-              :selected="
-                selectedKeyForGroup?.group_id === option.value ||
-                (!selectedKeyForGroup?.group_id && option.value === null)
-              "
+              :selected="effectiveDefaultGroupId(selectedKeyForGroup) === option.value"
             />
           </button>
           <!-- Empty state when search has no results -->
@@ -1073,6 +1104,14 @@ import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
+import {
+  apiKeyAssignedGroupIds,
+  defaultGroupForAssignedGroups,
+  displayGroupForApiKey,
+  groupIdsWithDefaultFirst,
+  groupSelectorOptionsForApiKey,
+  payloadForDefaultGroupChange
+} from '@/utils/apiKeyGroups'
 import {
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
@@ -1171,6 +1210,7 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 const formData = ref({
   name: '',
   group_id: null as number | null,
+  group_ids: [] as number[],
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
   custom_key: '',
@@ -1254,12 +1294,33 @@ const groupOptions = computed(() =>
   }))
 )
 
+const defaultGroupOptions = computed(() =>
+  groupOptions.value.filter((option) => formData.value.group_ids.includes(option.value))
+)
+
+const assignedGroupCount = (key: ApiKey): number => apiKeyAssignedGroupIds(key).length
+const effectiveDefaultGroupId = (key: ApiKey | null): number | null => {
+  if (!key) return null
+  return defaultGroupForAssignedGroups(key.group_id, apiKeyAssignedGroupIds(key))
+}
+
+const toggleAssignedGroup = (groupId: number, checked: boolean) => {
+  const nextGroupIDs = checked
+    ? groupIdsWithDefaultFirst(formData.value.group_id, [...formData.value.group_ids, groupId])
+    : formData.value.group_ids.filter((id) => id !== groupId)
+  const nextDefaultGroupID = defaultGroupForAssignedGroups(formData.value.group_id, nextGroupIDs)
+  formData.value.group_id = nextDefaultGroupID
+  formData.value.group_ids = groupIdsWithDefaultFirst(nextDefaultGroupID, nextGroupIDs)
+}
+
 // Group dropdown search
 const groupSearchQuery = ref('')
+const groupSelectorOptions = computed(() => groupSelectorOptionsForApiKey(selectedKeyForGroup.value, groupOptions.value))
 const filteredGroupOptions = computed(() => {
   const query = groupSearchQuery.value.trim().toLowerCase()
-  if (!query) return groupOptions.value
-  return groupOptions.value.filter((opt) => {
+  const options = groupSelectorOptions.value
+  if (!query) return options
+  return options.filter((opt) => {
     return opt.label.toLowerCase().includes(query) ||
       (opt.description && opt.description.toLowerCase().includes(query))
   })
@@ -1391,9 +1452,12 @@ const editKey = (key: ApiKey) => {
   selectedKey.value = key
   const hasIPRestriction = (key.ip_whitelist?.length > 0) || (key.ip_blacklist?.length > 0)
   const hasExpiration = !!key.expires_at
+  const assignedGroupIDs = apiKeyAssignedGroupIds(key)
+  const defaultGroupID = defaultGroupForAssignedGroups(key.group_id, assignedGroupIDs)
   formData.value = {
     name: key.name,
-    group_id: key.group_id,
+    group_id: defaultGroupID,
+    group_ids: groupIdsWithDefaultFirst(defaultGroupID, assignedGroupIDs),
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
     custom_key: '',
@@ -1460,10 +1524,11 @@ const openGroupSelector = (key: ApiKey) => {
 const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
   groupSelectorKeyId.value = null
   dropdownPosition.value = null
-  if (key.group_id === newGroupId) return
+  if (apiKeyAssignedGroupIds(key).length === 0) return
+  if (effectiveDefaultGroupId(key) === newGroupId) return
 
   try {
-    await keysAPI.update(key.id, { group_id: newGroupId })
+    await keysAPI.update(key.id, payloadForDefaultGroupChange(key, newGroupId))
     appStore.showSuccess(t('keys.groupChangedSuccess'))
     loadApiKeys()
   } catch (error) {
@@ -1486,11 +1551,9 @@ const confirmDelete = (key: ApiKey) => {
 }
 
 const handleSubmit = async () => {
-  // Validate group_id is required
-  if (formData.value.group_id === null) {
-    appStore.showError(t('keys.groupRequired'))
-    return
-  }
+  const normalizedGroupIDs = groupIdsWithDefaultFirst(formData.value.group_id, formData.value.group_ids)
+  formData.value.group_id = defaultGroupForAssignedGroups(formData.value.group_id, normalizedGroupIDs)
+  formData.value.group_ids = groupIdsWithDefaultFirst(formData.value.group_id, normalizedGroupIDs)
 
   // Validate custom key if enabled
   if (!showEditModal.value && formData.value.use_custom_key) {
@@ -1545,6 +1608,7 @@ const handleSubmit = async () => {
       await keysAPI.update(selectedKey.value.id, {
         name: formData.value.name,
         group_id: formData.value.group_id,
+        group_ids: formData.value.group_ids,
         status: formData.value.status,
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
@@ -1565,7 +1629,8 @@ const handleSubmit = async () => {
         ipBlacklist,
         quota,
         expiresInDays,
-        rateLimitData
+        rateLimitData,
+        formData.value.group_ids
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
@@ -1611,6 +1676,7 @@ const closeModals = () => {
   formData.value = {
     name: '',
     group_id: null,
+    group_ids: [],
     status: 'active',
     use_custom_key: false,
     custom_key: '',
@@ -1691,7 +1757,7 @@ const resetRateLimitUsage = async () => {
 }
 
 const importToCcswitch = (row: ApiKey) => {
-  const platform = row.group?.platform || 'anthropic'
+  const platform = displayGroupForApiKey(row)?.platform || 'anthropic'
 
   // For antigravity platform, show client selection dialog
   if (platform === 'antigravity') {
@@ -1706,7 +1772,7 @@ const importToCcswitch = (row: ApiKey) => {
 
 const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
   const baseUrl = publicSettings.value?.api_base_url || window.location.origin
-  const platform = row.group?.platform || 'anthropic'
+  const platform = displayGroupForApiKey(row)?.platform || 'anthropic'
 
   const usageScript = `({
     request: {

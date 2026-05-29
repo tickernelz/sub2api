@@ -776,6 +776,21 @@ func (_u *GroupUpdate) AddAllowedUsers(v ...*User) *GroupUpdate {
 	return _u.AddAllowedUserIDs(ids...)
 }
 
+// AddAssignedAPIKeyIDs adds the "assigned_api_keys" edge to the APIKey entity by IDs.
+func (_u *GroupUpdate) AddAssignedAPIKeyIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.AddAssignedAPIKeyIDs(ids...)
+	return _u
+}
+
+// AddAssignedAPIKeys adds the "assigned_api_keys" edges to the APIKey entity.
+func (_u *GroupUpdate) AddAssignedAPIKeys(v ...*APIKey) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAssignedAPIKeyIDs(ids...)
+}
+
 // Mutation returns the GroupMutation object of the builder.
 func (_u *GroupUpdate) Mutation() *GroupMutation {
 	return _u.mutation
@@ -905,6 +920,27 @@ func (_u *GroupUpdate) RemoveAllowedUsers(v ...*User) *GroupUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAllowedUserIDs(ids...)
+}
+
+// ClearAssignedAPIKeys clears all "assigned_api_keys" edges to the APIKey entity.
+func (_u *GroupUpdate) ClearAssignedAPIKeys() *GroupUpdate {
+	_u.mutation.ClearAssignedAPIKeys()
+	return _u
+}
+
+// RemoveAssignedAPIKeyIDs removes the "assigned_api_keys" edge to APIKey entities by IDs.
+func (_u *GroupUpdate) RemoveAssignedAPIKeyIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.RemoveAssignedAPIKeyIDs(ids...)
+	return _u
+}
+
+// RemoveAssignedAPIKeys removes "assigned_api_keys" edges to APIKey entities.
+func (_u *GroupUpdate) RemoveAssignedAPIKeys(v ...*APIKey) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAssignedAPIKeyIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -1468,6 +1504,63 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		createE := &UserAllowedGroupCreate{config: _u.config, mutation: newUserAllowedGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.AssignedAPIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.AssignedAPIKeysTable,
+			Columns: group.AssignedAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAssignedAPIKeysIDs(); len(nodes) > 0 && !_u.mutation.AssignedAPIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.AssignedAPIKeysTable,
+			Columns: group.AssignedAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AssignedAPIKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.AssignedAPIKeysTable,
+			Columns: group.AssignedAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
@@ -2233,6 +2326,21 @@ func (_u *GroupUpdateOne) AddAllowedUsers(v ...*User) *GroupUpdateOne {
 	return _u.AddAllowedUserIDs(ids...)
 }
 
+// AddAssignedAPIKeyIDs adds the "assigned_api_keys" edge to the APIKey entity by IDs.
+func (_u *GroupUpdateOne) AddAssignedAPIKeyIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.AddAssignedAPIKeyIDs(ids...)
+	return _u
+}
+
+// AddAssignedAPIKeys adds the "assigned_api_keys" edges to the APIKey entity.
+func (_u *GroupUpdateOne) AddAssignedAPIKeys(v ...*APIKey) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddAssignedAPIKeyIDs(ids...)
+}
+
 // Mutation returns the GroupMutation object of the builder.
 func (_u *GroupUpdateOne) Mutation() *GroupMutation {
 	return _u.mutation
@@ -2362,6 +2470,27 @@ func (_u *GroupUpdateOne) RemoveAllowedUsers(v ...*User) *GroupUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAllowedUserIDs(ids...)
+}
+
+// ClearAssignedAPIKeys clears all "assigned_api_keys" edges to the APIKey entity.
+func (_u *GroupUpdateOne) ClearAssignedAPIKeys() *GroupUpdateOne {
+	_u.mutation.ClearAssignedAPIKeys()
+	return _u
+}
+
+// RemoveAssignedAPIKeyIDs removes the "assigned_api_keys" edge to APIKey entities by IDs.
+func (_u *GroupUpdateOne) RemoveAssignedAPIKeyIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.RemoveAssignedAPIKeyIDs(ids...)
+	return _u
+}
+
+// RemoveAssignedAPIKeys removes "assigned_api_keys" edges to APIKey entities.
+func (_u *GroupUpdateOne) RemoveAssignedAPIKeys(v ...*APIKey) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveAssignedAPIKeyIDs(ids...)
 }
 
 // Where appends a list predicates to the GroupUpdate builder.
@@ -2955,6 +3084,63 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		createE := &UserAllowedGroupCreate{config: _u.config, mutation: newUserAllowedGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.AssignedAPIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.AssignedAPIKeysTable,
+			Columns: group.AssignedAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedAssignedAPIKeysIDs(); len(nodes) > 0 && !_u.mutation.AssignedAPIKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.AssignedAPIKeysTable,
+			Columns: group.AssignedAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
+		createE.defaults()
+		_, specE := createE.createSpec()
+		edge.Target.Fields = specE.Fields
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.AssignedAPIKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2M,
+			Inverse: true,
+			Table:   group.AssignedAPIKeysTable,
+			Columns: group.AssignedAPIKeysPrimaryKey,
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		createE := &APIKeyGroupCreate{config: _u.config, mutation: newAPIKeyGroupMutation(_u.config, OpCreate)}
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields

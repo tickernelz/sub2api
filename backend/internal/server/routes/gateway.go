@@ -40,8 +40,11 @@ func RegisterGatewayRoutes(
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
 	gateway.Use(requireGroupAnthropic)
 	{
-		// /v1/messages: auto-route based on group platform
+		// /v1/messages: auto-route based on selected group platform
 		gateway.POST("/messages", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointMessages) {
+				return
+			}
 			if getGroupPlatform(c) == service.PlatformOpenAI {
 				h.OpenAIGateway.Messages(c)
 				return
@@ -50,6 +53,9 @@ func RegisterGatewayRoutes(
 		})
 		// /v1/messages/count_tokens: OpenAI groups get 404
 		gateway.POST("/messages/count_tokens", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointMessages) {
+				return
+			}
 			if getGroupPlatform(c) == service.PlatformOpenAI {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
@@ -65,8 +71,11 @@ func RegisterGatewayRoutes(
 		})
 		gateway.GET("/models", h.Gateway.Models)
 		gateway.GET("/usage", h.Gateway.Usage)
-		// OpenAI Responses API: auto-route based on group platform
+		// OpenAI Responses API: auto-route based on selected group platform
 		gateway.POST("/responses", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointResponses) {
+				return
+			}
 			if getGroupPlatform(c) == service.PlatformOpenAI {
 				h.OpenAIGateway.Responses(c)
 				return
@@ -74,6 +83,9 @@ func RegisterGatewayRoutes(
 			h.Gateway.Responses(c)
 		})
 		gateway.POST("/responses/*subpath", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointResponses) {
+				return
+			}
 			if getGroupPlatform(c) == service.PlatformOpenAI {
 				h.OpenAIGateway.Responses(c)
 				return
@@ -81,8 +93,11 @@ func RegisterGatewayRoutes(
 			h.Gateway.Responses(c)
 		})
 		gateway.GET("/responses", h.OpenAIGateway.ResponsesWebSocket)
-		// OpenAI Chat Completions API: auto-route based on group platform
+		// OpenAI Chat Completions API: auto-route based on selected group platform
 		gateway.POST("/chat/completions", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointChatCompletions) {
+				return
+			}
 			if getGroupPlatform(c) == service.PlatformOpenAI {
 				h.OpenAIGateway.ChatCompletions(c)
 				return
@@ -90,6 +105,9 @@ func RegisterGatewayRoutes(
 			h.Gateway.ChatCompletions(c)
 		})
 		gateway.POST("/embeddings", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointEmbeddings) {
+				return
+			}
 			if getGroupPlatform(c) != service.PlatformOpenAI {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
@@ -103,6 +121,9 @@ func RegisterGatewayRoutes(
 			h.OpenAIGateway.Embeddings(c)
 		})
 		gateway.POST("/images/generations", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointImages) {
+				return
+			}
 			if getGroupPlatform(c) != service.PlatformOpenAI {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
@@ -116,6 +137,9 @@ func RegisterGatewayRoutes(
 			h.OpenAIGateway.Images(c)
 		})
 		gateway.POST("/images/edits", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointImages) {
+				return
+			}
 			if getGroupPlatform(c) != service.PlatformOpenAI {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
@@ -139,14 +163,32 @@ func RegisterGatewayRoutes(
 	gemini.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
 	gemini.Use(requireGroupGoogle)
 	{
-		gemini.GET("/models", h.Gateway.GeminiV1BetaListModels)
-		gemini.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
+		gemini.GET("/models", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointGeminiV1Beta) {
+				return
+			}
+			h.Gateway.GeminiV1BetaListModels(c)
+		})
+		gemini.GET("/models/:model", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointGeminiV1Beta) {
+				return
+			}
+			h.Gateway.GeminiV1BetaGetModel(c)
+		})
 		// Gin treats ":" as a param marker, but Gemini uses "{model}:{action}" in the same segment.
-		gemini.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
+		gemini.POST("/models/*modelAction", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointGeminiV1Beta) {
+				return
+			}
+			h.Gateway.GeminiV1BetaModels(c)
+		})
 	}
 
-	// OpenAI Responses API（不带v1前缀的别名）— auto-route based on group platform
+	// OpenAI Responses API（不带v1前缀的别名）— auto-route based on selected group platform
 	responsesHandler := func(c *gin.Context) {
+		if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointResponses) {
+			return
+		}
 		if getGroupPlatform(c) == service.PlatformOpenAI {
 			h.OpenAIGateway.Responses(c)
 			return
@@ -163,8 +205,11 @@ func RegisterGatewayRoutes(
 		codexDirect.POST("/responses/*subpath", responsesHandler)
 		codexDirect.GET("/responses", h.OpenAIGateway.ResponsesWebSocket)
 	}
-	// OpenAI Chat Completions API（不带v1前缀的别名）— auto-route based on group platform
+	// OpenAI Chat Completions API（不带v1前缀的别名）— auto-route based on selected group platform
 	r.POST("/chat/completions", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+		if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointChatCompletions) {
+			return
+		}
 		if getGroupPlatform(c) == service.PlatformOpenAI {
 			h.OpenAIGateway.ChatCompletions(c)
 			return
@@ -172,6 +217,9 @@ func RegisterGatewayRoutes(
 		h.Gateway.ChatCompletions(c)
 	})
 	r.POST("/embeddings", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+		if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointEmbeddings) {
+			return
+		}
 		if getGroupPlatform(c) != service.PlatformOpenAI {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
@@ -185,6 +233,9 @@ func RegisterGatewayRoutes(
 		h.OpenAIGateway.Embeddings(c)
 	})
 	r.POST("/images/generations", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+		if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointImages) {
+			return
+		}
 		if getGroupPlatform(c) != service.PlatformOpenAI {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
@@ -198,6 +249,9 @@ func RegisterGatewayRoutes(
 		h.OpenAIGateway.Images(c)
 	})
 	r.POST("/images/edits", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+		if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointImages) {
+			return
+		}
 		if getGroupPlatform(c) != service.PlatformOpenAI {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
@@ -224,7 +278,12 @@ func RegisterGatewayRoutes(
 	antigravityV1.Use(gin.HandlerFunc(apiKeyAuth))
 	antigravityV1.Use(requireGroupAnthropic)
 	{
-		antigravityV1.POST("/messages", h.Gateway.Messages)
+		antigravityV1.POST("/messages", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointMessages) {
+				return
+			}
+			h.Gateway.Messages(c)
+		})
 		antigravityV1.POST("/messages/count_tokens", h.Gateway.CountTokens)
 		antigravityV1.GET("/models", h.Gateway.AntigravityModels)
 		antigravityV1.GET("/usage", h.Gateway.Usage)
@@ -239,9 +298,24 @@ func RegisterGatewayRoutes(
 	antigravityV1Beta.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
 	antigravityV1Beta.Use(requireGroupGoogle)
 	{
-		antigravityV1Beta.GET("/models", h.Gateway.GeminiV1BetaListModels)
-		antigravityV1Beta.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
-		antigravityV1Beta.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
+		antigravityV1Beta.GET("/models", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointGeminiV1Beta) {
+				return
+			}
+			h.Gateway.GeminiV1BetaListModels(c)
+		})
+		antigravityV1Beta.GET("/models/:model", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointGeminiV1Beta) {
+				return
+			}
+			h.Gateway.GeminiV1BetaGetModel(c)
+		})
+		antigravityV1Beta.POST("/models/*modelAction", func(c *gin.Context) {
+			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointGeminiV1Beta) {
+				return
+			}
+			h.Gateway.GeminiV1BetaModels(c)
+		})
 	}
 
 }

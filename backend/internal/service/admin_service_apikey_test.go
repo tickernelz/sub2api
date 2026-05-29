@@ -69,8 +69,12 @@ func (s *userRepoStubForGroupUpdate) UpdateConcurrency(context.Context, int64, i
 	panic("unexpected")
 }
 
-func (s *userRepoStubForGroupUpdate) BatchSetConcurrency(context.Context, []int64, int) (int, error) { return 0, nil }
-func (s *userRepoStubForGroupUpdate) BatchAddConcurrency(context.Context, []int64, int) (int, error) { return 0, nil }
+func (s *userRepoStubForGroupUpdate) BatchSetConcurrency(context.Context, []int64, int) (int, error) {
+	return 0, nil
+}
+func (s *userRepoStubForGroupUpdate) BatchAddConcurrency(context.Context, []int64, int) (int, error) {
+	return 0, nil
+}
 func (s *userRepoStubForGroupUpdate) ExistsByEmail(context.Context, string) (bool, error) {
 	panic("unexpected")
 }
@@ -319,12 +323,27 @@ func TestAdminService_AdminUpdateAPIKeyGroupID_BindActiveGroup(t *testing.T) {
 	require.NotNil(t, got.APIKey.GroupID)
 	require.Equal(t, int64(10), *got.APIKey.GroupID)
 	require.Equal(t, int64(10), *apiKeyRepo.updated.GroupID)
+	require.Equal(t, []int64{10}, apiKeyRepo.updated.GroupIDs)
 	require.Equal(t, []string{"sk-test"}, cache.keys)
 	// M3: verify correct group ID was passed to repo
 	require.Equal(t, int64(10), groupRepo.lastGetByIDArg)
 	// C1 fix: verify Group object is populated
 	require.NotNil(t, got.APIKey.Group)
 	require.Equal(t, "Pro", got.APIKey.Group.Name)
+}
+
+func TestAdminService_AdminUpdateAPIKeyGroupID_PreservesAssignedGroupsWhenChangingDefault(t *testing.T) {
+	existing := &APIKey{ID: 1, Key: "sk-test", GroupID: int64Ptr(2), GroupIDs: []int64{2, 10}}
+	apiKeyRepo := &apiKeyRepoStubForGroupUpdate{key: existing}
+	groupRepo := &groupRepoStubForGroupUpdate{group: &Group{ID: 10, Name: "Pro", Status: StatusActive}}
+	cache := &authCacheInvalidatorStub{}
+	svc := &adminServiceImpl{apiKeyRepo: apiKeyRepo, groupRepo: groupRepo, authCacheInvalidator: cache}
+
+	got, err := svc.AdminUpdateAPIKeyGroupID(context.Background(), 1, int64Ptr(10))
+	require.NoError(t, err)
+	require.Equal(t, int64(10), *got.APIKey.GroupID)
+	require.Equal(t, []int64{10, 2}, apiKeyRepo.updated.GroupIDs)
+	require.Equal(t, []int64{10, 2}, got.APIKey.GroupIDs)
 }
 
 func TestAdminService_AdminUpdateAPIKeyGroupID_SameGroup_Idempotent(t *testing.T) {
