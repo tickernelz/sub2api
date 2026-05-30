@@ -45,7 +45,7 @@ func RegisterGatewayRoutes(
 			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointMessages) {
 				return
 			}
-			if getGroupPlatform(c) == service.PlatformOpenAI {
+			if isOpenAICompatibleGatewayPlatform(getGroupPlatform(c)) {
 				h.OpenAIGateway.Messages(c)
 				return
 			}
@@ -56,7 +56,7 @@ func RegisterGatewayRoutes(
 			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointMessages) {
 				return
 			}
-			if getGroupPlatform(c) == service.PlatformOpenAI {
+			if isOpenAICompatibleGatewayPlatform(getGroupPlatform(c)) {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
 					"type": "error",
@@ -76,7 +76,11 @@ func RegisterGatewayRoutes(
 			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointResponses) {
 				return
 			}
-			if getGroupPlatform(c) == service.PlatformOpenAI {
+			platform := getGroupPlatform(c)
+			if rejectUnsupportedOpenCodeCompact(c, platform) {
+				return
+			}
+			if isOpenAICompatibleGatewayPlatform(platform) {
 				h.OpenAIGateway.Responses(c)
 				return
 			}
@@ -86,7 +90,11 @@ func RegisterGatewayRoutes(
 			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointResponses) {
 				return
 			}
-			if getGroupPlatform(c) == service.PlatformOpenAI {
+			platform := getGroupPlatform(c)
+			if rejectUnsupportedOpenCodeCompact(c, platform) {
+				return
+			}
+			if isOpenAICompatibleGatewayPlatform(platform) {
 				h.OpenAIGateway.Responses(c)
 				return
 			}
@@ -98,7 +106,7 @@ func RegisterGatewayRoutes(
 			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointChatCompletions) {
 				return
 			}
-			if getGroupPlatform(c) == service.PlatformOpenAI {
+			if isOpenAICompatibleGatewayPlatform(getGroupPlatform(c)) {
 				h.OpenAIGateway.ChatCompletions(c)
 				return
 			}
@@ -189,7 +197,11 @@ func RegisterGatewayRoutes(
 		if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointResponses) {
 			return
 		}
-		if getGroupPlatform(c) == service.PlatformOpenAI {
+		platform := getGroupPlatform(c)
+		if rejectUnsupportedOpenCodeCompact(c, platform) {
+			return
+		}
+		if isOpenAICompatibleGatewayPlatform(platform) {
 			h.OpenAIGateway.Responses(c)
 			return
 		}
@@ -210,7 +222,7 @@ func RegisterGatewayRoutes(
 		if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointChatCompletions) {
 			return
 		}
-		if getGroupPlatform(c) == service.PlatformOpenAI {
+		if isOpenAICompatibleGatewayPlatform(getGroupPlatform(c)) {
 			h.OpenAIGateway.ChatCompletions(c)
 			return
 		}
@@ -327,4 +339,22 @@ func getGroupPlatform(c *gin.Context) string {
 		return ""
 	}
 	return apiKey.Group.Platform
+}
+
+func isOpenAICompatibleGatewayPlatform(platform string) bool {
+	return platform == service.PlatformOpenAI || platform == service.PlatformOpenCode
+}
+
+func rejectUnsupportedOpenCodeCompact(c *gin.Context, platform string) bool {
+	if platform != service.PlatformOpenCode || !service.IsOpenAIResponsesCompactPathForTest(c) {
+		return false
+	}
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+	c.JSON(http.StatusNotFound, gin.H{
+		"error": gin.H{
+			"type":    "not_found_error",
+			"message": "/responses/compact is not supported for OpenCode",
+		},
+	})
+	return true
 }

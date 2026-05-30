@@ -115,3 +115,42 @@ func TestUpdateAccount_EmptyCredentialsSkipsUpdate(t *testing.T) {
 	require.Equal(t, "rt-existing", repo.account.Credentials["refresh_token"], "空 credentials 不应触碰已有 token")
 	require.Equal(t, "renamed", repo.account.Name)
 }
+
+func TestCreateAccount_RejectsUnsupportedProviderAccountType(t *testing.T) {
+	repo := &updateAccountCredsRepoStub{}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	_, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "bad-opencode-oauth",
+		Platform:             PlatformOpenCode,
+		Type:                 AccountTypeOAuth,
+		Credentials:          map[string]any{},
+		SkipDefaultGroupBind: true,
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "platform opencode does not support account type oauth")
+	require.Equal(t, 0, repo.updateCalls)
+}
+
+func TestUpdateAccount_RejectsUnsupportedProviderAccountType(t *testing.T) {
+	accountID := int64(205)
+	repo := &updateAccountCredsRepoStub{
+		account: &Account{
+			ID:       accountID,
+			Platform: PlatformOpenCode,
+			Type:     AccountTypeAPIKey,
+			Status:   StatusActive,
+		},
+	}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	_, err := svc.UpdateAccount(context.Background(), accountID, &UpdateAccountInput{
+		Type: AccountTypeOAuth,
+	})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "platform opencode does not support account type oauth")
+	require.Equal(t, 0, repo.updateCalls)
+	require.Equal(t, AccountTypeAPIKey, repo.account.Type)
+}

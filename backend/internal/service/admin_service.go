@@ -25,6 +25,7 @@ import (
 	"github.com/tickernelz/sub2api/internal/pkg/logger"
 	"github.com/tickernelz/sub2api/internal/pkg/openai"
 	"github.com/tickernelz/sub2api/internal/pkg/pagination"
+	providerregistry "github.com/tickernelz/sub2api/internal/provider"
 	"github.com/tickernelz/sub2api/internal/util/httputil"
 )
 
@@ -1660,6 +1661,8 @@ func defaultModelsListCandidateIDs(platform string) []string {
 			ids = append(ids, model.ID)
 		}
 		return ids
+	case PlatformOpenCode:
+		return providerregistry.OpenCodeDefaultModelIDs()
 	default:
 		ids := make([]string, 0, len(claude.DefaultModels))
 		for _, model := range claude.DefaultModels {
@@ -2473,7 +2476,18 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	return accounts, nil
 }
 
+func validateProviderAccountType(platform, accountType string) error {
+	if def, ok := providerregistry.Get(platform); ok && !def.SupportsAccountType(accountType) {
+		return fmt.Errorf("platform %s does not support account type %s", platform, accountType)
+	}
+	return nil
+}
+
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if err := validateProviderAccountType(input.Platform, input.Type); err != nil {
+		return nil, err
+	}
+
 	// 绑定分组
 	groupIDs := input.GroupIDs
 	// 如果没有指定分组,自动绑定对应平台的默认分组
@@ -2591,6 +2605,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		account.Name = input.Name
 	}
 	if input.Type != "" {
+		if err := validateProviderAccountType(account.Platform, input.Type); err != nil {
+			return nil, err
+		}
 		account.Type = input.Type
 	}
 	if input.Notes != nil {

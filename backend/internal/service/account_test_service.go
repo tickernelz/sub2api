@@ -27,6 +27,7 @@ import (
 	kiropkg "github.com/tickernelz/sub2api/internal/pkg/kiro"
 	"github.com/tickernelz/sub2api/internal/pkg/openai"
 	"github.com/tickernelz/sub2api/internal/pkg/openai_compat"
+	providerregistry "github.com/tickernelz/sub2api/internal/provider"
 	"github.com/tickernelz/sub2api/internal/util/urlvalidator"
 )
 
@@ -145,6 +146,13 @@ func defaultOpenAITestModelIDs() []string {
 		models = append(models, model.ID)
 	}
 	return models
+}
+
+func defaultOpenAICompatibleTestModelIDs(account *Account) []string {
+	if account != nil && account.IsOpenCode() {
+		return providerregistry.OpenCodeDefaultModelIDs()
+	}
+	return defaultOpenAITestModelIDs()
 }
 
 func defaultGeminiTestModelIDs() []string {
@@ -306,7 +314,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	// Route to platform-specific test method
-	if account.IsOpenAI() {
+	if account.IsOpenAICompatibleRuntime() {
 		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 	}
 
@@ -769,12 +777,15 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	mode = normalizeAccountTestMode(mode)
 
 	// Determine the model to use from the explicit request, account mapping, then platform model list.
-	testModelID := selectAccountTestModel(account, modelID, defaultOpenAITestModelIDs())
+	testModelID := selectAccountTestModel(account, modelID, defaultOpenAICompatibleTestModelIDs(account))
 
 	// Align test routing with gateway behavior: OpenAI accounts apply normal
 	// account model mapping, and compact mode applies compact-only mapping on top.
 	testModelID = account.GetMappedModel(testModelID)
 	if mode == AccountTestModeCompact {
+		if account.IsOpenCode() {
+			return s.sendErrorAndEnd(c, "OpenCode does not support compact account tests")
+		}
 		testModelID = resolveOpenAICompactForwardModel(account, testModelID)
 		return s.testOpenAICompactConnection(c, account, testModelID)
 	}
@@ -809,13 +820,13 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		apiURL = chatgptCodexAPIURL
 		chatgptAccountID = account.GetChatGPTAccountID()
 	} else if account.Type == "apikey" {
-		// API Key - use Platform API
-		authToken = account.GetOpenAIApiKey()
+		// API Key - use OpenAI-compatible platform API
+		authToken = account.GetOpenAICompatibleAPIKey()
 		if authToken == "" {
 			return s.sendErrorAndEnd(c, "No API key available")
 		}
 
-		baseURL := account.GetOpenAIBaseURL()
+		baseURL := account.GetOpenAICompatibleBaseURL()
 		if baseURL == "" {
 			baseURL = "https://api.openai.com"
 		}
@@ -980,11 +991,11 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		apiURL = chatgptCodexAPIURL + "/compact"
 		chatgptAccountID = account.GetChatGPTAccountID()
 	case account.Type == AccountTypeAPIKey:
-		authToken = account.GetOpenAIApiKey()
+		authToken = account.GetOpenAICompatibleAPIKey()
 		if authToken == "" {
 			return s.sendErrorAndEnd(c, "No API key available")
 		}
-		baseURL := account.GetOpenAIBaseURL()
+		baseURL := account.GetOpenAICompatibleBaseURL()
 		if baseURL == "" {
 			baseURL = "https://api.openai.com"
 		}

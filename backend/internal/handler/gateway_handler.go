@@ -27,6 +27,7 @@ import (
 	"github.com/tickernelz/sub2api/internal/pkg/ip"
 	"github.com/tickernelz/sub2api/internal/pkg/logger"
 	"github.com/tickernelz/sub2api/internal/pkg/openai"
+	providerregistry "github.com/tickernelz/sub2api/internal/provider"
 	"github.com/tickernelz/sub2api/internal/pkg/timezone"
 	middleware2 "github.com/tickernelz/sub2api/internal/server/middleware"
 	"github.com/tickernelz/sub2api/internal/service"
@@ -1305,6 +1306,11 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
+	if platform == service.PlatformOpenCode {
+		writeOpenAIModelsList(c, providerregistry.OpenCodeDefaultModelIDs())
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
 		"data":   claude.DefaultModels,
@@ -1391,13 +1397,13 @@ func apiKeyModelListGroups(apiKey *service.APIKey, forcedPlatform string) []serv
 func modelGroupsUseOpenAIModelListFormat(groups []service.Group, forcedPlatform string) bool {
 	forcedPlatform = strings.TrimSpace(forcedPlatform)
 	if forcedPlatform != "" {
-		return forcedPlatform == service.PlatformOpenAI
+		return forcedPlatform == service.PlatformOpenAI || forcedPlatform == service.PlatformOpenCode
 	}
 	if len(groups) == 0 {
 		return false
 	}
 	for i := range groups {
-		if groups[i].Platform != service.PlatformOpenAI {
+		if groups[i].Platform != service.PlatformOpenAI && groups[i].Platform != service.PlatformOpenCode {
 			return false
 		}
 	}
@@ -1421,7 +1427,7 @@ func writeModelsList(c *gin.Context, modelIDs []string) {
 }
 
 func writeCustomModelsList(c *gin.Context, platform string, modelIDs []string) {
-	if platform == service.PlatformOpenAI {
+	if platform == service.PlatformOpenAI || platform == service.PlatformOpenCode {
 		writeOpenAIModelsList(c, modelIDs)
 		return
 	}
@@ -1523,6 +1529,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 			ids = append(ids, model.ID)
 		}
 		return ids
+	case service.PlatformOpenCode:
+		return providerregistry.OpenCodeDefaultModelIDs()
 	default:
 		ids := make([]string, 0, len(claude.DefaultModels))
 		for _, model := range claude.DefaultModels {

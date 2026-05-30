@@ -91,6 +91,59 @@ const kiroModels = [
   'claude-haiku-4-5-20251001-thinking'
 ]
 
+// OpenCode
+const opencodeModels = [
+  'big-pickle',
+  'gpt-5-nano',
+  'gpt-5',
+  'gpt-5-codex',
+  'gpt-5.1',
+  'gpt-5.1-codex',
+  'gpt-5.1-codex-max',
+  'gpt-5.1-codex-mini',
+  'gpt-5.2',
+  'gpt-5.2-codex',
+  'gpt-5.3-codex',
+  'gpt-5.3-codex-spark',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.4-nano',
+  'gpt-5.4-pro',
+  'gpt-5.5',
+  'gpt-5.5-pro',
+  'claude-haiku-4-5',
+  'claude-sonnet-4',
+  'claude-sonnet-4-5',
+  'claude-sonnet-4-6',
+  'claude-opus-4-1',
+  'claude-opus-4-5',
+  'claude-opus-4-6',
+  'claude-opus-4-7',
+  'gemini-3-flash',
+  'gemini-3.1-pro',
+  'gemini-3.5-flash',
+  'grok-build-0.1',
+  'glm-5',
+  'glm-5.1',
+  'minimax-m2.5',
+  'minimax-m2.7',
+  'kimi-k2.5',
+  'kimi-k2.6',
+  'qwen3.5-plus',
+  'qwen3.6-plus',
+  'deepseek-v4-flash-free',
+  'minimax-m2.5-free',
+  'nemotron-3-super-free',
+  'qwen3.6-plus-free',
+  'mimo-v2.5-pro',
+  'mimo-v2.5',
+  'mimo-v2-pro',
+  'mimo-v2-omni',
+  'qwen3.7-max',
+  'deepseek-v4-pro',
+  'deepseek-v4-flash'
+]
+
 // 智谱 GLM
 const zhipuModels = [
   'glm-4', 'glm-4v', 'glm-4-plus', 'glm-4-0520',
@@ -221,6 +274,9 @@ const allModelsList: string[] = [
   ...openaiModels,
   ...claudeModels,
   ...geminiModels,
+  ...antigravityModels,
+  ...kiroModels,
+  ...opencodeModels,
   ...zhipuModels,
   ...qwenModels,
   ...deepseekModels,
@@ -328,6 +384,13 @@ const bedrockPresetMappings = [
   { label: 'Haiku 4.5', from: 'claude-haiku-4-5', to: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' },
 ]
 
+const opencodePresetMappings = [
+  { label: 'Big Pickle', from: 'big-pickle', to: 'big-pickle', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: 'GLM 5.1', from: 'glm-5.1', to: 'glm-5.1', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
+  { label: 'GPT 5.4 Mini', from: 'gpt-5.4-mini', to: 'gpt-5.4-mini', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
+  { label: 'Qwen 3.7 Max', from: 'qwen3.7-max', to: 'qwen3.7-max', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' }
+]
+
 const kiroDefaultMappings = kiroPresetMappings.map(({ from, to }) => ({ from, to }))
 
 // Antigravity 默认映射（从后端 API 获取，与 constants.go 保持一致）
@@ -386,6 +449,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'gemini': return geminiModels
     case 'antigravity': return antigravityModels
     case 'kiro': return kiroModels
+    case 'opencode': return opencodeModels
     case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
     case 'deepseek': return deepseekModels
@@ -411,6 +475,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'kiro') return kiroPresetMappings
+  if (platform === 'opencode') return opencodePresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings
 }

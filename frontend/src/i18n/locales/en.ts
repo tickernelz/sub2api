@@ -772,7 +772,8 @@ export default {
       opencode: {
         title: 'OpenCode Example',
         subtitle: 'opencode.json',
-        hint: 'Config path: ~/.config/opencode/opencode.json (or opencode.jsonc), create if not exists. Use default providers (openai/anthropic/google) or custom provider_id. API Key can be configured directly or via /connect command. This is an example, adjust models and options as needed.',
+        description: 'Add the following OpenCode configuration file for OpenCode groups.',
+        hint: 'Config path: ~/.config/opencode/opencode.json (or opencode.jsonc), create if not exists. API Key can be configured directly or via /connect command. This is an example, adjust models and options as needed.',
       },
     },
     customKeyLabel: 'Custom Key',
@@ -1811,6 +1812,7 @@ export default {
         usageOpenAI: 'Usage (OpenAI)',
         usageGemini: 'Usage (Gemini)',
         usageAntigravity: 'Usage (Antigravity)',
+        usageOpenCode: 'Usage (OpenCode)',
         concurrency: 'Concurrency',
         status: 'Status',
         lastActive: 'Last Active',
@@ -3063,6 +3065,7 @@ export default {
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         kiro: 'Kiro',
+        opencode: 'OpenCode',
       },
       types: {
         oauth: 'OAuth',
@@ -3072,6 +3075,7 @@ export default {
         codeAssist: 'Code Assist',
         kiroOauth: 'Social OAuth / AWS Builder ID / Import',
         kiroApikey: 'Connect via Base URL + API Key',
+        opencodeApikey: 'Connect to OpenCode Zen/Go with Base URL + API Key',
         antigravityOauth: 'Antigravity OAuth',
         antigravityApikey: 'Connect via Base URL + API Key',
         upstream: 'Upstream',
@@ -3427,6 +3431,10 @@ export default {
         testModeDefault: 'Default request',
         testModeCompact: 'Compact probe',
         modelRestrictionDisabledByPassthrough: 'Automatic passthrough is enabled: model whitelist/mapping will not take effect.',
+      },
+      opencode: {
+        baseUrlHint: 'Leave default for official OpenCode Zen API; use /zen/go/v1 for OpenCode Go',
+        apiKeyHint: 'Your OpenCode API Key',
       },
       kiro: {
         baseUrlHint: 'Enter the Base URL of the Kiro-compatible upstream',

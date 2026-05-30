@@ -37,10 +37,12 @@
             :placeholder="
               account.platform === 'openai'
                 ? 'https://api.openai.com'
-                : account.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : account.platform === 'kiro'
-                    ? 'https://your-kiro-upstream.example.com'
+                : account.platform === 'opencode'
+                  ? 'https://opencode.ai/zen/v1'
+                  : account.platform === 'gemini'
+                    ? 'https://generativelanguage.googleapis.com'
+                    : account.platform === 'kiro'
+                      ? 'https://your-kiro-upstream.example.com'
                   : account.platform === 'antigravity'
                     ? 'https://cloudcode-pa.googleapis.com'
                     : 'https://api.anthropic.com'
@@ -61,10 +63,12 @@
             :placeholder="
               account.platform === 'openai'
                 ? 'sk-proj-...'
-                : account.platform === 'gemini'
-                  ? 'AIza...'
-                  : account.platform === 'kiro'
-                    ? 'sk-...'
+                : account.platform === 'opencode'
+                  ? 'sk-...'
+                  : account.platform === 'gemini'
+                    ? 'AIza...'
+                    : account.platform === 'kiro'
+                      ? 'sk-...'
                   : account.platform === 'antigravity'
                     ? 'sk-...'
                     : 'sk-ant-...'
@@ -2660,6 +2664,7 @@ const authStore = useAuthStore()
 const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
+  if (props.account.platform === 'opencode') return t('admin.accounts.opencode.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (props.account.platform === 'kiro') return t('admin.accounts.kiro.baseUrlHint')
   return t('admin.accounts.baseUrlHint')
@@ -3079,6 +3084,7 @@ const tempUnschedPresets = computed(() => [
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
+  if (props.account?.platform === 'opencode') return 'https://opencode.ai/zen/v1'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'kiro') return ''
   return 'https://api.anthropic.com'
@@ -3345,11 +3351,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     const platformDefaultUrl =
       newAccount.platform === 'openai'
         ? 'https://api.openai.com'
-        : newAccount.platform === 'gemini'
-          ? 'https://generativelanguage.googleapis.com'
-          : newAccount.platform === 'kiro'
-            ? ''
-          : 'https://api.anthropic.com'
+        : newAccount.platform === 'opencode'
+          ? 'https://opencode.ai/zen/v1'
+          : newAccount.platform === 'gemini'
+            ? 'https://generativelanguage.googleapis.com'
+            : newAccount.platform === 'kiro'
+              ? ''
+              : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
 
     // Load model mappings and detect mode

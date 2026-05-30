@@ -39,4 +39,17 @@ describe('PlatformTypeBadge', () => {
 
     expect(wrapper.text()).not.toContain('Overage')
   })
+
+  it('renders OpenCode as its own platform badge', () => {
+    const wrapper = mount(PlatformTypeBadge, {
+      props: {
+        platform: 'opencode',
+        type: 'apikey'
+      }
+    })
+
+    expect(wrapper.text()).toContain('OpenCode')
+    expect(wrapper.text()).not.toContain('Gemini')
+    expect(wrapper.find('.bg-cyan-100').exists()).toBe(true)
+  })
 })

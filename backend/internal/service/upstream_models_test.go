@@ -128,6 +128,35 @@ func TestBuildUpstreamModelsRequestsForAPIKeyAccounts(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "https://gateway.example.com/antigravity/v1/models", antigravityReq.URL.String())
 	require.Equal(t, "antigravity-key", antigravityReq.Header.Get("x-api-key"))
+
+	openCodeReq, err := svc.buildOpenCodeUpstreamModelsRequest(ctx, &Account{
+		Platform: PlatformOpenCode,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":          "opencode-key",
+			"provider_variant": "opencode-go",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://opencode.ai/zen/go/v1/models", openCodeReq.URL.String())
+	require.Equal(t, "Bearer opencode-key", openCodeReq.Header.Get("Authorization"))
+}
+
+func TestBuildOpenCodeUpstreamModelsRequestSupportsCustomBaseURL(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountTestService{cfg: upstreamModelSyncTestConfig()}
+	req, err := svc.buildOpenCodeUpstreamModelsRequest(context.Background(), &Account{
+		Platform: PlatformOpenCode,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "opencode-key",
+			"base_url": "https://proxy.example.com/opencode/v1/",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "https://proxy.example.com/opencode/v1/models", req.URL.String())
+	require.Equal(t, "Bearer opencode-key", req.Header.Get("Authorization"))
 }
 
 func TestBuildAntigravityAPIKeyModelsRequestRejectsOfficialCloudCodeBase(t *testing.T) {
@@ -191,6 +220,34 @@ func TestFetchUpstreamSupportedModelsParsesOpenAIResponse(t *testing.T) {
 	require.Equal(t, []string{"gpt-5", "o3"}, models)
 	require.Equal(t, "https://openai.example.com/v1/models", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer openai-key", upstream.lastReq.Header.Get("Authorization"))
+}
+
+func TestFetchUpstreamSupportedModelsParsesOpenCodeResponse(t *testing.T) {
+	t.Parallel()
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"glm-5.1"},{"id":"glm-5.1"},{"id":"qwen3.7-max"}]}`)),
+	}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg:          upstreamModelSyncTestConfig(),
+	}
+
+	models, err := svc.FetchUpstreamSupportedModels(context.Background(), &Account{
+		ID:       17,
+		Platform: PlatformOpenCode,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":          "opencode-key",
+			"provider_variant": "opencode-go",
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"glm-5.1", "qwen3.7-max"}, models)
+	require.Equal(t, "https://opencode.ai/zen/go/v1/models", upstream.lastReq.URL.String())
+	require.Equal(t, "Bearer opencode-key", upstream.lastReq.Header.Get("Authorization"))
 }
 
 func TestFetchUpstreamSupportedModelsDoesNotExposeUpstreamBody(t *testing.T) {

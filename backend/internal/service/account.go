@@ -15,6 +15,7 @@ import (
 
 	"github.com/tickernelz/sub2api/internal/config"
 	"github.com/tickernelz/sub2api/internal/domain"
+	providerregistry "github.com/tickernelz/sub2api/internal/provider"
 )
 
 type Account struct {
@@ -1085,6 +1086,14 @@ func (a *Account) IsOpenAI() bool {
 	return a.Platform == PlatformOpenAI
 }
 
+func (a *Account) IsOpenCode() bool {
+	return a.Platform == PlatformOpenCode
+}
+
+func (a *Account) IsOpenAICompatibleRuntime() bool {
+	return a.IsOpenAI() || a.IsOpenCode()
+}
+
 func (a *Account) IsAnthropic() bool {
 	return a.Platform == PlatformAnthropic
 }
@@ -1095,6 +1104,10 @@ func (a *Account) IsOpenAIOAuth() bool {
 
 func (a *Account) IsOpenAIApiKey() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeAPIKey
+}
+
+func (a *Account) IsOpenAICompatibleAPIKey() bool {
+	return a.IsOpenAICompatibleRuntime() && a.Type == AccountTypeAPIKey
 }
 
 func (a *Account) GetOpenAIBaseURL() string {
@@ -1138,6 +1151,48 @@ func (a *Account) GetOpenAIApiKey() string {
 	return a.GetCredential("api_key")
 }
 
+func (a *Account) GetOpenCodeAPIKey() string {
+	if !a.IsOpenCode() || a.Type != AccountTypeAPIKey {
+		return ""
+	}
+	return a.GetCredential("api_key")
+}
+
+func (a *Account) GetOpenCodeBaseURL() string {
+	if !a.IsOpenCode() {
+		return ""
+	}
+	return providerregistry.ResolveOpenCodeVariant(a.Credentials).BaseURL
+}
+
+func (a *Account) GetOpenCodeModelsURL() string {
+	if !a.IsOpenCode() {
+		return ""
+	}
+	return providerregistry.ResolveOpenCodeVariant(a.Credentials).ModelsURL
+}
+
+func (a *Account) GetOpenAICompatibleAPIKey() string {
+	if a.IsOpenCode() {
+		return a.GetOpenCodeAPIKey()
+	}
+	return a.GetOpenAIApiKey()
+}
+
+func (a *Account) GetOpenAICompatibleBaseURL() string {
+	if a.IsOpenCode() {
+		return a.GetOpenCodeBaseURL()
+	}
+	return a.GetOpenAIBaseURL()
+}
+
+func (a *Account) GetOpenAICompatibleUserAgent() string {
+	if !a.IsOpenAICompatibleRuntime() {
+		return ""
+	}
+	return a.GetCredential("user_agent")
+}
+
 func (a *Account) GetOpenAIUserAgent() string {
 	if !a.IsOpenAI() {
 		return ""
@@ -1173,13 +1228,13 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	if capability == "" {
 		return true
 	}
-	if !a.IsOpenAI() {
+	if !a.IsOpenAICompatibleRuntime() {
 		return false
 	}
 	switch capability {
 	case OpenAIEndpointCapabilityChatCompletions:
 	case OpenAIEndpointCapabilityEmbeddings:
-		if a.Type != AccountTypeAPIKey {
+		if !a.IsOpenAI() || a.Type != AccountTypeAPIKey {
 			return false
 		}
 	default:

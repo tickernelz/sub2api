@@ -116,11 +116,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	)
 
 	// 5. Build upstream request
-	apiKey := account.GetOpenAIApiKey()
+	apiKey := account.GetOpenAICompatibleAPIKey()
 	if apiKey == "" {
 		return nil, fmt.Errorf("account %d missing api_key", account.ID)
 	}
-	baseURL := account.GetOpenAIBaseURL()
+	baseURL := account.GetOpenAICompatibleBaseURL()
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}
@@ -154,7 +154,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			}
 		}
 	}
-	customUA := account.GetOpenAIUserAgent()
+	customUA := account.GetOpenAICompatibleUserAgent()
 	if customUA != "" {
 		upstreamReq.Header.Set("user-agent", customUA)
 	}

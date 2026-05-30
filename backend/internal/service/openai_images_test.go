@@ -424,6 +424,16 @@ func TestAccountSupportsOpenAIEndpointCapability(t *testing.T) {
 		require.True(t, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityEmbeddings))
 	})
 
+	t.Run("OpenCode APIKey defaults to chat compatibility only", func(t *testing.T) {
+		account := &Account{
+			Platform: PlatformOpenCode,
+			Type:     AccountTypeAPIKey,
+		}
+
+		require.True(t, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions))
+		require.False(t, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityEmbeddings))
+	})
+
 	t.Run("OpenAI OAuth 默认仅兼容 chat", func(t *testing.T) {
 		account := &Account{
 			Platform: PlatformOpenAI,

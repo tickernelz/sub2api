@@ -12,6 +12,7 @@ import (
 	"github.com/tickernelz/sub2api/internal/pkg/antigravity"
 	"github.com/tickernelz/sub2api/internal/pkg/claude"
 	"github.com/tickernelz/sub2api/internal/pkg/geminicli"
+	providerregistry "github.com/tickernelz/sub2api/internal/provider"
 )
 
 const upstreamModelsBodyLimit int64 = 8 << 20
@@ -131,6 +132,8 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 	switch {
 	case account.Platform == PlatformAntigravity:
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
+	case account.IsOpenCode():
+		return s.buildOpenCodeUpstreamModelsRequest(ctx, account)
 	case account.IsOpenAI():
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
 	case account.IsGemini():
@@ -244,6 +247,36 @@ func (s *AccountTestService) buildAntigravityAPIKeyModelsRequest(ctx context.Con
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
 	req.Header.Set("x-api-key", apiKey)
+	return req, nil
+}
+
+func (s *AccountTestService) buildOpenCodeUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	if account.Type != AccountTypeAPIKey {
+		return nil, newUpstreamModelSyncUnsupportedError(
+			fmt.Sprintf("Unsupported OpenCode account type for upstream model sync: %s", account.Type), nil,
+		)
+	}
+	apiKey := strings.TrimSpace(account.GetOpenCodeAPIKey())
+	if apiKey == "" {
+		return nil, newUpstreamModelSyncConfigError("No OpenCode API key is available", nil)
+	}
+
+	variant := providerregistry.ResolveOpenCodeVariant(account.Credentials)
+	modelsURL := strings.TrimSpace(variant.ModelsURL)
+	if modelsURL == "" {
+		modelsURL = buildOpenCodeModelsURL(variant.BaseURL)
+	}
+	modelsURL, err := s.validateUpstreamBaseURL(modelsURL)
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid OpenCode models URL", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid OpenCode model list URL", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	return req, nil
 }
 
@@ -391,6 +424,14 @@ func buildOpenAIModelsURL(base string) string {
 		return normalized + "/models"
 	}
 	return normalized + "/v1/models"
+}
+
+func buildOpenCodeModelsURL(base string) string {
+	normalized := strings.TrimRight(strings.TrimSpace(base), "/")
+	if strings.HasSuffix(normalized, "/models") {
+		return normalized
+	}
+	return normalized + "/models"
 }
 
 func buildGeminiModelsURL(base string) string {

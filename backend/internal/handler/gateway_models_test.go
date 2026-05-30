@@ -157,6 +157,43 @@ func TestGatewayModelListGroupsDoesNotUseStaleDefaultOutsideAssignments(t *testi
 	require.Equal(t, int64(10), groups[0].ID)
 }
 
+func TestGatewayModels_OpenCodeGroupFallsBackToOpenCodeModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(19)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{ID: 1, Platform: service.PlatformOpenCode, Type: service.AccountTypeAPIKey},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformOpenCode},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, "list", got.Object)
+	ids := modelIDsForTest(got.Data)
+	require.Contains(t, ids, "glm-5.1")
+	require.Contains(t, ids, "qwen3.7-max")
+	require.NotContains(t, ids, "claude-sonnet-4-5-20250929")
+	for _, item := range got.Data {
+		require.Equal(t, "model", item.Object)
+	}
+}
+
 func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

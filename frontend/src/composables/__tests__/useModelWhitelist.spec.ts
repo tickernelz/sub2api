@@ -33,6 +33,30 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gpt-5.2-codex')
   })
 
+  it('opencode 模型列表使用 OpenCode 默认模型，不回落到 Claude 默认列表', () => {
+    const models = getModelsByPlatform('opencode')
+
+    expect(models).toContain('big-pickle')
+    expect(models).toContain('glm-5.1')
+    expect(models).toContain('deepseek-v4-flash')
+    expect(models).toContain('qwen3.7-max')
+    expect(models[0]).toBe('big-pickle')
+    expect(models).not.toContain('claude-3-5-sonnet-20241022')
+  })
+
+  it('opencode 预设映射使用 OpenCode 模型，不回落到 Anthropic preset', () => {
+    const mappings = getPresetMappingsByPlatform('opencode')
+
+    expect(mappings.map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: 'big-pickle', to: 'big-pickle' },
+      { from: 'glm-5.1', to: 'glm-5.1' },
+      { from: 'gpt-5.4-mini', to: 'gpt-5.4-mini' },
+      { from: 'qwen3.7-max', to: 'qwen3.7-max' }
+    ])
+    expect(mappings.some(item => item.from === 'claude-sonnet-4-20250514')).toBe(false)
+    expect(mappings.some(item => item.to === 'claude-sonnet-4-20250514')).toBe(false)
+  })
+
   it('antigravity 模型列表只暴露当前 verified canonical IDs', () => {
     const models = getModelsByPlatform('antigravity')
 

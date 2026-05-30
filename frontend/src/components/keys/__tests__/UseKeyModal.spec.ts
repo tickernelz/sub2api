@@ -122,4 +122,40 @@ describe('UseKeyModal', () => {
     expect(codeBlock.text()).toContain('"name": "GPT-5.4 Mini"')
     expect(codeBlock.text()).not.toContain('"name": "GPT-5.4 Nano"')
   })
+
+  it('renders OpenCode groups as OpenCode config by default', () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-opencode',
+        baseUrl: 'https://example.com/v1',
+        platform: 'opencode'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    const codeBlock = wrapper.find('pre code')
+    expect(codeBlock.exists()).toBe(true)
+    const config = JSON.parse(codeBlock.text())
+
+    expect(wrapper.text()).toContain('keys.useKeyModal.opencode.description')
+    expect(Object.keys(config.provider)).toEqual(['opencode'])
+    expect(config.provider.opencode.options.baseURL).toBe('https://example.com/v1')
+    expect(config.provider.opencode.options.apiKey).toBe('sk-opencode')
+    expect(config.provider.opencode.npm).toBe('@ai-sdk/openai-compatible')
+    expect(config.provider.opencode.name).toBe('OpenCode')
+    expect(config.provider.opencode.models['big-pickle'].name).toBe('Big Pickle')
+    expect(config.provider.opencode.models['glm-5.1'].name).toBe('GLM 5.1')
+    expect(config.provider.openai).toBeUndefined()
+    expect(config.provider.anthropic).toBeUndefined()
+  })
 })

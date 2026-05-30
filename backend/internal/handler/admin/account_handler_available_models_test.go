@@ -354,6 +354,56 @@ func TestAccountHandlerGetAvailableModels_AntigravityIntersectsAccountMappingWit
 	require.Equal(t, []string{"gemini-3.5-flash-low", "claude-sonnet-4-6"}, collectAvailableModelIDsForTest(t, rec.Body.Bytes()))
 }
 
+func TestAccountHandlerGetAvailableModels_OpenCodeAPIKeyFallsBackToProviderDefaults(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       52,
+			Name:     "opencode-apikey-defaults",
+			Platform: service.PlatformOpenCode,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/52/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	ids := collectAvailableModelIDsForTest(t, rec.Body.Bytes())
+	require.Contains(t, ids, "glm-5.1")
+	require.Contains(t, ids, "qwen3.7-max")
+	require.NotContains(t, ids, "claude-sonnet-4-5-20250929")
+}
+
+func TestAccountHandlerGetAvailableModels_OpenCodeAPIKeyUsesExplicitModelMapping(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       53,
+			Name:     "opencode-apikey-mapped",
+			Platform: service.PlatformOpenCode,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{
+					"custom-opencode-model": "upstream-custom",
+				},
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/53/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, []string{"custom-opencode-model"}, collectAvailableModelIDsForTest(t, rec.Body.Bytes()))
+}
+
 func TestAccountHandlerGetAvailableModels_GeminiOAuthUsesExplicitModelMappingBeforeDefaults(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),

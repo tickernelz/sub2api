@@ -112,7 +112,8 @@ const platformOptions = computed(() => [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'gemini', label: 'Gemini' },
   { value: 'antigravity', label: 'Antigravity' },
-  { value: 'kiro', label: 'Kiro' }
+  { value: 'kiro', label: 'Kiro' },
+  { value: 'opencode', label: 'OpenCode' }
 ])
 
 const timeRangeOptions = computed(() => [

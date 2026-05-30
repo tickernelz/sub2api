@@ -103,6 +103,12 @@ type antigravityUsageCache struct {
 	timestamp time.Time
 }
 
+// opencodeUsageCache 缓存 OpenCode 三窗口额度数据
+type opencodeUsageCache struct {
+	usageInfo *UsageInfo
+	timestamp time.Time
+}
+
 // kiroUsageCache 缓存 Kiro 额度快照
 type kiroUsageCache struct {
 	usageInfo *UsageInfo
@@ -125,9 +131,11 @@ type UsageCache struct {
 	apiCache          sync.Map           // accountID -> *apiUsageCache
 	windowStatsCache  sync.Map           // accountID -> *windowStatsCache
 	antigravityCache  sync.Map           // accountID -> *antigravityUsageCache
+	opencodeCache     sync.Map           // accountID -> *opencodeUsageCache
 	kiroUsageCache    sync.Map           // accountID -> *kiroUsageCache
 	apiFlight         singleflight.Group // 防止同一账号的并发请求击穿缓存（Anthropic）
 	antigravityFlight singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
+	opencodeFlight    singleflight.Group // 防止同一 OpenCode 账号的并发请求击穿缓存
 	kiroUsageFlight   singleflight.Group // 防止同一 Kiro 账号的并发请求击穿缓存
 	openAIProbeCache  sync.Map           // accountID -> time.Time
 }
@@ -244,6 +252,12 @@ type UsageInfo struct {
 	KiroRuntimeReason    string              `json:"kiro_runtime_reason,omitempty"`
 	KiroRuntimeResetAt   *time.Time          `json:"kiro_runtime_reset_at,omitempty"`
 
+	// OpenCode triple-window quota.
+	OpenCodeFiveHour  *UsageProgress `json:"opencode_five_hour,omitempty"`
+	OpenCodeWeekly    *UsageProgress `json:"opencode_weekly,omitempty"`
+	OpenCodeMonthly   *UsageProgress `json:"opencode_monthly,omitempty"`
+	OpenCodeRateLimit bool           `json:"opencode_rate_limit,omitempty"`
+
 	// Antigravity 废弃模型转发规则 (old_model_id -> new_model_id)
 	ModelForwardingRules map[string]string `json:"model_forwarding_rules,omitempty"`
 
@@ -304,6 +318,7 @@ type AccountUsageService struct {
 	usageFetcher            ClaudeUsageFetcher
 	geminiQuotaService      *GeminiQuotaService
 	antigravityQuotaFetcher *AntigravityQuotaFetcher
+	opencodeQuotaFetcher    *OpenCodeQuotaFetcher
 	cache                   *UsageCache
 	identityCache           IdentityCache
 	tlsFPProfileService     *TLSFingerprintProfileService
@@ -321,12 +336,41 @@ func NewAccountUsageService(
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
 ) *AccountUsageService {
+	return newAccountUsageService(accountRepo, usageLogRepo, usageFetcher, geminiQuotaService, antigravityQuotaFetcher, NewOpenCodeQuotaFetcher(nil), cache, identityCache, tlsFPProfileService)
+}
+
+func ProvideAccountUsageService(
+	accountRepo AccountRepository,
+	usageLogRepo UsageLogRepository,
+	usageFetcher ClaudeUsageFetcher,
+	geminiQuotaService *GeminiQuotaService,
+	antigravityQuotaFetcher *AntigravityQuotaFetcher,
+	opencodeQuotaFetcher *OpenCodeQuotaFetcher,
+	cache *UsageCache,
+	identityCache IdentityCache,
+	tlsFPProfileService *TLSFingerprintProfileService,
+) *AccountUsageService {
+	return newAccountUsageService(accountRepo, usageLogRepo, usageFetcher, geminiQuotaService, antigravityQuotaFetcher, opencodeQuotaFetcher, cache, identityCache, tlsFPProfileService)
+}
+
+func newAccountUsageService(
+	accountRepo AccountRepository,
+	usageLogRepo UsageLogRepository,
+	usageFetcher ClaudeUsageFetcher,
+	geminiQuotaService *GeminiQuotaService,
+	antigravityQuotaFetcher *AntigravityQuotaFetcher,
+	opencodeQuotaFetcher *OpenCodeQuotaFetcher,
+	cache *UsageCache,
+	identityCache IdentityCache,
+	tlsFPProfileService *TLSFingerprintProfileService,
+) *AccountUsageService {
 	return &AccountUsageService{
 		accountRepo:             accountRepo,
 		usageLogRepo:            usageLogRepo,
 		usageFetcher:            usageFetcher,
 		geminiQuotaService:      geminiQuotaService,
 		antigravityQuotaFetcher: antigravityQuotaFetcher,
+		opencodeQuotaFetcher:    opencodeQuotaFetcher,
 		cache:                   cache,
 		identityCache:           identityCache,
 		tlsFPProfileService:     tlsFPProfileService,
@@ -375,6 +419,14 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64, for
 	// Antigravity 平台：使用 AntigravityQuotaFetcher 获取额度
 	if account.Platform == PlatformAntigravity {
 		usage, err := s.getAntigravityUsage(ctx, account, forceProbe)
+		if err == nil {
+			s.tryClearRecoverableAccountError(ctx, account)
+		}
+		return usage, err
+	}
+
+	if account.Platform == PlatformOpenCode {
+		usage, err := s.getOpenCodeUsage(ctx, account, forceProbe)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}
@@ -817,6 +869,83 @@ func (s *AccountUsageService) getGeminiUsage(ctx context.Context, account *Accou
 	}
 
 	return usage, nil
+}
+
+// getOpenCodeUsage 获取 OpenCode 账户三窗口额度。
+func (s *AccountUsageService) getOpenCodeUsage(ctx context.Context, account *Account, forceRefresh bool) (*UsageInfo, error) {
+	if s.opencodeQuotaFetcher == nil || !s.opencodeQuotaFetcher.CanFetch(account) {
+		now := time.Now()
+		return &UsageInfo{UpdatedAt: &now}, nil
+	}
+
+	if !forceRefresh {
+		if cached, ok := s.cache.opencodeCache.Load(account.ID); ok {
+			if cache, ok := cached.(*opencodeUsageCache); ok && time.Since(cache.timestamp) < apiCacheTTL {
+				usage := cache.usageInfo
+				recalcOpenCodeRemainingSeconds(usage)
+				return usage, nil
+			}
+		}
+	}
+
+	flightKey := fmt.Sprintf("opencode-usage:%d", account.ID)
+	if forceRefresh {
+		flightKey = fmt.Sprintf("opencode-usage:%d:force", account.ID)
+	}
+	result, flightErr, _ := s.cache.opencodeFlight.Do(flightKey, func() (any, error) {
+		if !forceRefresh {
+			if cached, ok := s.cache.opencodeCache.Load(account.ID); ok {
+				if cache, ok := cached.(*opencodeUsageCache); ok && time.Since(cache.timestamp) < apiCacheTTL {
+					usage := cache.usageInfo
+					recalcOpenCodeRemainingSeconds(usage)
+					return usage, nil
+				}
+			}
+		}
+
+		fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer fetchCancel()
+
+		proxyURL := s.opencodeQuotaFetcher.GetProxyURL(fetchCtx, account)
+		fetchResult, err := s.opencodeQuotaFetcher.FetchQuota(fetchCtx, account, proxyURL)
+		if err != nil {
+			return nil, err
+		}
+		if fetchResult == nil || fetchResult.UsageInfo == nil {
+			now := time.Now()
+			fetchResult = &QuotaResult{UsageInfo: &UsageInfo{UpdatedAt: &now}}
+		}
+		s.cache.opencodeCache.Store(account.ID, &opencodeUsageCache{
+			usageInfo: fetchResult.UsageInfo,
+			timestamp: time.Now(),
+		})
+		return fetchResult.UsageInfo, nil
+	})
+	if flightErr != nil {
+		return nil, flightErr
+	}
+	usage, ok := result.(*UsageInfo)
+	if !ok || usage == nil {
+		now := time.Now()
+		return &UsageInfo{UpdatedAt: &now}, nil
+	}
+	return usage, nil
+}
+
+func recalcOpenCodeRemainingSeconds(info *UsageInfo) {
+	if info == nil {
+		return
+	}
+	for _, progress := range []*UsageProgress{info.OpenCodeFiveHour, info.OpenCodeWeekly, info.OpenCodeMonthly, info.FiveHour, info.SevenDay} {
+		if progress == nil || progress.ResetsAt == nil {
+			continue
+		}
+		remaining := int(time.Until(*progress.ResetsAt).Seconds())
+		if remaining < 0 {
+			remaining = 0
+		}
+		progress.RemainingSeconds = remaining
+	}
 }
 
 // getAntigravityUsage 获取 Antigravity 账户额度

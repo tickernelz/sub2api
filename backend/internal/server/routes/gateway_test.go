@@ -15,6 +15,10 @@ import (
 )
 
 func newGatewayRoutesTestRouter() *gin.Engine {
+	return newGatewayRoutesTestRouterForPlatform(service.PlatformOpenAI)
+}
+
+func newGatewayRoutesTestRouterForPlatform(platform string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 
@@ -28,7 +32,7 @@ func newGatewayRoutesTestRouter() *gin.Engine {
 			groupID := int64(1)
 			c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
 				GroupID: &groupID,
-				Group:   &service.Group{Platform: service.PlatformOpenAI},
+				Group:   &service.Group{Platform: platform},
 			})
 			c.Next()
 		}),
@@ -58,6 +62,31 @@ func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
 		router.ServeHTTP(w, req)
 		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit OpenAI responses handler", path)
 	}
+}
+
+func TestGatewayRoutesRejectsOpenCodeResponsesCompact(t *testing.T) {
+	router := newGatewayRoutesTestRouterForPlatform(service.PlatformOpenCode)
+
+	for _, path := range []string{
+		"/v1/responses/compact",
+		"/responses/compact",
+		"/backend-api/codex/responses/compact",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"big-pickle"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code, "path=%s should reject unsupported OpenCode compact", path)
+		require.Contains(t, w.Body.String(), "/responses/compact is not supported for OpenCode")
+	}
+}
+
+func TestOpenCodeUsesOpenAICompatibleGatewayRouting(t *testing.T) {
+	require.True(t, isOpenAICompatibleGatewayPlatform(service.PlatformOpenAI))
+	require.True(t, isOpenAICompatibleGatewayPlatform(service.PlatformOpenCode))
+	require.False(t, isOpenAICompatibleGatewayPlatform(service.PlatformAnthropic))
+	require.False(t, isOpenAICompatibleGatewayPlatform(service.PlatformGemini))
 }
 
 func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {

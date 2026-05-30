@@ -9,20 +9,23 @@ import (
 	"github.com/tickernelz/sub2api/internal/service"
 )
 
-func ensureSimpleModeDefaultGroups(ctx context.Context, client *dbent.Client) error {
-	if client == nil {
-		return fmt.Errorf("nil ent client")
-	}
-
-	requiredByPlatform := map[string]int{
+func simpleModeDefaultGroupRequirements() map[string]int {
+	return map[string]int{
 		service.PlatformAnthropic:   1,
 		service.PlatformOpenAI:      1,
 		service.PlatformGemini:      1,
 		service.PlatformAntigravity: 2,
 		service.PlatformKiro:        1,
+		service.PlatformOpenCode:    1,
+	}
+}
+
+func ensureSimpleModeDefaultGroups(ctx context.Context, client *dbent.Client) error {
+	if client == nil {
+		return fmt.Errorf("nil ent client")
 	}
 
-	for platform, minCount := range requiredByPlatform {
+	for platform, minCount := range simpleModeDefaultGroupRequirements() {
 		count, err := client.Group.Query().
 			Where(group.PlatformEQ(platform), group.DeletedAtIsNil()).
 			Count(ctx)

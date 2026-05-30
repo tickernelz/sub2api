@@ -181,6 +181,8 @@ const defaultClientTab = computed(() => {
   switch (props.platform) {
     case 'openai':
       return 'codex'
+    case 'opencode':
+      return 'opencode'
     case 'gemini':
       return 'gemini'
     case 'antigravity':
@@ -288,6 +290,10 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
+    case 'opencode':
+      return [
+        { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
+      ]
     default:
       return [
         { id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon },
@@ -330,6 +336,8 @@ const platformDescription = computed(() => {
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
       return t('keys.useKeyModal.antigravity.description')
+    case 'opencode':
+      return t('keys.useKeyModal.opencode.description')
     default:
       return t('keys.useKeyModal.description')
   }
@@ -407,6 +415,8 @@ const currentFiles = computed((): FileConfig[] => {
           generateOpenCodeConfig('antigravity-claude', antigravityBase, apiKey, 'opencode.json (Claude)'),
           generateOpenCodeConfig('antigravity-gemini', antigravityGeminiBase, apiKey, 'opencode.json (Gemini)')
         ]
+      case 'opencode':
+        return [generateOpenCodeConfig('opencode', apiBase, apiKey)]
       default:
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
     }
@@ -965,6 +975,37 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
       }
     }
   }
+  const opencodeModels = {
+    'big-pickle': {
+      name: 'Big Pickle',
+      limit: {
+        context: 400000,
+        output: 128000
+      }
+    },
+    'glm-5.1': {
+      name: 'GLM 5.1',
+      limit: {
+        context: 400000,
+        output: 128000
+      }
+    },
+    'gpt-5.4-mini': {
+      name: 'GPT-5.4 Mini',
+      limit: {
+        context: 400000,
+        output: 128000
+      }
+    },
+    'qwen3.7-max': {
+      name: 'Qwen 3.7 Max',
+      limit: {
+        context: 400000,
+        output: 128000
+      }
+    }
+  }
+
   const claudeModels = {
     'claude-opus-4-6-thinking': {
       name: 'Claude 4.6 Opus (Thinking)',
@@ -1017,6 +1058,10 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     provider[platform].models = antigravityGeminiModels
   } else if (platform === 'openai') {
     provider[platform].models = openaiModels
+  } else if (platform === 'opencode') {
+    provider[platform].npm = '@ai-sdk/openai-compatible'
+    provider[platform].name = 'OpenCode'
+    provider[platform].models = opencodeModels
   }
 
   const agent =

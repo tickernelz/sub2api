@@ -27,6 +27,7 @@ import (
 	"github.com/tickernelz/sub2api/internal/pkg/openai"
 	"github.com/tickernelz/sub2api/internal/pkg/response"
 	"github.com/tickernelz/sub2api/internal/pkg/timezone"
+	providerregistry "github.com/tickernelz/sub2api/internal/provider"
 	"github.com/tickernelz/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -2014,6 +2015,17 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	// Handle OpenCode accounts
+	if account.Platform == service.PlatformOpenCode {
+		ids := accountVisibleModelIDs(account, providerregistry.OpenCodeDefaultModelIDs(), nil)
+		if len(ids) == 0 {
+			ids = providerregistry.OpenCodeDefaultModelIDs()
+		}
+		ids = filterAccountModelIDsByCustomList(account, ids)
+		response.Success(c, buildOpenCodeModelsFromIDs(ids))
+		return
+	}
+
 	// Handle Claude/Anthropic accounts
 	ids := accountVisibleModelIDs(account, defaultClaudeModelIDs(), nil)
 	if len(ids) == 0 {
@@ -2190,6 +2202,22 @@ func buildOpenAIModelsFromIDs(ids []string) []openai.Model {
 			continue
 		}
 		models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id})
+	}
+	return models
+}
+
+func buildOpenCodeModelsFromIDs(ids []string) []openai.Model {
+	models := make([]openai.Model, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		displayName := id
+		if meta, ok := providerregistry.OpenCodeModelMetadata(id); ok && strings.TrimSpace(meta.DisplayName) != "" {
+			displayName = meta.DisplayName
+		}
+		models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: displayName})
 	}
 	return models
 }

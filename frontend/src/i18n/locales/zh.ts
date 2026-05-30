@@ -775,7 +775,8 @@ export default {
       opencode: {
         title: 'OpenCode 配置示例',
         subtitle: 'opencode.json',
-        hint: '配置文件路径：~/.config/opencode/opencode.json（或 opencode.jsonc），不存在需手动创建。可使用默认 provider（openai/anthropic/google）或自定义 provider_id。API Key 支持直接配置或通过客户端 /connect 命令配置。示例仅供参考，模型与选项可按需调整。'
+        description: '为 OpenCode 分组添加以下 OpenCode 配置文件。',
+        hint: '配置文件路径：~/.config/opencode/opencode.json（或 opencode.jsonc），不存在需手动创建。API Key 支持直接配置或通过客户端 /connect 命令配置。示例仅供参考，模型与选项可按需调整。'
       }
     },
     customKeyLabel: '自定义密钥',
@@ -1832,6 +1833,7 @@ export default {
         usageOpenAI: '用量 (OpenAI)',
         usageGemini: '用量 (Gemini)',
         usageAntigravity: '用量 (Antigravity)',
+        usageOpenCode: '用量 (OpenCode)',
         concurrency: '并发数',
         status: '状态',
         lastActive: '最后活跃时间',
@@ -3249,6 +3251,7 @@ export default {
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         kiro: 'Kiro',
+        opencode: 'OpenCode',
       },
       types: {
         oauth: 'OAuth',
@@ -3258,6 +3261,7 @@ export default {
         codeAssist: 'Code Assist',
         kiroOauth: '社交 OAuth / AWS Builder ID / 导入',
         kiroApikey: '通过 Base URL + API Key 连接',
+        opencodeApikey: '通过 Base URL + API Key 连接 OpenCode Zen/Go',
         antigravityOauth: 'Antigravity OAuth',
         antigravityApikey: '通过 Base URL + API Key 连接',
         upstream: '对接上游',
@@ -3583,6 +3587,10 @@ export default {
         testModeDefault: '常规请求',
         testModeCompact: 'Compact 探测',
         modelRestrictionDisabledByPassthrough: '已开启自动透传：模型白名单/映射不会生效。',
+      },
+      opencode: {
+        baseUrlHint: '留空使用官方 OpenCode Zen API；OpenCode Go 可使用 /zen/go/v1',
+        apiKeyHint: '您的 OpenCode API Key',
       },
       kiro: {
         baseUrlHint: '请输入 Kiro 兼容上游的 Base URL',
