@@ -60,7 +60,7 @@ func newSettingServiceForPlatformQuotaTest(seed map[string]string) *SettingServi
 	return NewSettingService(repo, &config.Config{})
 }
 
-func TestGetDefaultPlatformQuotas_ReturnsFourPlatforms(t *testing.T) {
+func TestGetDefaultPlatformQuotas_ReturnsAllowedQuotaPlatforms(t *testing.T) {
 	zero := 0.0
 	svc := newSettingServiceForPlatformQuotaTest(map[string]string{
 		// 新 JSON 格式：anthropic daily=10.5, openai monthly=0, gemini/antigravity 无配置
@@ -70,8 +70,8 @@ func TestGetDefaultPlatformQuotas_ReturnsFourPlatforms(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// 必须包含全部 4 个 platform key（补齐契约）
-	for _, platform := range []string{"anthropic", "openai", "gemini", "antigravity"} {
+	// 必须包含全部允许设置 quota 的 platform key（补齐契约）
+	for _, platform := range AllowedQuotaPlatforms {
 		if _, ok := got[platform]; !ok {
 			t.Errorf("missing platform key: %q", platform)
 		}
@@ -152,7 +152,7 @@ func TestGetAuthSourcePlatformQuotas_AllNegativeOrEmpty_NoEntry(t *testing.T) {
 }
 
 // TestSystemPlatformQuotas_WriteReadRoundTrip 验证系统层 platform quota 经 buildSystemSettingsUpdates（写）
-// 再由 GetDefaultPlatformQuotas（读）正确往返——覆盖真实 write→read 路径，锁住 4-key 补齐契约。
+// 再由 GetDefaultPlatformQuotas（读）正确往返——覆盖真实 write→read 路径，锁住 allowed-platform 补齐契约。
 func TestSystemPlatformQuotas_WriteReadRoundTrip(t *testing.T) {
 	svc := newSettingServiceForPlatformQuotaTest(nil)
 	ctx := context.Background()
@@ -171,10 +171,10 @@ func TestSystemPlatformQuotas_WriteReadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 4-key 补齐契约：无论写了几个 platform，读回必须含全部 4 个
-	for _, p := range []string{"anthropic", "openai", "gemini", "antigravity"} {
+	// allowed-platform 补齐契约：无论写了几个 platform，读回必须含全部允许 quota 的平台
+	for _, p := range AllowedQuotaPlatforms {
 		if _, ok := got[p]; !ok {
-			t.Errorf("4-key contract violated: missing platform %q", p)
+			t.Errorf("allowed-platform contract violated: missing platform %q", p)
 		}
 	}
 	// 写入值正确往返
@@ -188,7 +188,7 @@ func TestSystemPlatformQuotas_WriteReadRoundTrip(t *testing.T) {
 }
 
 // TestSystemPlatformQuotas_EmptyMapClearsAll 验证空 map 的整体替换语义：
-// 写入 DefaultPlatformQuotas={} 后，GetDefaultPlatformQuotas 返回 4 个平台、所有字段均为 nil，
+// 写入 DefaultPlatformQuotas={} 后，GetDefaultPlatformQuotas 返回全部 allowed quota 平台、所有字段均为 nil，
 // 明确文档化"空 map = 清空全部配额"是有意为之的 whole-replace 语义。
 func TestSystemPlatformQuotas_EmptyMapClearsAll(t *testing.T) {
 	svc := newSettingServiceForPlatformQuotaTest(nil)
@@ -215,10 +215,10 @@ func TestSystemPlatformQuotas_EmptyMapClearsAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 4 个 key 仍然存在（补齐契约）
-	for _, p := range []string{"anthropic", "openai", "gemini", "antigravity"} {
+	// 全部 allowed quota 平台仍然存在（补齐契约）
+	for _, p := range AllowedQuotaPlatforms {
 		if _, ok := got[p]; !ok {
-			t.Errorf("4-key contract violated after empty write: missing %q", p)
+			t.Errorf("allowed-platform contract violated after empty write: missing %q", p)
 		}
 	}
 	// 所有字段 nil（全部已清空）

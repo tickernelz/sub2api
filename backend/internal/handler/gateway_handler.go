@@ -22,13 +22,12 @@ import (
 	"github.com/tickernelz/sub2api/internal/pkg/claude"
 	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
-	"github.com/tickernelz/sub2api/internal/pkg/geminicli"
 	pkghttputil "github.com/tickernelz/sub2api/internal/pkg/httputil"
 	"github.com/tickernelz/sub2api/internal/pkg/ip"
 	"github.com/tickernelz/sub2api/internal/pkg/logger"
 	"github.com/tickernelz/sub2api/internal/pkg/openai"
-	providerregistry "github.com/tickernelz/sub2api/internal/provider"
 	"github.com/tickernelz/sub2api/internal/pkg/timezone"
+	providerregistry "github.com/tickernelz/sub2api/internal/provider"
 	middleware2 "github.com/tickernelz/sub2api/internal/server/middleware"
 	"github.com/tickernelz/sub2api/internal/service"
 
@@ -1289,32 +1288,12 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	// Fallback to default models
-	if platform == service.PlatformOpenAI {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   openai.DefaultModels,
-		})
+	defaultIDs := defaultModelIDsForPlatform(platform)
+	if platform == service.PlatformOpenAI || platform == service.PlatformOpenCode {
+		writeOpenAIModelsList(c, defaultIDs)
 		return
 	}
-
-	if platform == service.PlatformGemini {
-		c.JSON(http.StatusOK, gin.H{
-			"object": "list",
-			"data":   geminicli.DefaultModels,
-		})
-		return
-	}
-
-	if platform == service.PlatformOpenCode {
-		writeOpenAIModelsList(c, providerregistry.OpenCodeDefaultModelIDs())
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"object": "list",
-		"data":   claude.DefaultModels,
-	})
+	writeModelsList(c, defaultIDs)
 }
 
 func (h *GatewayHandler) unionAvailableModelsForGroups(ctx context.Context, groups []service.Group) []string {
@@ -1513,31 +1492,11 @@ func customModelsListAllowsModel(availablePatterns []string, model string) bool 
 }
 
 func defaultModelIDsForPlatform(platform string) []string {
-	switch platform {
-	case service.PlatformOpenAI:
-		return openai.DefaultModelIDs()
-	case service.PlatformGemini:
-		ids := make([]string, 0, len(geminicli.DefaultModels))
-		for _, model := range geminicli.DefaultModels {
-			ids = append(ids, model.ID)
-		}
-		return ids
-	case service.PlatformAntigravity:
-		models := antigravity.DefaultModels()
-		ids := make([]string, 0, len(models))
-		for _, model := range models {
-			ids = append(ids, model.ID)
-		}
-		return ids
-	case service.PlatformOpenCode:
-		return providerregistry.OpenCodeDefaultModelIDs()
-	default:
-		ids := make([]string, 0, len(claude.DefaultModels))
-		for _, model := range claude.DefaultModels {
-			ids = append(ids, model.ID)
-		}
+	ids := providerregistry.DefaultModelIDsForPlatform(platform)
+	if len(ids) > 0 {
 		return ids
 	}
+	return providerregistry.DefaultModelIDsForPlatform(service.PlatformAnthropic)
 }
 
 // AntigravityModels 返回 Antigravity 支持的全部模型

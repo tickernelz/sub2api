@@ -4,7 +4,25 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	providerregistry "github.com/tickernelz/sub2api/internal/provider"
 )
+
+func TestDefaultModelsListCandidateIDs_FollowsProviderRegistryForKnownPlatforms(t *testing.T) {
+	platforms := []string{
+		PlatformAnthropic,
+		PlatformOpenAI,
+		PlatformGemini,
+		PlatformAntigravity,
+		PlatformKiro,
+		PlatformOpenCode,
+	}
+
+	for _, platform := range platforms {
+		t.Run(platform, func(t *testing.T) {
+			require.Equal(t, providerregistry.DefaultModelIDsForPlatform(platform), defaultModelsListCandidateIDs(platform))
+		})
+	}
+}
 
 func TestDefaultModelsListCandidateIDs_OpenCodeUsesProviderDefaults(t *testing.T) {
 	ids := defaultModelsListCandidateIDs(PlatformOpenCode)

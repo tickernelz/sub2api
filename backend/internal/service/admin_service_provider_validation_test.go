@@ -18,3 +18,9 @@ func TestValidateProviderAccountTypeAllowsOpenCodeAPIKey(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+func TestValidateProviderAccountTypeAllowsAntigravityUpstream(t *testing.T) {
+	err := validateProviderAccountType(PlatformAntigravity, AccountTypeUpstream)
+
+	require.NoError(t, err)
+}

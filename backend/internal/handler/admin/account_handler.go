@@ -1976,9 +1976,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 	// Handle OpenAI accounts
 	if account.IsOpenAI() {
-		ids := accountVisibleModelIDs(account, openai.DefaultModelIDs(), nil)
+		defaultIDs := providerregistry.DefaultModelIDsForPlatform(service.PlatformOpenAI)
+		ids := accountVisibleModelIDs(account, defaultIDs, nil)
 		if len(ids) == 0 || account.IsOpenAIPassthroughEnabled() {
-			ids = openai.DefaultModelIDs()
+			ids = defaultIDs
 		}
 		ids = filterAccountModelIDsByCustomList(account, ids)
 		response.Success(c, buildOpenAIModelsFromIDs(ids))
@@ -2017,9 +2018,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 	// Handle OpenCode accounts
 	if account.Platform == service.PlatformOpenCode {
-		ids := accountVisibleModelIDs(account, providerregistry.OpenCodeDefaultModelIDs(), nil)
+		defaultIDs := providerregistry.DefaultModelIDsForPlatform(service.PlatformOpenCode)
+		ids := accountVisibleModelIDs(account, defaultIDs, nil)
 		if len(ids) == 0 {
-			ids = providerregistry.OpenCodeDefaultModelIDs()
+			ids = defaultIDs
 		}
 		ids = filterAccountModelIDsByCustomList(account, ids)
 		response.Success(c, buildOpenCodeModelsFromIDs(ids))
@@ -2036,27 +2038,15 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 }
 
 func defaultClaudeModelIDs() []string {
-	ids := make([]string, 0, len(claude.DefaultModels))
-	for _, model := range claude.DefaultModels {
-		ids = append(ids, model.ID)
-	}
-	return ids
+	return providerregistry.DefaultModelIDsForPlatform(service.PlatformAnthropic)
 }
 
 func defaultGeminiModelIDs() []string {
-	ids := make([]string, 0, len(geminicli.DefaultModels))
-	for _, model := range geminicli.DefaultModels {
-		ids = append(ids, model.ID)
-	}
-	return ids
+	return providerregistry.DefaultModelIDsForPlatform(service.PlatformGemini)
 }
 
 func defaultKiroModelIDs() []string {
-	ids := make([]string, 0, len(kiropkg.DefaultModels))
-	for _, model := range kiropkg.DefaultModels {
-		ids = append(ids, model.ID)
-	}
-	return ids
+	return providerregistry.DefaultModelIDsForPlatform(service.PlatformKiro)
 }
 
 func accountVisibleModelIDs(account *service.Account, defaultIDs []string, expose func(string) bool) []string {

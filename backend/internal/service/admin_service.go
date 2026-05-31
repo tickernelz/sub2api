@@ -17,13 +17,9 @@ import (
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/ent/authidentity"
 	"github.com/tickernelz/sub2api/ent/authidentitychannel"
-	"github.com/tickernelz/sub2api/internal/pkg/antigravity"
-	"github.com/tickernelz/sub2api/internal/pkg/claude"
 	infraerrors "github.com/tickernelz/sub2api/internal/pkg/errors"
-	"github.com/tickernelz/sub2api/internal/pkg/geminicli"
 	"github.com/tickernelz/sub2api/internal/pkg/httpclient"
 	"github.com/tickernelz/sub2api/internal/pkg/logger"
-	"github.com/tickernelz/sub2api/internal/pkg/openai"
 	"github.com/tickernelz/sub2api/internal/pkg/pagination"
 	providerregistry "github.com/tickernelz/sub2api/internal/provider"
 	"github.com/tickernelz/sub2api/internal/util/httputil"
@@ -1645,31 +1641,11 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 }
 
 func defaultModelsListCandidateIDs(platform string) []string {
-	switch platform {
-	case PlatformOpenAI:
-		return openai.DefaultModelIDs()
-	case PlatformGemini:
-		ids := make([]string, 0, len(geminicli.DefaultModels))
-		for _, model := range geminicli.DefaultModels {
-			ids = append(ids, model.ID)
-		}
-		return ids
-	case PlatformAntigravity:
-		models := antigravity.DefaultModels()
-		ids := make([]string, 0, len(models))
-		for _, model := range models {
-			ids = append(ids, model.ID)
-		}
-		return ids
-	case PlatformOpenCode:
-		return providerregistry.OpenCodeDefaultModelIDs()
-	default:
-		ids := make([]string, 0, len(claude.DefaultModels))
-		for _, model := range claude.DefaultModels {
-			ids = append(ids, model.ID)
-		}
+	ids := providerregistry.DefaultModelIDsForPlatform(platform)
+	if len(ids) > 0 {
 		return ids
 	}
+	return providerregistry.DefaultModelIDsForPlatform(PlatformAnthropic)
 }
 
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {

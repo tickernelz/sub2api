@@ -16,10 +16,13 @@ const (
 )
 
 var openCodeDefinition = Definition{
-	Platform:         PlatformOpenCode,
-	DisplayName:      "OpenCode",
-	AccountTypes:     []string{AccountTypeAPIKey},
-	DefaultVariantID: OpenCodeVariantZen,
+	Platform:              PlatformOpenCode,
+	DisplayName:           "OpenCode",
+	AccountTypes:          []string{AccountTypeAPIKey},
+	Protocols:             []Protocol{ProtocolOpenAICompatible, ProtocolOpenCode},
+	ModelSyncAccountTypes: []string{AccountTypeAPIKey},
+	DefaultVariantID:      OpenCodeVariantZen,
+	DefaultGroupCount:     1,
 	Variants: []Variant{
 		{ID: OpenCodeVariantOpenCode, DisplayName: "OpenCode", BaseURL: OpenCodeDefaultBaseURL, ModelsURL: OpenCodeDefaultModelsURL},
 		{ID: OpenCodeVariantZen, DisplayName: "OpenCode Zen", BaseURL: OpenCodeDefaultBaseURL, ModelsURL: OpenCodeDefaultModelsURL},
@@ -33,6 +36,7 @@ var openCodeDefinition = Definition{
 		SupportsGeminiGenerateContent: true,
 		SupportsModelSync:             true,
 		SupportsUsage:                 true,
+		SupportsPlatformQuota:         true,
 		MaxTools:                      128,
 	},
 }
@@ -145,20 +149,7 @@ func ResolveOpenCodeVariant(credentials map[string]any) Variant {
 }
 
 func OpenCodeDefaultModelIDs() []string {
-	seen := make(map[string]struct{}, len(openCodeModels))
-	ids := make([]string, 0, len(openCodeModels))
-	for _, model := range openCodeModels {
-		id := strings.TrimSpace(model.ID)
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
-	}
-	return ids
+	return DefaultModelIDsForPlatform(PlatformOpenCode)
 }
 
 func buildOpenCodeModelsURL(baseURL string) string {

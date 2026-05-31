@@ -6,18 +6,12 @@ import (
 
 	dbent "github.com/tickernelz/sub2api/ent"
 	"github.com/tickernelz/sub2api/ent/group"
+	providerregistry "github.com/tickernelz/sub2api/internal/provider"
 	"github.com/tickernelz/sub2api/internal/service"
 )
 
 func simpleModeDefaultGroupRequirements() map[string]int {
-	return map[string]int{
-		service.PlatformAnthropic:   1,
-		service.PlatformOpenAI:      1,
-		service.PlatformGemini:      1,
-		service.PlatformAntigravity: 2,
-		service.PlatformKiro:        1,
-		service.PlatformOpenCode:    1,
-	}
+	return providerregistry.SimpleModeDefaultGroupRequirements()
 }
 
 func ensureSimpleModeDefaultGroups(ctx context.Context, client *dbent.Client) error {
