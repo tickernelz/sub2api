@@ -2028,6 +2028,19 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	// Handle Cursor accounts. Runtime is still native-protocol skeleton-only, but
+	// admin model surfaces must not fall through to Claude defaults.
+	if account.Platform == service.PlatformCursor {
+		defaultIDs := providerregistry.DefaultModelIDsForPlatform(service.PlatformCursor)
+		ids := accountVisibleModelIDs(account, defaultIDs, nil)
+		if len(ids) == 0 {
+			ids = defaultIDs
+		}
+		ids = filterAccountModelIDsByCustomList(account, ids)
+		response.Success(c, buildCursorModelsFromIDs(ids))
+		return
+	}
+
 	// Handle Claude/Anthropic accounts
 	ids := accountVisibleModelIDs(account, defaultClaudeModelIDs(), nil)
 	if len(ids) == 0 {
@@ -2206,6 +2219,27 @@ func buildOpenCodeModelsFromIDs(ids []string) []openai.Model {
 		displayName := id
 		if meta, ok := providerregistry.OpenCodeModelMetadata(id); ok && strings.TrimSpace(meta.DisplayName) != "" {
 			displayName = meta.DisplayName
+		}
+		models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: displayName})
+	}
+	return models
+}
+
+func buildCursorModelsFromIDs(ids []string) []openai.Model {
+	defs, _ := providerregistry.Get(service.PlatformCursor)
+	displayByID := make(map[string]string, len(defs.DefaultModels))
+	for _, model := range defs.DefaultModels {
+		displayByID[model.ID] = model.DisplayName
+	}
+	models := make([]openai.Model, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		displayName := id
+		if display := strings.TrimSpace(displayByID[id]); display != "" {
+			displayName = display
 		}
 		models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: displayName})
 	}

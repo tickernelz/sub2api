@@ -14,6 +14,7 @@ const (
 	PlatformAntigravity = domain.PlatformAntigravity
 	PlatformKiro        = domain.PlatformKiro
 	PlatformOpenCode    = domain.PlatformOpenCode
+	PlatformCursor      = domain.PlatformCursor
 )
 
 const (
@@ -34,6 +35,7 @@ const (
 	ProtocolAntigravity      Protocol = "antigravity"
 	ProtocolKiro             Protocol = "kiro"
 	ProtocolOpenCode         Protocol = "opencode"
+	ProtocolCursor           Protocol = "cursor"
 )
 
 type TargetFormat string
@@ -135,6 +137,7 @@ var registry = map[string]Definition{
 	PlatformAntigravity: antigravityDefinition,
 	PlatformKiro:        kiroDefinition,
 	PlatformOpenCode:    openCodeDefinition,
+	PlatformCursor:      cursorDefinition,
 }
 
 var registryPlatformOrder = []string{
@@ -144,6 +147,7 @@ var registryPlatformOrder = []string{
 	PlatformAntigravity,
 	PlatformKiro,
 	PlatformOpenCode,
+	PlatformCursor,
 }
 
 func Get(platform string) (Definition, bool) {

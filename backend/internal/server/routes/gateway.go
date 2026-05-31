@@ -30,6 +30,12 @@ func RegisterGatewayRoutes(
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
+	responsesWebSocketHandler := func(c *gin.Context) {
+		if rejectUnsupportedCursorRuntime(c, getGroupPlatform(c)) {
+			return
+		}
+		h.OpenAIGateway.ResponsesWebSocket(c)
+	}
 
 	// API网关（Claude API兼容）
 	gateway := r.Group("/v1")
@@ -45,7 +51,11 @@ func RegisterGatewayRoutes(
 			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointMessages) {
 				return
 			}
-			if isOpenAICompatibleGatewayPlatform(getGroupPlatform(c)) {
+			platform := getGroupPlatform(c)
+			if rejectUnsupportedCursorRuntime(c, platform) {
+				return
+			}
+			if isOpenAICompatibleGatewayPlatform(platform) {
 				h.OpenAIGateway.Messages(c)
 				return
 			}
@@ -56,7 +66,11 @@ func RegisterGatewayRoutes(
 			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointMessages) {
 				return
 			}
-			if isOpenAICompatibleGatewayPlatform(getGroupPlatform(c)) {
+			platform := getGroupPlatform(c)
+			if rejectUnsupportedCursorRuntime(c, platform) {
+				return
+			}
+			if isOpenAICompatibleGatewayPlatform(platform) {
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 				c.JSON(http.StatusNotFound, gin.H{
 					"type": "error",
@@ -77,6 +91,9 @@ func RegisterGatewayRoutes(
 				return
 			}
 			platform := getGroupPlatform(c)
+			if rejectUnsupportedCursorRuntime(c, platform) {
+				return
+			}
 			if rejectUnsupportedOpenCodeCompact(c, platform) {
 				return
 			}
@@ -91,6 +108,9 @@ func RegisterGatewayRoutes(
 				return
 			}
 			platform := getGroupPlatform(c)
+			if rejectUnsupportedCursorRuntime(c, platform) {
+				return
+			}
 			if rejectUnsupportedOpenCodeCompact(c, platform) {
 				return
 			}
@@ -100,13 +120,17 @@ func RegisterGatewayRoutes(
 			}
 			h.Gateway.Responses(c)
 		})
-		gateway.GET("/responses", h.OpenAIGateway.ResponsesWebSocket)
+		gateway.GET("/responses", responsesWebSocketHandler)
 		// OpenAI Chat Completions API: auto-route based on selected group platform
 		gateway.POST("/chat/completions", func(c *gin.Context) {
 			if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointChatCompletions) {
 				return
 			}
-			if isOpenAICompatibleGatewayPlatform(getGroupPlatform(c)) {
+			platform := getGroupPlatform(c)
+			if rejectUnsupportedCursorRuntime(c, platform) {
+				return
+			}
+			if isOpenAICompatibleGatewayPlatform(platform) {
 				h.OpenAIGateway.ChatCompletions(c)
 				return
 			}
@@ -198,6 +222,9 @@ func RegisterGatewayRoutes(
 			return
 		}
 		platform := getGroupPlatform(c)
+		if rejectUnsupportedCursorRuntime(c, platform) {
+			return
+		}
 		if rejectUnsupportedOpenCodeCompact(c, platform) {
 			return
 		}
@@ -209,20 +236,24 @@ func RegisterGatewayRoutes(
 	}
 	r.POST("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
 	r.POST("/responses/*subpath", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
-	r.GET("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.OpenAIGateway.ResponsesWebSocket)
+	r.GET("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesWebSocketHandler)
 	codexDirect := r.Group("/backend-api/codex")
 	codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic)
 	{
 		codexDirect.POST("/responses", responsesHandler)
 		codexDirect.POST("/responses/*subpath", responsesHandler)
-		codexDirect.GET("/responses", h.OpenAIGateway.ResponsesWebSocket)
+		codexDirect.GET("/responses", responsesWebSocketHandler)
 	}
 	// OpenAI Chat Completions API（不带v1前缀的别名）— auto-route based on selected group platform
 	r.POST("/chat/completions", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
 		if !h.Gateway.SelectAPIKeyGroupForRequest(c, handler.GatewayEndpointChatCompletions) {
 			return
 		}
-		if isOpenAICompatibleGatewayPlatform(getGroupPlatform(c)) {
+		platform := getGroupPlatform(c)
+		if rejectUnsupportedCursorRuntime(c, platform) {
+			return
+		}
+		if isOpenAICompatibleGatewayPlatform(platform) {
 			h.OpenAIGateway.ChatCompletions(c)
 			return
 		}
@@ -343,6 +374,20 @@ func getGroupPlatform(c *gin.Context) string {
 
 func isOpenAICompatibleGatewayPlatform(platform string) bool {
 	return platform == service.PlatformOpenAI || platform == service.PlatformOpenCode
+}
+
+func rejectUnsupportedCursorRuntime(c *gin.Context, platform string) bool {
+	if platform != service.PlatformCursor {
+		return false
+	}
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+	c.JSON(http.StatusNotFound, gin.H{
+		"error": gin.H{
+			"type":    "not_found_error",
+			"message": "Cursor runtime is not implemented yet",
+		},
+	})
+	return true
 }
 
 func rejectUnsupportedOpenCodeCompact(c *gin.Context, platform string) bool {

@@ -44,6 +44,7 @@ const (
 	PlatformAntigravity = domain.PlatformAntigravity
 	PlatformKiro        = domain.PlatformKiro
 	PlatformOpenCode    = domain.PlatformOpenCode
+	PlatformCursor      = domain.PlatformCursor
 )
 
 // AllowedQuotaPlatforms 是允许设置 user × platform quota 的平台列表（来自 provider registry）。

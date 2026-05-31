@@ -24,3 +24,16 @@ func TestValidateProviderAccountTypeAllowsAntigravityUpstream(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+func TestValidateProviderAccountTypeAllowsCursorOAuth(t *testing.T) {
+	err := validateProviderAccountType(PlatformCursor, AccountTypeOAuth)
+
+	require.NoError(t, err)
+}
+
+func TestValidateProviderAccountTypeRejectsCursorAPIKey(t *testing.T) {
+	err := validateProviderAccountType(PlatformCursor, AccountTypeAPIKey)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "platform cursor does not support account type apikey")
+}

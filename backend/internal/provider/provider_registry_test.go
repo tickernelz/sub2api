@@ -13,6 +13,7 @@ func TestRegistryCoversAllExistingPlatforms(t *testing.T) {
 		PlatformAntigravity,
 		PlatformKiro,
 		PlatformOpenCode,
+		PlatformCursor,
 	}
 
 	seen := map[string]bool{}
@@ -44,7 +45,7 @@ func TestProviderDefinitionsDeclarePolicies(t *testing.T) {
 		if len(def.Protocols) == 0 {
 			t.Fatalf("provider %q has no protocol policy", def.Platform)
 		}
-		if def.DefaultGroupCount <= 0 {
+		if def.DefaultGroupCount < 0 {
 			t.Fatalf("provider %q has invalid default group count %d", def.Platform, def.DefaultGroupCount)
 		}
 	}
@@ -62,6 +63,7 @@ func TestProviderAccountTypePolicies(t *testing.T) {
 		{platform: PlatformAntigravity, allowed: []string{AccountTypeOAuth, AccountTypeAPIKey, AccountTypeUpstream}, denied: []string{AccountTypeSetupToken, AccountTypeBedrock, AccountTypeServiceAccount}},
 		{platform: PlatformKiro, allowed: []string{AccountTypeOAuth, AccountTypeAPIKey}, denied: []string{AccountTypeSetupToken, AccountTypeBedrock, AccountTypeServiceAccount}},
 		{platform: PlatformOpenCode, allowed: []string{AccountTypeAPIKey}, denied: []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeBedrock, AccountTypeServiceAccount}},
+		{platform: PlatformCursor, allowed: []string{AccountTypeOAuth}, denied: []string{AccountTypeAPIKey, AccountTypeSetupToken, AccountTypeBedrock, AccountTypeServiceAccount}},
 	}
 
 	for _, tc := range cases {
@@ -96,6 +98,7 @@ func TestProviderDefaultGroupAndQuotaPolicies(t *testing.T) {
 		{platform: PlatformAntigravity, defaultGroupCount: 2, platformQuotaEligible: true},
 		{platform: PlatformKiro, defaultGroupCount: 1, platformQuotaEligible: false},
 		{platform: PlatformOpenCode, defaultGroupCount: 1, platformQuotaEligible: true},
+		{platform: PlatformCursor, defaultGroupCount: 0, platformQuotaEligible: false},
 	}
 
 	for _, tc := range cases {
@@ -148,6 +151,7 @@ func TestDefaultModelIDsForPlatformAreRegistryDriven(t *testing.T) {
 		{platform: PlatformAntigravity, wantIDs: []string{"gemini-3.5-flash-low"}, denyIDs: []string{"gpt-5"}},
 		{platform: PlatformKiro, wantIDs: []string{"claude-opus-4-7"}, denyIDs: []string{"gpt-5"}},
 		{platform: PlatformOpenCode, wantIDs: []string{"glm-5.1", "qwen3.7-max"}, denyIDs: []string{"claude-sonnet-4-5-20250929"}},
+		{platform: PlatformCursor, wantIDs: []string{"composer-2.5", "claude-4-6-sonnet", "gpt-5.5"}, denyIDs: []string{"claude-sonnet-4-6", "glm-5.1"}},
 	}
 
 	for _, tc := range cases {
@@ -202,6 +206,7 @@ func TestProviderRuntimeCapabilityPolicies(t *testing.T) {
 		{platform: PlatformAntigravity, protocols: []Protocol{ProtocolAntigravity}, supportsAccountUsage: true, supportsModelSync: true},
 		{platform: PlatformKiro, protocols: []Protocol{ProtocolKiro}, supportsAccountUsage: true, supportsModelSync: false},
 		{platform: PlatformOpenCode, protocols: []Protocol{ProtocolOpenAICompatible, ProtocolOpenCode}, supportsAccountUsage: true, supportsModelSync: true},
+		{platform: PlatformCursor, protocols: []Protocol{ProtocolCursor}, supportsAccountUsage: false, supportsModelSync: false},
 	}
 
 	for _, tc := range cases {
@@ -240,6 +245,7 @@ func TestProviderModelSyncAccountTypePolicies(t *testing.T) {
 		{platform: PlatformAntigravity, allowed: []string{AccountTypeOAuth, AccountTypeAPIKey, AccountTypeUpstream}, denied: []string{AccountTypeSetupToken}},
 		{platform: PlatformKiro, denied: []string{AccountTypeOAuth, AccountTypeAPIKey}},
 		{platform: PlatformOpenCode, allowed: []string{AccountTypeAPIKey}, denied: []string{AccountTypeOAuth}},
+		{platform: PlatformCursor, denied: []string{AccountTypeOAuth, AccountTypeAPIKey}},
 	}
 
 	for _, tc := range cases {
@@ -362,5 +368,36 @@ func TestOpenCodeDefaultModelIDsAreDeduped(t *testing.T) {
 		if !seen[id] {
 			t.Fatalf("missing expected model %q in %v", id, ids)
 		}
+	}
+}
+
+func TestCursorProviderDefinitionIsNativeAndRuntimeDisabledForSkeleton(t *testing.T) {
+	def, ok := Get(PlatformCursor)
+	if !ok {
+		t.Fatalf("expected Cursor provider to be registered")
+	}
+	if def.Platform != PlatformCursor {
+		t.Fatalf("platform = %q, want %q", def.Platform, PlatformCursor)
+	}
+	if !def.SupportsAccountType(AccountTypeOAuth) {
+		t.Fatalf("Cursor should support imported OAuth/access-token accounts")
+	}
+	if def.SupportsAccountType(AccountTypeAPIKey) {
+		t.Fatalf("Cursor should not claim API-key support")
+	}
+	if !def.SupportsProtocol(ProtocolCursor) {
+		t.Fatalf("Cursor should advertise the native Cursor protocol")
+	}
+	if def.SupportsProtocol(ProtocolOpenAICompatible) {
+		t.Fatalf("Cursor must not be marked OpenAI-compatible without a native adapter")
+	}
+	if def.Capabilities.SupportsOpenAIChatCompletions || def.Capabilities.SupportsOpenAIResponses || def.Capabilities.SupportsAnthropicMessages || def.Capabilities.SupportsGeminiGenerateContent {
+		t.Fatalf("Cursor runtime capabilities must remain disabled until the native adapter exists: %+v", def.Capabilities)
+	}
+	if def.DefaultGroupCount != 0 {
+		t.Fatalf("Cursor should not be seeded into simple-mode groups before runtime support, got %d", def.DefaultGroupCount)
+	}
+	if CursorRunURL != "https://agentn.global.api5.cursor.sh/agent.v1.AgentService/Run" {
+		t.Fatalf("Cursor run URL = %q", CursorRunURL)
 	}
 }

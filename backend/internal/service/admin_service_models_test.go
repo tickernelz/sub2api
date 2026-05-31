@@ -15,6 +15,7 @@ func TestDefaultModelsListCandidateIDs_FollowsProviderRegistryForKnownPlatforms(
 		PlatformAntigravity,
 		PlatformKiro,
 		PlatformOpenCode,
+		PlatformCursor,
 	}
 
 	for _, platform := range platforms {

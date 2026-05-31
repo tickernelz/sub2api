@@ -404,6 +404,30 @@ func TestAccountHandlerGetAvailableModels_OpenCodeAPIKeyUsesExplicitModelMapping
 	require.Equal(t, []string{"custom-opencode-model"}, collectAvailableModelIDsForTest(t, rec.Body.Bytes()))
 }
 
+func TestAccountHandlerGetAvailableModels_CursorOAuthFallsBackToProviderDefaults(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       54,
+			Name:     "cursor-oauth-defaults",
+			Platform: service.PlatformCursor,
+			Type:     service.AccountTypeOAuth,
+			Status:   service.StatusActive,
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/54/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	ids := collectAvailableModelIDsForTest(t, rec.Body.Bytes())
+	require.Contains(t, ids, "composer-2.5")
+	require.Contains(t, ids, "claude-4-6-sonnet")
+	require.NotContains(t, ids, "claude-sonnet-4-6")
+}
+
 func TestAccountHandlerGetAvailableModels_GeminiOAuthUsesExplicitModelMappingBeforeDefaults(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),

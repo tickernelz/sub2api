@@ -15,6 +15,9 @@ func TestAllowedQuotaPlatformsFollowProviderRegistry(t *testing.T) {
 	if IsAllowedQuotaPlatform(PlatformKiro) {
 		t.Fatalf("Kiro must remain ineligible for user platform quota")
 	}
+	if IsAllowedQuotaPlatform(PlatformCursor) {
+		t.Fatalf("Cursor quota should stay disabled until the dashboard usage phase")
+	}
 	if !IsAllowedQuotaPlatform(PlatformOpenCode) {
 		t.Fatalf("OpenCode should be eligible for user platform quota")
 	}

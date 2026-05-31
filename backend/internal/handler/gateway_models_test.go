@@ -222,6 +222,40 @@ func TestGatewayModels_OpenCodeGroupFallsBackToOpenCodeModels(t *testing.T) {
 	}
 }
 
+func TestGatewayModels_CursorGroupFallsBackToCursorModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(23)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{ID: 1, Platform: service.PlatformCursor, Type: service.AccountTypeOAuth},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformCursor},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, "list", got.Object)
+	ids := modelIDsForTest(got.Data)
+	require.Contains(t, ids, "composer-2.5")
+	require.Contains(t, ids, "claude-4-6-sonnet")
+	require.NotContains(t, ids, "claude-sonnet-4-6")
+}
+
 func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

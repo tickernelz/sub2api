@@ -24,6 +24,7 @@ const (
 	PlatformAntigravity = "antigravity"
 	PlatformKiro        = "kiro"
 	PlatformOpenCode    = "opencode"
+	PlatformCursor      = "cursor"
 )
 
 // Account type constants

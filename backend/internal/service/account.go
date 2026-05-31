@@ -1090,6 +1090,10 @@ func (a *Account) IsOpenCode() bool {
 	return a.Platform == PlatformOpenCode
 }
 
+func (a *Account) IsCursor() bool {
+	return a.Platform == PlatformCursor
+}
+
 func (a *Account) IsOpenAICompatibleRuntime() bool {
 	return a.IsOpenAI() || a.IsOpenCode()
 }
@@ -1170,6 +1174,31 @@ func (a *Account) GetOpenCodeModelsURL() string {
 		return ""
 	}
 	return providerregistry.ResolveOpenCodeVariant(a.Credentials).ModelsURL
+}
+
+func (a *Account) GetCursorAccessToken() string {
+	if !a.IsCursor() || a.Type != AccountTypeOAuth {
+		return ""
+	}
+	token := strings.TrimSpace(a.GetCredential("access_token"))
+	if _, stripped, ok := strings.Cut(token, "::"); ok {
+		return strings.TrimSpace(stripped)
+	}
+	return token
+}
+
+func (a *Account) GetCursorUserID() string {
+	if !a.IsCursor() {
+		return ""
+	}
+	if userID := strings.TrimSpace(a.GetCredential("user_id")); userID != "" {
+		return userID
+	}
+	token := strings.TrimSpace(a.GetCredential("access_token"))
+	if userID, _, ok := strings.Cut(token, "::"); ok {
+		return strings.TrimSpace(userID)
+	}
+	return ""
 }
 
 func (a *Account) GetOpenAICompatibleAPIKey() string {

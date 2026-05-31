@@ -85,8 +85,37 @@ func TestGatewayRoutesRejectsOpenCodeResponsesCompact(t *testing.T) {
 func TestOpenCodeUsesOpenAICompatibleGatewayRouting(t *testing.T) {
 	require.True(t, isOpenAICompatibleGatewayPlatform(service.PlatformOpenAI))
 	require.True(t, isOpenAICompatibleGatewayPlatform(service.PlatformOpenCode))
+	require.False(t, isOpenAICompatibleGatewayPlatform(service.PlatformCursor))
 	require.False(t, isOpenAICompatibleGatewayPlatform(service.PlatformAnthropic))
 	require.False(t, isOpenAICompatibleGatewayPlatform(service.PlatformGemini))
+}
+
+func TestGatewayRoutesRejectCursorRuntimeUntilNativeAdapterExists(t *testing.T) {
+	router := newGatewayRoutesTestRouterForPlatform(service.PlatformCursor)
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodPost, path: "/v1/messages", body: `{"model":"composer-2.5","messages":[]}`},
+		{method: http.MethodPost, path: "/v1/messages/count_tokens", body: `{"model":"composer-2.5","messages":[]}`},
+		{method: http.MethodPost, path: "/v1/chat/completions", body: `{"model":"composer-2.5","messages":[]}`},
+		{method: http.MethodPost, path: "/v1/responses", body: `{"model":"composer-2.5","input":"hi"}`},
+		{method: http.MethodPost, path: "/responses", body: `{"model":"composer-2.5","input":"hi"}`},
+		{method: http.MethodPost, path: "/backend-api/codex/responses", body: `{"model":"composer-2.5","input":"hi"}`},
+		{method: http.MethodGet, path: "/v1/responses"},
+		{method: http.MethodGet, path: "/responses"},
+		{method: http.MethodGet, path: "/backend-api/codex/responses"},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code, "path=%s should reject unsupported Cursor runtime", tc.path)
+		require.Contains(t, w.Body.String(), "Cursor runtime is not implemented yet")
+	}
 }
 
 func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
