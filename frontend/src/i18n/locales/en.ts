@@ -3066,6 +3066,7 @@ export default {
         antigravity: 'Antigravity',
         kiro: 'Kiro',
         opencode: 'OpenCode',
+        cursor: 'Cursor',
       },
       types: {
         oauth: 'OAuth',
@@ -3899,6 +3900,17 @@ export default {
           deviceRegistrationLabel: 'Device Registration JSON',
           deviceRegistrationHint: 'Optional. Only needed when the token file does not include full client details and only has `clientIdHash`.',
           importAndUpdate: 'Import and Update'
+        },
+        cursor: {
+          title: 'Cursor Account Import',
+          followSteps: 'Paste a Cursor Access Token to create the account.',
+          accessTokenAuth: 'Enter Access Token',
+          accessTokenDesc: 'Paste a Cursor Access Token. userID::token format is supported; the backend extracts userID and strips the prefix automatically.',
+          accessTokenPlaceholder: 'userID::cursor-access-token or cursor-access-token',
+          accessTokenHint: 'The token is stored as account credentials and is never displayed back in the UI.',
+          importAndCreate: 'Import and Create Account',
+          validating: 'Creating...',
+          pleaseEnterAccessToken: 'Please enter a Cursor Access Token'
         }
       },
       // Gemini specific (platform-wide)

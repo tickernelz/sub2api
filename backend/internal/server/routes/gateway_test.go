@@ -90,7 +90,19 @@ func TestOpenCodeUsesOpenAICompatibleGatewayRouting(t *testing.T) {
 	require.False(t, isOpenAICompatibleGatewayPlatform(service.PlatformGemini))
 }
 
-func TestGatewayRoutesRejectCursorRuntimeUntilNativeAdapterExists(t *testing.T) {
+func TestGatewayRoutesAllowCursorMessagesNativeRuntime(t *testing.T) {
+	router := newGatewayRoutesTestRouterForPlatform(service.PlatformCursor)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"composer-2.5","messages":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	require.NotEqual(t, http.StatusNotFound, w.Code, "/v1/messages should reach the native Cursor gateway handler")
+	require.NotContains(t, w.Body.String(), "Cursor runtime is not implemented yet")
+}
+
+func TestGatewayRoutesRejectUnsupportedCursorRuntimeEndpoints(t *testing.T) {
 	router := newGatewayRoutesTestRouterForPlatform(service.PlatformCursor)
 
 	for _, tc := range []struct {
@@ -98,7 +110,6 @@ func TestGatewayRoutesRejectCursorRuntimeUntilNativeAdapterExists(t *testing.T) 
 		path   string
 		body   string
 	}{
-		{method: http.MethodPost, path: "/v1/messages", body: `{"model":"composer-2.5","messages":[]}`},
 		{method: http.MethodPost, path: "/v1/messages/count_tokens", body: `{"model":"composer-2.5","messages":[]}`},
 		{method: http.MethodPost, path: "/v1/chat/completions", body: `{"model":"composer-2.5","messages":[]}`},
 		{method: http.MethodPost, path: "/v1/responses", body: `{"model":"composer-2.5","input":"hi"}`},

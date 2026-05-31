@@ -44,6 +44,16 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('claude-3-5-sonnet-20241022')
   })
 
+  it('cursor 模型列表使用 Cursor 默认模型，不回落到 Claude 或 OpenCode 默认列表', () => {
+    const models = getModelsByPlatform('cursor')
+
+    expect(models).toContain('composer-2.5')
+    expect(models).toContain('claude-4-6-sonnet')
+    expect(models).toContain('gpt-5.5')
+    expect(models).not.toContain('claude-3-5-sonnet-20241022')
+    expect(models).not.toContain('big-pickle')
+  })
+
   it('opencode 预设映射使用 OpenCode 模型，不回落到 Anthropic preset', () => {
     const mappings = getPresetMappingsByPlatform('opencode')
 

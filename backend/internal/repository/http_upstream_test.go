@@ -83,6 +83,18 @@ func (s *HTTPUpstreamSuite) TestGetOrCreateClient_InvalidURLReturnsError() {
 	require.Error(s.T(), err, "expected error for invalid proxy URL")
 }
 
+func (s *HTTPUpstreamSuite) TestCursorProfileForcesHTTP2AndNoHeaderTimeout() {
+	s.cfg.Gateway = config.GatewayConfig{ResponseHeaderTimeout: 600}
+	svc := s.newService()
+	entry, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileCursor, false, false)
+	require.NoError(s.T(), err)
+	transport, ok := entry.client.Transport.(*http.Transport)
+	require.True(s.T(), ok, "expected *http.Transport")
+	require.Equal(s.T(), time.Duration(0), transport.ResponseHeaderTimeout, "Cursor profile should not inherit generic header timeout")
+	require.True(s.T(), transport.ForceAttemptHTTP2, "Cursor Run requires HTTP/2")
+	require.Equal(s.T(), upstreamProtocolModeH2, entry.protocolMode)
+}
+
 func (s *HTTPUpstreamSuite) TestOpenAIProfileDefaultsToHTTP2AndNoHeaderTimeout() {
 	s.cfg.Gateway = config.GatewayConfig{
 		ResponseHeaderTimeout: 600,

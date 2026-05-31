@@ -70,7 +70,7 @@
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-700 sm:grid-cols-3 lg:grid-cols-6" data-tour="account-form-platform">
+        <div class="mt-2 grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-700 sm:grid-cols-3 lg:grid-cols-7" data-tour="account-form-platform">
           <button
             type="button"
             @click="form.platform = 'anthropic'"
@@ -121,6 +121,20 @@
           >
             <Icon name="bolt" size="sm" />
             OpenCode
+          </button>
+          <button
+            type="button"
+            data-testid="account-platform-cursor"
+            @click="form.platform = 'cursor'"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'cursor'
+                ? 'bg-white text-indigo-600 shadow-sm dark:bg-dark-600 dark:text-indigo-400'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <Icon name="bolt" size="sm" />
+            Cursor
           </button>
           <button
             type="button"
@@ -3425,7 +3439,7 @@
         :show-refresh-token-option="form.platform === 'openai' || form.platform === 'antigravity'"
         :show-mobile-refresh-token-option="form.platform === 'openai'"
         :show-session-token-option="false"
-        :show-access-token-option="false"
+        :show-access-token-option="form.platform === 'cursor'"
         :show-codex-session-import-option="form.platform === 'openai'"
         :platform="form.platform"
         :show-project-id="geminiOAuthType === 'code_assist'"
@@ -3434,6 +3448,7 @@
         @validate-refresh-token="handleValidateRefreshToken"
         @validate-mobile-refresh-token="handleOpenAIValidateMobileRT"
         @validate-session-token="handleValidateSessionToken"
+        @import-access-token="handleImportAccessToken"
         @import-codex-session="handleOpenAIImportCodexSession"
       />
 
@@ -4418,6 +4433,14 @@ watch(
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
+    } else if (newPlatform === 'cursor') {
+      accountCategory.value = 'oauth-based'
+      addMethod.value = 'oauth'
+      allowOverages.value = false
+      antigravityWhitelistModels.value = []
+      antigravityModelMappings.value = []
+      antigravityModelRestrictionMode.value = 'mapping'
+      kiroModelMappings.value = []
     } else if (newPlatform === 'opencode') {
       accountCategory.value = 'apikey'
       allowOverages.value = false
@@ -5445,6 +5468,18 @@ const handleValidateRefreshToken = (rt: string) => {
 
 const handleValidateSessionToken = (_sessionToken: string) => {
   // Session token validation removed
+}
+
+const handleImportAccessToken = async (accessToken: string) => {
+  const token = accessToken.trim()
+  if (!token) {
+    appStore.showError(t('admin.accounts.oauth.cursor.pleaseEnterAccessToken'))
+    return
+  }
+  if (form.platform !== 'cursor') {
+    return
+  }
+  await createAccountAndFinish('cursor', 'oauth', { access_token: token })
 }
 
 const formatDateTimeLocal = formatDateTimeLocalInput

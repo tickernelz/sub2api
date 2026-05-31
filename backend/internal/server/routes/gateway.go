@@ -52,9 +52,6 @@ func RegisterGatewayRoutes(
 				return
 			}
 			platform := getGroupPlatform(c)
-			if rejectUnsupportedCursorRuntime(c, platform) {
-				return
-			}
 			if isOpenAICompatibleGatewayPlatform(platform) {
 				h.OpenAIGateway.Messages(c)
 				return

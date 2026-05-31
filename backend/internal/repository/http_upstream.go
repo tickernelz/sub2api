@@ -59,6 +59,7 @@ const (
 
 const (
 	upstreamProtocolModeDefault          = "default"
+	upstreamProtocolModeH2               = "h2"
 	upstreamProtocolModeOpenAIH1         = "openai_h1"
 	upstreamProtocolModeOpenAIH2         = "openai_h2"
 	upstreamProtocolModeOpenAIH1Fallback = "openai_h1_fallback"
@@ -667,12 +668,14 @@ func (s *httpUpstreamService) resolvePoolSettings(isolation string, accountConcu
 }
 
 func (s *httpUpstreamService) applyProfilePoolSettings(settings poolSettings, profile service.HTTPUpstreamProfile) poolSettings {
-	if profile != service.HTTPUpstreamProfileOpenAI {
-		return settings
-	}
-	settings.responseHeaderTimeout = 0
-	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIResponseHeaderTimeout > 0 {
-		settings.responseHeaderTimeout = time.Duration(s.cfg.Gateway.OpenAIResponseHeaderTimeout) * time.Second
+	switch profile {
+	case service.HTTPUpstreamProfileOpenAI:
+		settings.responseHeaderTimeout = 0
+		if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIResponseHeaderTimeout > 0 {
+			settings.responseHeaderTimeout = time.Duration(s.cfg.Gateway.OpenAIResponseHeaderTimeout) * time.Second
+		}
+	case service.HTTPUpstreamProfileCursor:
+		settings.responseHeaderTimeout = 0
 	}
 	return settings
 }
@@ -751,6 +754,9 @@ func (s *httpUpstreamService) resolveOpenAIHTTP2Settings() openAIHTTP2Settings {
 }
 
 func (s *httpUpstreamService) resolveProtocolMode(profile service.HTTPUpstreamProfile, proxyKey string, parsedProxy *url.URL) string {
+	if profile == service.HTTPUpstreamProfileCursor {
+		return upstreamProtocolModeH2
+	}
 	if profile != service.HTTPUpstreamProfileOpenAI {
 		return upstreamProtocolModeDefault
 	}
@@ -1058,7 +1064,7 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 		ResponseHeaderTimeout: settings.responseHeaderTimeout,
 	}
 	switch protocolMode {
-	case upstreamProtocolModeOpenAIH2:
+	case upstreamProtocolModeH2, upstreamProtocolModeOpenAIH2:
 		transport.ForceAttemptHTTP2 = true
 	case upstreamProtocolModeOpenAIH1:
 		transport.ForceAttemptHTTP2 = false

@@ -3252,6 +3252,7 @@ export default {
         antigravity: 'Antigravity',
         kiro: 'Kiro',
         opencode: 'OpenCode',
+        cursor: 'Cursor',
       },
       types: {
         oauth: 'OAuth',
@@ -4040,6 +4041,17 @@ export default {
           deviceRegistrationLabel: 'Device Registration JSON',
           deviceRegistrationHint: '可选。只有 token 文件里缺少完整客户端信息、只剩 `clientIdHash` 时才需要补充。',
           importAndUpdate: '导入并更新'
+        },
+        cursor: {
+          title: 'Cursor 账号导入',
+          followSteps: '粘贴 Cursor Access Token 创建账号。',
+          accessTokenAuth: '手动输入 Access Token',
+          accessTokenDesc: '粘贴 Cursor Access Token。支持 userID::token 格式，后端会自动识别 userID 并剥离前缀。',
+          accessTokenPlaceholder: 'userID::cursor-access-token 或 cursor-access-token',
+          accessTokenHint: 'Token 仅保存为账号凭证，不会展示在界面中。',
+          importAndCreate: '导入并创建账号',
+          validating: '创建中...',
+          pleaseEnterAccessToken: '请输入 Cursor Access Token'
         }
       },
       // Gemini specific (platform-wide)

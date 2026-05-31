@@ -144,6 +144,18 @@ const opencodeModels = [
   'deepseek-v4-flash'
 ]
 
+// Cursor
+const cursorModels = [
+  'composer-2.5',
+  'claude-4-6-sonnet',
+  'claude-opus-4-8',
+  'gemini-3.1-pro',
+  'gemini-3.5-flash',
+  'gpt-5.5',
+  'gpt-5.3-codex',
+  'grok-build-0.1'
+]
+
 // 智谱 GLM
 const zhipuModels = [
   'glm-4', 'glm-4v', 'glm-4-plus', 'glm-4-0520',
@@ -391,6 +403,13 @@ const opencodePresetMappings = [
   { label: 'Qwen 3.7 Max', from: 'qwen3.7-max', to: 'qwen3.7-max', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' }
 ]
 
+const cursorPresetMappings = [
+  { label: 'Composer 2.5', from: 'composer-2.5', to: 'composer-2.5', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
+  { label: 'Claude Sonnet 4.6', from: 'claude-4-6-sonnet', to: 'claude-4-6-sonnet', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
+  { label: 'GPT 5.5', from: 'gpt-5.5', to: 'gpt-5.5', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' },
+  { label: 'Gemini 3.1 Pro', from: 'gemini-3.1-pro', to: 'gemini-3.1-pro', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' }
+]
+
 const kiroDefaultMappings = kiroPresetMappings.map(({ from, to }) => ({ from, to }))
 
 // Antigravity 默认映射（从后端 API 获取，与 constants.go 保持一致）
@@ -450,6 +469,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'antigravity': return antigravityModels
     case 'kiro': return kiroModels
     case 'opencode': return opencodeModels
+    case 'cursor': return cursorModels
     case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
     case 'deepseek': return deepseekModels
@@ -476,6 +496,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'kiro') return kiroPresetMappings
   if (platform === 'opencode') return opencodePresetMappings
+  if (platform === 'cursor') return cursorPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
   return anthropicPresetMappings
 }

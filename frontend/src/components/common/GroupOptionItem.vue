@@ -95,6 +95,8 @@ const ratePillClass = computed(() => {
       return 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400'
     case 'opencode':
       return 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400'
+    case 'cursor':
+      return 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400'
     default: // antigravity and others
       return 'bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-400'
   }

@@ -3005,7 +3005,9 @@
                           ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
                           : group.platform === 'opencode'
                             ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400'
-                            : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                            : group.platform === 'cursor'
+                              ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+                              : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
                   ]"
                 >
                   {{ t("admin.groups.platforms." + group.platform) }}
@@ -3179,6 +3181,7 @@ const platformOptions = computed(() => [
   { value: "antigravity", label: "Antigravity" },
   { value: "kiro", label: "Kiro" },
   { value: "opencode", label: "OpenCode" },
+  { value: "cursor", label: "Cursor" },
 ]);
 
 const platformFilterOptions = computed(() => [
@@ -3189,6 +3192,7 @@ const platformFilterOptions = computed(() => [
   { value: "antigravity", label: "Antigravity" },
   { value: "kiro", label: "Kiro" },
   { value: "opencode", label: "OpenCode" },
+  { value: "cursor", label: "Cursor" },
 ]);
 
 const editStatusOptions = computed(() => [

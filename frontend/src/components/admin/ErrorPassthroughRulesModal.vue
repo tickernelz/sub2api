@@ -491,7 +491,8 @@ const platformOptions = [
   { value: 'gemini', label: 'Gemini' },
   { value: 'antigravity', label: 'Antigravity' },
   { value: 'kiro', label: 'Kiro' },
-  { value: 'opencode', label: 'OpenCode' }
+  { value: 'opencode', label: 'OpenCode' },
+  { value: 'cursor', label: 'Cursor' }
 ]
 
 // Load rules when dialog opens
