@@ -256,7 +256,9 @@ func processCursorResponse(ctx context.Context, body io.Reader, writer io.Writer
 				if event.Text == "" {
 					continue
 				}
-				text.WriteString(event.Text)
+				if _, err := text.WriteString(event.Text); err != nil {
+					return text.String(), err
+				}
 				if onText != nil {
 					if err := onText(event.Text); err != nil {
 						return text.String(), err
