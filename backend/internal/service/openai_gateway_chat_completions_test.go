@@ -650,6 +650,115 @@ func TestSettingService_GetStreamRetrySettingsBackfillsSmartTimeoutFields(t *tes
 	require.Equal(t, 30, settings.ChunkGapTimeoutSeconds)
 }
 
+func TestResolveEffectiveStreamRetrySettings_DisabledSettingDoesNotFallbackToConfig(t *testing.T) {
+	settingsRaw, err := json.Marshal(&StreamRetrySettings{
+		Enabled:                false,
+		MaxDurationSeconds:     600,
+		RetryMax:               2,
+		RetryBackoffMs:         1000,
+		TTFTTimeoutSeconds:     200,
+		ChunkGapWarnSeconds:    10,
+		ChunkGapTimeoutSeconds: 120,
+	})
+	require.NoError(t, err)
+
+	cfg := &config.Config{}
+	cfg.Gateway.StreamMaxDurationSeconds = 600
+	cfg.Gateway.StreamTTFTTimeoutSeconds = 60
+	cfg.Gateway.StreamChunkGapWarnSeconds = 10
+	cfg.Gateway.StreamChunkGapTimeoutSeconds = 30
+	cfg.Gateway.StreamFailureRetryMax = 3
+	cfg.Gateway.StreamFailureRetryBackoffMs = 1000
+
+	svc := &OpenAIGatewayService{
+		cfg:            cfg,
+		settingService: NewSettingService(&openAIFastPolicyRepoStub{values: map[string]string{SettingKeyStreamRetrySettings: string(settingsRaw)}}, cfg),
+	}
+
+	effective := svc.resolveEffectiveStreamRetrySettings(context.Background())
+	require.False(t, effective.Enabled)
+	require.Zero(t, effective.MaxDurationSeconds)
+	require.Zero(t, effective.RetryMax)
+	require.Zero(t, effective.RetryBackoffMs)
+	require.Zero(t, effective.TTFTTimeoutSeconds)
+	require.Zero(t, effective.ChunkGapWarnSeconds)
+	require.Zero(t, effective.ChunkGapTimeoutSeconds)
+}
+
+func TestResolveEffectiveStreamRetrySettings_MissingSettingFallsBackToConfig(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Gateway.StreamMaxDurationSeconds = 600
+	cfg.Gateway.StreamTTFTTimeoutSeconds = 60
+	cfg.Gateway.StreamChunkGapWarnSeconds = 10
+	cfg.Gateway.StreamChunkGapTimeoutSeconds = 30
+	cfg.Gateway.StreamFailureRetryMax = 3
+	cfg.Gateway.StreamFailureRetryBackoffMs = 1000
+
+	svc := &OpenAIGatewayService{
+		cfg:            cfg,
+		settingService: NewSettingService(&openAIFastPolicyRepoStub{values: map[string]string{}}, cfg),
+	}
+
+	effective := svc.resolveEffectiveStreamRetrySettings(context.Background())
+	require.Equal(t, 600, effective.MaxDurationSeconds)
+	require.Equal(t, 3, effective.RetryMax)
+	require.Equal(t, 1000, effective.RetryBackoffMs)
+	require.Equal(t, 60, effective.TTFTTimeoutSeconds)
+	require.Equal(t, 10, effective.ChunkGapWarnSeconds)
+	require.Equal(t, 30, effective.ChunkGapTimeoutSeconds)
+}
+
+func TestForward_DisabledStreamRetryDoesNotFailoverRetryableNetworkError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gpt-5.5","input":"hello","stream":true}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	settingsRaw, err := json.Marshal(&StreamRetrySettings{
+		Enabled:                false,
+		MaxDurationSeconds:     600,
+		RetryMax:               2,
+		RetryBackoffMs:         1000,
+		TTFTTimeoutSeconds:     60,
+		ChunkGapWarnSeconds:    10,
+		ChunkGapTimeoutSeconds: 30,
+	})
+	require.NoError(t, err)
+
+	cfg := &config.Config{}
+	cfg.Gateway.StreamTTFTTimeoutSeconds = 60
+	cfg.Gateway.StreamChunkGapWarnSeconds = 10
+	cfg.Gateway.StreamChunkGapTimeoutSeconds = 30
+	upstream := &httpUpstreamRecorder{err: errors.New("read: connection reset by peer")}
+	svc := &OpenAIGatewayService{
+		cfg:            cfg,
+		httpUpstream:   upstream,
+		settingService: NewSettingService(&openAIFastPolicyRepoStub{values: map[string]string{SettingKeyStreamRetrySettings: string(settingsRaw)}}, cfg),
+	}
+	account := &Account{
+		ID:          1,
+		Name:        "openai-oauth",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token":       "oauth-token",
+			"chatgpt_account_id": "chatgpt-acc",
+		},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.Error(t, err)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr), "disabled stream retry must not convert retryable network errors into account failover")
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Equal(t, int64(0), svc.SnapshotStreamRetryMetrics().NetworkErrorFailoverTotal)
+}
+
 func TestHandleChatStreamingResponse_ResponseCreatedStallFailsBeforeWritingClientOutput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

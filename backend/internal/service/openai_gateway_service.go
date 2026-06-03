@@ -388,8 +388,10 @@ type OpenAIGatewayService struct {
 func (s *OpenAIGatewayService) resolveEffectiveStreamRetrySettings(ctx context.Context) StreamRetrySettings {
 	var effective StreamRetrySettings
 	if s != nil && s.settingService != nil {
-		if settings, err := s.settingService.GetStreamRetrySettings(ctx); err == nil && settings != nil && settings.Enabled {
-			effective = *settings
+		if settings, configured, err := s.settingService.getConfiguredStreamRetrySettings(ctx); err == nil && configured && settings != nil {
+			if settings.Enabled {
+				return *settings
+			}
 			return effective
 		}
 	}
@@ -403,6 +405,14 @@ func (s *OpenAIGatewayService) resolveEffectiveStreamRetrySettings(ctx context.C
 	effective.RetryMax = s.cfg.Gateway.StreamFailureRetryMax
 	effective.RetryBackoffMs = s.cfg.Gateway.StreamFailureRetryBackoffMs
 	return effective
+}
+
+func (s *OpenAIGatewayService) isStreamRetryExplicitlyDisabled(ctx context.Context) bool {
+	if s == nil || s.settingService == nil {
+		return false
+	}
+	settings, configured, err := s.settingService.getConfiguredStreamRetrySettings(ctx)
+	return err == nil && configured && settings != nil && !settings.Enabled
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -3140,8 +3150,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
-			// Retryable network errors trigger failover instead of immediate 502
-			if isRetryableNetworkError(err) {
+			// Retryable network errors trigger failover instead of immediate 502 unless
+			// stream retry was explicitly disabled by admin settings.
+			if isRetryableNetworkError(err) && !s.isStreamRetryExplicitlyDisabled(ctx) {
 				s.streamRetryMetrics.networkErrorFailover.Add(1)
 				logger.LegacyPrintf("service.openai_gateway", "stream_retry.network_error_failover account=%d model=%s error=%s", account.ID, originalModel, safeErr)
 				return nil, &UpstreamFailoverError{
@@ -3449,8 +3460,9 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			Kind:               "request_error",
 			Message:            safeErr,
 		})
-		// Retryable network errors trigger failover instead of immediate 502
-		if isRetryableNetworkError(err) {
+		// Retryable network errors trigger failover instead of immediate 502 unless
+		// stream retry was explicitly disabled by admin settings.
+		if isRetryableNetworkError(err) && !s.isStreamRetryExplicitlyDisabled(ctx) {
 			s.streamRetryMetrics.networkErrorFailover.Add(1)
 			logger.LegacyPrintf("service.openai_gateway", "stream_retry.network_error_failover account=%d model=%s error=%s (passthrough)", account.ID, reqModel, safeErr)
 			return nil, &UpstreamFailoverError{

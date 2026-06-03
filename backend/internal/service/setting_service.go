@@ -4810,19 +4810,32 @@ func (s *SettingService) SetStreamTimeoutSettings(ctx context.Context, settings 
 
 // GetStreamRetrySettings 获取流重试配置
 func (s *SettingService) GetStreamRetrySettings(ctx context.Context) (*StreamRetrySettings, error) {
+	settings, configured, err := s.getConfiguredStreamRetrySettings(ctx)
+	if err != nil || !configured {
+		return DefaultStreamRetrySettings(), nil
+	}
+	return settings, nil
+}
+
+func (s *SettingService) getConfiguredStreamRetrySettings(ctx context.Context) (*StreamRetrySettings, bool, error) {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyStreamRetrySettings)
 	if err != nil {
-		if errors.Is(err, ErrSettingNotFound) {
-			return DefaultStreamRetrySettings(), nil
-		}
-		return DefaultStreamRetrySettings(), nil
+		return DefaultStreamRetrySettings(), false, nil
 	}
 	if value == "" {
-		return DefaultStreamRetrySettings(), nil
+		return DefaultStreamRetrySettings(), false, nil
 	}
+	settings, err := parseStreamRetrySettings(value)
+	if err != nil {
+		return DefaultStreamRetrySettings(), false, nil
+	}
+	return settings, true, nil
+}
+
+func parseStreamRetrySettings(value string) (*StreamRetrySettings, error) {
 	var settings StreamRetrySettings
 	if err := json.Unmarshal([]byte(value), &settings); err != nil {
-		return DefaultStreamRetrySettings(), nil
+		return nil, err
 	}
 	backfillStreamRetrySettingsMissingFields(value, &settings)
 	// Clamp values to safe ranges
