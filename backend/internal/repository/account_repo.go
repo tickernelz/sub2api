@@ -57,11 +57,13 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 	"codex_5h_",
 	"codex_7d_",
 	"passive_usage_",
+	"openai_refresh_token_",
 }
 
 var schedulerNeutralExtraKeys = map[string]struct{}{
 	"codex_usage_updated_at":     {},
 	"session_window_utilization": {},
+	"openai_requires_reauth":     {},
 }
 
 // NewAccountRepository 创建账户仓储实例。
