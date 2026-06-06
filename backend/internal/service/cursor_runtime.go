@@ -50,7 +50,8 @@ func (s *GatewayService) forwardCursorMessages(ctx context.Context, c *gin.Conte
 		return nil, fmt.Errorf("cursor forward: model is required")
 	}
 
-	userText := flattenCursorMessages(parsed.Body, parsed.System)
+	systemValue, _ := parsed.SystemValue()
+	userText := flattenCursorMessages(parsed.Body.Bytes(), systemValue)
 	blobStore := make(map[string][]byte)
 	requestBody, err := cursorproto.BuildAgentRequestBody(cursorproto.AgentRunInput{
 		ModelID:   mappedModel,

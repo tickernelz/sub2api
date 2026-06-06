@@ -63,7 +63,7 @@ func (s *GatewayService) forwardKiroMessages(ctx context.Context, c *gin.Context
 	if next := account.GetMappedModel(originalModel); next != "" {
 		mappedModel = next
 	}
-	body := parsed.Body
+	body := parsed.Body.Bytes()
 	if mappedModel != originalModel {
 		body = s.replaceModelInBody(body, mappedModel)
 	}
@@ -76,10 +76,12 @@ func (s *GatewayService) forwardKiroMessages(ctx context.Context, c *gin.Context
 	)
 
 	if s.shouldEmulateWebSearch(ctx, account, parsed.GroupID, body) {
-		parsedForEmulation := *parsed
-		parsedForEmulation.Body = body
+		parsedForEmulation, err := parsed.CloneForBody(body)
+		if err != nil {
+			return nil, err
+		}
 		parsedForEmulation.Model = mappedModel
-		return s.handleWebSearchEmulation(ctx, c, account, &parsedForEmulation)
+		return s.handleWebSearchEmulation(ctx, c, account, parsedForEmulation)
 	}
 
 	if parsed.Stream {

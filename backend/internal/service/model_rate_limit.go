@@ -4,9 +4,15 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/tickernelz/sub2api/internal/pkg/ctxkey"
 )
 
-const modelRateLimitsKey = "model_rate_limits"
+const (
+	modelRateLimitsKey                 = "model_rate_limits"
+	antigravityGeminiModelRateLimitKey = "antigravity:gemini"
+	openAIImageGenerationRateLimitKey  = "openai:image_generation"
+)
 
 // isRateLimitActiveForKey 检查指定 key 的限流是否生效
 func (a *Account) isRateLimitActiveForKey(key string) bool {
@@ -28,17 +34,8 @@ func (a *Account) getRateLimitRemainingForKey(key string) time.Duration {
 }
 
 func (a *Account) isModelRateLimitedWithContext(ctx context.Context, requestedModel string) bool {
-	if a == nil {
-		return false
-	}
-
-	modelKeys := []string{a.GetMappedModel(requestedModel)}
-	if a.Platform == PlatformAntigravity {
-		modelKeys = antigravityRateLimitModelKeys(ctx, a, requestedModel)
-	}
-	for _, modelKey := range modelKeys {
-		modelKey = strings.TrimSpace(modelKey)
-		if modelKey != "" && a.isRateLimitActiveForKey(modelKey) {
+	for _, key := range a.modelRateLimitKeysForRequest(ctx, requestedModel) {
+		if a.isRateLimitActiveForKey(key) {
 			return true
 		}
 	}
@@ -52,25 +49,50 @@ func (a *Account) GetModelRateLimitRemainingTime(requestedModel string) time.Dur
 }
 
 func (a *Account) GetModelRateLimitRemainingTimeWithContext(ctx context.Context, requestedModel string) time.Duration {
+	remaining := time.Duration(0)
+	for _, key := range a.modelRateLimitKeysForRequest(ctx, requestedModel) {
+		if keyRemaining := a.getRateLimitRemainingForKey(key); keyRemaining > remaining {
+			remaining = keyRemaining
+		}
+	}
+	return remaining
+}
+
+func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedModel string) []string {
 	if a == nil {
-		return 0
+		return nil
 	}
 
-	modelKeys := []string{a.GetMappedModel(requestedModel)}
-	if a.Platform == PlatformAntigravity {
-		modelKeys = antigravityRateLimitModelKeys(ctx, a, requestedModel)
-	}
-	var maxRemaining time.Duration
-	for _, modelKey := range modelKeys {
-		modelKey = strings.TrimSpace(modelKey)
-		if modelKey == "" {
-			continue
+	keys := make([]string, 0, 6)
+	seen := make(map[string]bool, 6)
+	add := func(key string) {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			return
 		}
-		if remaining := a.getRateLimitRemainingForKey(modelKey); remaining > maxRemaining {
-			maxRemaining = remaining
-		}
+		seen[key] = true
+		keys = append(keys, key)
 	}
-	return maxRemaining
+
+	switch a.Platform {
+	case PlatformAntigravity:
+		for _, key := range antigravityRateLimitModelKeys(ctx, a, requestedModel) {
+			add(key)
+			if isAntigravityGeminiModel(key) {
+				add(antigravityGeminiModelRateLimitKey)
+			}
+		}
+	case PlatformOpenAI:
+		modelKey := a.GetMappedModel(requestedModel)
+		add(modelKey)
+		if openAIImageGenerationRateLimitApplies(ctx, requestedModel, modelKey) {
+			add(openAIImageGenerationRateLimitKey)
+		}
+	default:
+		add(a.GetMappedModel(requestedModel))
+	}
+
+	return keys
 }
 
 func antigravityRateLimitModelKeys(ctx context.Context, account *Account, requestedModel string) []string {
@@ -101,6 +123,28 @@ func antigravityRateLimitModelKeys(ctx context.Context, account *Account, reques
 	return keys
 }
 
+func openAIImageGenerationRateLimitApplies(ctx context.Context, requestedModel, modelKey string) bool {
+	if isOpenAIImageGenerationModel(requestedModel) || isOpenAIImageGenerationModel(modelKey) {
+		return true
+	}
+	return OpenAIImageGenerationIntentFromContext(ctx)
+}
+
+func WithOpenAIImageGenerationIntent(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, ctxkey.OpenAIImageGenerationIntent, true)
+}
+
+func OpenAIImageGenerationIntentFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	enabled, ok := ctx.Value(ctxkey.OpenAIImageGenerationIntent).(bool)
+	return ok && enabled
+}
+
 func resolveFinalAntigravityModelKey(ctx context.Context, account *Account, requestedModel string) string {
 	modelKey := mapAntigravityModel(account, requestedModel)
 	if modelKey == "" {
@@ -111,6 +155,22 @@ func resolveFinalAntigravityModelKey(ctx context.Context, account *Account, requ
 		modelKey = applyThinkingModelSuffix(modelKey, enabled)
 	}
 	return modelKey
+}
+
+func isAntigravityGeminiModel(model string) bool {
+	return strings.HasPrefix(normalizeAntigravityModelName(model), "gemini-")
+}
+
+func antigravityModelRateLimitKeys(model string) []string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return nil
+	}
+	keys := []string{model}
+	if isAntigravityGeminiModel(model) && model != antigravityGeminiModelRateLimitKey {
+		keys = append(keys, antigravityGeminiModelRateLimitKey)
+	}
+	return keys
 }
 
 func (a *Account) modelRateLimitResetAt(scope string) *time.Time {

@@ -31,7 +31,7 @@ func TestGatewayServiceForwardCursorMessagesUsesNativeRunProtocol(t *testing.T) 
 	body := []byte(`{"model":"composer-2-fast","messages":[{"role":"user","content":"ping"}],"stream":false}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 
-	parsed, err := ParseGatewayRequest(body, PlatformAnthropic)
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
 	require.NoError(t, err)
 	accepted := false
 	parsed.OnUpstreamAccepted = func() { accepted = true }
@@ -133,7 +133,7 @@ func TestGatewayServiceForwardCursorMessagesClientDisconnectDrainsUsage(t *testi
 	body := []byte(`{"model":"composer-2.5","messages":[{"role":"user","content":"ping"}],"stream":true}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 
-	parsed, err := ParseGatewayRequest(body, PlatformAnthropic)
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
 	require.NoError(t, err)
 	account := &Account{ID: 103, Name: "cursor-disconnect-test", Platform: PlatformCursor, Type: AccountTypeOAuth, Concurrency: 1, Credentials: map[string]any{"access_token": "cursor-token"}}
 
@@ -159,7 +159,7 @@ func TestGatewayServiceForwardCursorMessagesStreamsAnthropicSSE(t *testing.T) {
 	body := []byte(`{"model":"composer-2.5","messages":[{"role":"user","content":"ping"}],"stream":true}`)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
 
-	parsed, err := ParseGatewayRequest(body, PlatformAnthropic)
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
 	require.NoError(t, err)
 	account := &Account{
 		ID:          102,

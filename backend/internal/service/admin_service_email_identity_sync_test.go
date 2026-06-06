@@ -137,6 +137,9 @@ func (s *emailSyncRepoStub) UpdateTotpSecret(context.Context, int64, *string) er
 func (s *emailSyncRepoStub) EnableTotp(context.Context, int64) error { return nil }
 
 func (s *emailSyncRepoStub) DisableTotp(context.Context, int64) error { return nil }
+func (s *emailSyncRepoStub) GetByIDIncludeDeleted(ctx context.Context, id int64) (*User, error) {
+	return s.GetByID(ctx, id)
+}
 
 func (s *emailSyncRepoStub) EnsureEmailAuthIdentity(_ context.Context, userID int64, email string) error {
 	s.ensureCalls = append(s.ensureCalls, ensureEmailCall{userID: userID, email: email})
