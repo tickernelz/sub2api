@@ -88,6 +88,58 @@ func TestBuildAuthorizationURLIncludesHermesCompatibleParameters(t *testing.T) {
 	require.Equal(t, "sub2api", values.Get("referrer"))
 }
 
+func TestValidateXAIURLsAllowOfficialOAuthAndGatewayHosts(t *testing.T) {
+	authorizeURL, err := ValidateOAuthEndpointURL(DefaultAuthorizeURL)
+	require.NoError(t, err)
+	require.Equal(t, DefaultAuthorizeURL, authorizeURL)
+
+	tokenURL, err := ValidateOAuthEndpointURL(DefaultTokenURL)
+	require.NoError(t, err)
+	require.Equal(t, DefaultTokenURL, tokenURL)
+
+	baseURL, err := ValidateBaseURL(DefaultBaseURL)
+	require.NoError(t, err)
+	require.Equal(t, DefaultBaseURL, baseURL)
+
+	cliBaseURL, err := ValidateBaseURL(DefaultCLIBaseURL)
+	require.NoError(t, err)
+	require.Equal(t, DefaultCLIBaseURL, cliBaseURL)
+
+	baseURLNoPath, err := ValidateBaseURL("https://api.x.ai")
+	require.NoError(t, err)
+	require.Equal(t, DefaultBaseURL, baseURLNoPath)
+
+	chatURL, err := BuildChatCompletionsURL(DefaultCLIBaseURL + "/")
+	require.NoError(t, err)
+	require.Equal(t, DefaultCLIBaseURL+"/chat/completions", chatURL)
+}
+
+func TestValidateXAIURLsRejectArbitraryHostsByDefault(t *testing.T) {
+	_, err := ValidateOAuthEndpointURL("https://auth.example.test/oauth2/token")
+	require.Error(t, err)
+
+	_, err = ValidateBaseURL("https://xai.test/v1")
+	require.Error(t, err)
+
+	_, err = ValidateBaseURL("http://127.0.0.1:8080/v1")
+	require.Error(t, err)
+
+	_, err = ValidateBaseURL("https://api.x.ai/custom")
+	require.Error(t, err)
+}
+
+func TestValidateXAIURLsAllowUnsafeDevOverride(t *testing.T) {
+	t.Setenv(EnvAllowUnsafeURLOverrides, "true")
+
+	tokenURL, err := ValidateOAuthEndpointURL("http://127.0.0.1:8080/oauth2/token")
+	require.NoError(t, err)
+	require.Equal(t, "http://127.0.0.1:8080/oauth2/token", tokenURL)
+
+	baseURL, err := ValidateBaseURL("http://127.0.0.1:8080/v1/")
+	require.NoError(t, err)
+	require.Equal(t, "http://127.0.0.1:8080/v1", baseURL)
+}
+
 func TestDefaultModelMappingIncludesGrokAliases(t *testing.T) {
 	t.Parallel()
 
