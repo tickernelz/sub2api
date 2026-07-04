@@ -6731,6 +6731,23 @@ export default {
         saved: '流超时设置保存成功',
         saveFailed: '保存流超时设置失败'
       },
+      streamRetry: {
+        title: '流失速检测与故障转移',
+        description: '检测已连接但中途卡住（无数据块到达）的流，并在任何内容发送给客户端之前故障转移到另一个账号。与"流超时处理"互补。',
+        enabled: '启用失速检测',
+        enabledHint: '针对所有平台的 TTFT 与数据块间隔看门狗。仅在尚未向客户端发送任何内容时才会故障转移。',
+        ttftTimeoutSeconds: '首字节超时（秒）',
+        ttftTimeoutSecondsHint: '若在此时间内首个上游事件始终未到达，则故障转移。0 = 禁用（10-300 秒）。',
+        chunkGapWarnSeconds: '数据块间隔告警（秒）',
+        chunkGapWarnSecondsHint: '当上游事件间隔超过此值时记录告警。仅用于观测，不触发故障转移。0 = 禁用。',
+        chunkGapTimeoutSeconds: '数据块间隔超时（秒）',
+        chunkGapTimeoutSecondsHint: '当上游事件间隔超过此值时故障转移。必须大于告警阈值。0 = 禁用（10-300 秒）。',
+        retryMax: '最大故障转移次数',
+        retryBackoffMs: '重试退避（毫秒）',
+        metricsTitle: '运行计数器（自启动以来）',
+        saved: '流重试设置保存成功',
+        saveFailed: '保存流重试设置失败'
+      },
       rectifier: {
         title: '请求整流器',
         description: '当上游返回特定错误时，自动修正请求参数并重试，提高请求成功率',

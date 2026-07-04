@@ -3496,6 +3496,105 @@ func (h *SettingHandler) UpdateStreamTimeoutSettings(c *gin.Context) {
 	})
 }
 
+// streamRetrySettingsToDTO converts the service settings to its API DTO.
+func streamRetrySettingsToDTO(s *service.StreamRetrySettings) dto.StreamRetrySettings {
+	out := dto.StreamRetrySettings{
+		Enabled:                s.Enabled,
+		TTFTTimeoutSeconds:     s.TTFTTimeoutSeconds,
+		ChunkGapWarnSeconds:    s.ChunkGapWarnSeconds,
+		ChunkGapTimeoutSeconds: s.ChunkGapTimeoutSeconds,
+		RetryMax:               s.RetryMax,
+		RetryBackoffMs:         s.RetryBackoffMs,
+	}
+	if len(s.PlatformOverrides) > 0 {
+		out.PlatformOverrides = make(map[string]dto.StreamRetrySettingsPlatformOverride, len(s.PlatformOverrides))
+		for k, v := range s.PlatformOverrides {
+			out.PlatformOverrides[k] = dto.StreamRetrySettingsPlatformOverride{
+				TTFTTimeoutSeconds:     v.TTFTTimeoutSeconds,
+				ChunkGapWarnSeconds:    v.ChunkGapWarnSeconds,
+				ChunkGapTimeoutSeconds: v.ChunkGapTimeoutSeconds,
+			}
+		}
+	}
+	return out
+}
+
+// GetStreamRetrySettings 获取流失速检测配置
+// GET /api/v1/admin/settings/stream-retry
+func (h *SettingHandler) GetStreamRetrySettings(c *gin.Context) {
+	settings, err := h.settingService.GetStreamRetrySettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, streamRetrySettingsToDTO(settings))
+}
+
+// UpdateStreamRetrySettingsRequest 更新流失速检测配置请求
+type UpdateStreamRetrySettingsRequest struct {
+	Enabled                bool                                               `json:"enabled"`
+	TTFTTimeoutSeconds     int                                                `json:"ttft_timeout_seconds"`
+	ChunkGapWarnSeconds    int                                                `json:"chunk_gap_warn_seconds"`
+	ChunkGapTimeoutSeconds int                                                `json:"chunk_gap_timeout_seconds"`
+	RetryMax               int                                                `json:"retry_max"`
+	RetryBackoffMs         int                                                `json:"retry_backoff_ms"`
+	PlatformOverrides      map[string]dto.StreamRetrySettingsPlatformOverride `json:"platform_overrides"`
+}
+
+// UpdateStreamRetrySettings 更新流失速检测配置
+// PUT /api/v1/admin/settings/stream-retry
+func (h *SettingHandler) UpdateStreamRetrySettings(c *gin.Context) {
+	var req UpdateStreamRetrySettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	settings := &service.StreamRetrySettings{
+		Enabled:                req.Enabled,
+		TTFTTimeoutSeconds:     req.TTFTTimeoutSeconds,
+		ChunkGapWarnSeconds:    req.ChunkGapWarnSeconds,
+		ChunkGapTimeoutSeconds: req.ChunkGapTimeoutSeconds,
+		RetryMax:               req.RetryMax,
+		RetryBackoffMs:         req.RetryBackoffMs,
+	}
+	if len(req.PlatformOverrides) > 0 {
+		settings.PlatformOverrides = make(map[string]service.StreamRetryPlatformOverride, len(req.PlatformOverrides))
+		for k, v := range req.PlatformOverrides {
+			settings.PlatformOverrides[k] = service.StreamRetryPlatformOverride{
+				TTFTTimeoutSeconds:     v.TTFTTimeoutSeconds,
+				ChunkGapWarnSeconds:    v.ChunkGapWarnSeconds,
+				ChunkGapTimeoutSeconds: v.ChunkGapTimeoutSeconds,
+			}
+		}
+	}
+
+	if err := h.settingService.SetStreamRetrySettings(c.Request.Context(), settings); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	updatedSettings, err := h.settingService.GetStreamRetrySettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, streamRetrySettingsToDTO(updatedSettings))
+}
+
+// GetStreamRetryMetrics 获取流失速检测运行指标
+// GET /api/v1/admin/settings/stream-retry/metrics
+func (h *SettingHandler) GetStreamRetryMetrics(c *gin.Context) {
+	m := service.StreamRetryMetrics()
+	response.Success(c, dto.StreamRetryMetrics{
+		TTFTTimeoutTotal: m.TTFTTimeoutTotal,
+		GapWarnTotal:     m.GapWarnTotal,
+		GapTimeoutTotal:  m.GapTimeoutTotal,
+		FailoverTotal:    m.FailoverTotal,
+		FailCleanTotal:   m.FailCleanTotal,
+	})
+}
+
 // GetWebSearchEmulationConfig 获取 Web Search 模拟配置
 // GET /api/v1/admin/settings/web-search-emulation
 func (h *SettingHandler) GetWebSearchEmulationConfig(c *gin.Context) {
