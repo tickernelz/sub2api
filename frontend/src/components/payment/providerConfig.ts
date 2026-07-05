@@ -21,6 +21,12 @@ export interface TypeOption {
   [key: string]: unknown
 }
 
+export interface EasyPayCustomMethod {
+  type: string
+  upstreamType: string
+  displayName: string
+}
+
 /** Callback URL paths for a provider. */
 export interface CallbackPaths {
   notifyUrl?: string
@@ -169,6 +175,34 @@ export function getAvailableTypes(
 ): TypeOption[] {
   const types = PROVIDER_SUPPORTED_TYPES[providerKey] || []
   return types.map(t => resolveTypeLabel(t, providerKey, allTypes, redirectLabel))
+}
+
+export function parseEasyPayCustomMethods(raw: string | undefined): EasyPayCustomMethod[] {
+  if (!raw || !raw.trim()) return []
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map(item => ({
+        type: String(item?.type || '').trim(),
+        upstreamType: String(item?.upstreamType || '').trim(),
+        displayName: String(item?.displayName || '').trim(),
+      }))
+      .filter(item => item.type && item.upstreamType)
+  } catch {
+    return []
+  }
+}
+
+export function serializeEasyPayCustomMethods(methods: EasyPayCustomMethod[]): string {
+  const clean = methods
+    .map(method => ({
+      type: method.type.trim(),
+      upstreamType: method.upstreamType.trim(),
+      displayName: method.displayName.trim(),
+    }))
+    .filter(method => method.type && method.upstreamType)
+  return clean.length ? JSON.stringify(clean) : ''
 }
 
 /** Extract base URL from a full callback URL by removing the known path suffix. */
