@@ -103,18 +103,22 @@ Satu commit sumber (fork-only): `afb57148` `feat(gateway): stream stale detectio
 | File | Delta fork vs upstream | Alasan |
 |---|---|---|
 | `cla.yml` | 5 baris: `github.repository == 'tickernelz/sub2api'` (2×) + `path-to-document`/link CLA `github.com/tickernelz/sub2api` (3×) | Guard job CLA hanya jalan di repo fork; link ke CLA.md fork. |
+| `release.yml` | 1 baris: `continue-on-error: true` di step `Update DockerHub description` | Step itu bisa `403 Forbidden` (token perms) dan menandai job Release merah walau image sukses publish. Soft-fail supaya publish tetap dianggap sukses. |
 | **semua file `.github` lain** | **TIDAK ADA** — 100% ikut upstream | pnpm/golangci/step ikut upstream terbaru. |
 
 **Cara apply `.github` setelah reset ke upstream (prosedur baru):**
 ```bash
 # semua workflow SUDAH benar dari reset ke upstream — TIDAK perlu restore dari fork backup.
-# Cukup re-apply URL repo tickernelz di cla.yml:
+# 1. re-apply URL repo tickernelz di cla.yml:
 sed -i 's#Wei-Shaw/sub2api#tickernelz/sub2api#g' .github/workflows/cla.yml
-# verifikasi: cuma cla.yml yang beda dari upstream, dan bedanya cuma 5 baris tickernelz
-for f in backend-ci.yml release.yml security-scan.yml; do
+# 2. re-apply soft-fail di step DockerHub-description release.yml (tambahkan
+#    'continue-on-error: true' tepat di bawah '- name: Update DockerHub description').
+# verifikasi: cuma cla.yml + release.yml yang beda dari upstream (5 baris tickernelz + 1 baris continue-on-error)
+for f in backend-ci.yml security-scan.yml; do
   diff <(git show wei-shaw/main:.github/workflows/$f) .github/workflows/$f && echo "$f OK (==upstream)"
 done
-diff <(git show wei-shaw/main:.github/workflows/cla.yml) .github/workflows/cla.yml   # hanya 5 baris tickernelz
+diff <(git show wei-shaw/main:.github/workflows/cla.yml) .github/workflows/cla.yml       # hanya 5 baris tickernelz
+diff <(git show wei-shaw/main:.github/workflows/release.yml) .github/workflows/release.yml # hanya 1 baris continue-on-error
 ```
 > ⚠️ **JANGAN** `git checkout <fork-backup> -- .github` lagi (cara lama) — itu membawa balik divergence usang. Cukup reset-ke-upstream + sed cla.yml.
 
