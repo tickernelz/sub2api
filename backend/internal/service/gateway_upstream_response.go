@@ -728,6 +728,11 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		intervalCh = intervalTicker.C
 	}
 
+	// Stale-stream watchdog (TTFT + inter-chunk gap). nil when disabled.
+	staleWatchdog := newStreamWatchdogForPlatform(ctx, s.settingService, account.Platform)
+	defer staleWatchdog.Stop()
+	staleTTFTCh, staleGapWarnCh, staleGapTimeoutCh := staleWatchdog.Chans()
+
 	// 下游 keepalive：防止代理/Cloudflare Tunnel 因连接空闲而断开
 	keepaliveInterval := time.Duration(0)
 	if s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0 {
@@ -1007,6 +1012,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", ev.err)
 			}
 			line := ev.line
+			staleWatchdog.OnUpstreamEvent()
 			trimmed := strings.TrimSpace(line)
 
 			if trimmed == "" {
@@ -1068,6 +1074,23 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			}
 			sendErrorEvent("stream_timeout", fmt.Sprintf("upstream stream idle for %s", streamInterval))
 			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
+
+		case <-staleTTFTCh:
+			if decideStreamStall(c, staleWatchdog.TrippedTTFT(), account.Platform, originalModel, account.ID, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			sendErrorEvent("stream_ttft_timeout", fmt.Sprintf("no first token within %s", staleWatchdog.cfg.TTFT))
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream ttft timeout")
+
+		case <-staleGapWarnCh:
+			decideStreamStall(c, staleWatchdog.TrippedGapWarn(), account.Platform, originalModel, account.ID, globalStreamRetryMetrics)
+
+		case <-staleGapTimeoutCh:
+			if decideStreamStall(c, staleWatchdog.TrippedGapTimeout(), account.Platform, originalModel, account.ID, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			sendErrorEvent("stream_chunk_gap_timeout", fmt.Sprintf("upstream chunk gap exceeded %s", staleWatchdog.cfg.GapTimeout))
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream chunk gap timeout")
 
 		case <-keepaliveCh:
 			if clientDisconnected {
