@@ -61,6 +61,7 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 	"upstream_billing_probe",
 	"upstream_billing_rate_sync",
 	"ollama_cloud_usage",
+	"openai_refresh_token_",
 }
 
 var schedulerNeutralExtraKeys = map[string]struct{}{
@@ -69,6 +70,7 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 	"codex_referral_snapshot":    {},
 	"grok_billing_snapshot":      {},
 	"session_window_utilization": {},
+	"openai_requires_reauth":     {},
 }
 
 const postgresParameterBatchSize = 50000
