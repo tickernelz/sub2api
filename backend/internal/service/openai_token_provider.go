@@ -175,7 +175,9 @@ func (p *OpenAITokenProvider) GetAccessToken(ctx context.Context, account *Accou
 
 		result, err := p.refreshAPI.RefreshIfNeeded(ctx, account, p.executor, openAITokenRefreshSkew)
 		if err != nil {
-			if p.refreshPolicy.OnRefreshError == ProviderRefreshErrorReturn {
+			if shouldSoftHandleOpenAIRefreshTokenReused(account, err) {
+				markOpenAIRefreshTokenReused(ctx, p.accountRepo, account, err)
+			} else if p.refreshPolicy.OnRefreshError == ProviderRefreshErrorReturn {
 				return "", err
 			}
 			slog.Warn("openai_token_refresh_failed", "account_id", account.ID, "error", err)
@@ -197,6 +199,7 @@ func (p *OpenAITokenProvider) GetAccessToken(ctx context.Context, account *Accou
 		} else if result.Refreshed {
 			p.metrics.refreshSuccess.Add(1)
 			account = result.Account
+			clearOpenAIRefreshTokenReusedMarker(ctx, p.accountRepo, account)
 			expiresAt = account.GetCredentialAsTime("expires_at")
 		} else {
 			account = result.Account
