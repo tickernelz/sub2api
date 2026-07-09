@@ -515,6 +515,12 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		intervalCh = intervalTicker.C
 	}
 
+	// Stale-stream watchdog (TTFT + inter-chunk gap). nil when disabled; its
+	// channels are nil and never fire, so the select arms below degrade to no-ops.
+	staleWatchdog := newStreamWatchdogForPlatform(c.Request.Context(), s.settingService, PlatformOpenAI)
+	defer staleWatchdog.Stop()
+	ttftCh, gapWarnCh, gapTimeoutCh := staleWatchdog.Chans()
+
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
 			RequestID:     requestID,
@@ -878,6 +884,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", ev.err)
 			}
 			lastDataAt = time.Now()
+			staleWatchdog.OnUpstreamEvent()
 			line := ev.line
 			frame, ok := parser.AddLine(line)
 			if !ok {
@@ -904,6 +911,28 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				zap.Duration("interval", streamInterval),
 			)
 			return resultWithUsage(), fmt.Errorf("stream data interval timeout")
+
+		case <-ttftCh:
+			// Upstream connected but never sent the first event.
+			switch decideStreamStall(c, staleWatchdog.TrippedTTFT(), PlatformOpenAI, originalModel, account.ID, globalStreamRetryMetrics) {
+			case stallFailover:
+				return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, "openai stream ttft timeout before output")
+			default:
+				return resultWithUsage(), fmt.Errorf("stream ttft timeout")
+			}
+
+		case <-gapWarnCh:
+			// Soft warning only; timer re-arms on the next upstream event.
+			decideStreamStall(c, staleWatchdog.TrippedGapWarn(), PlatformOpenAI, originalModel, account.ID, globalStreamRetryMetrics)
+
+		case <-gapTimeoutCh:
+			// Inter-chunk gap exceeded the hard threshold.
+			switch decideStreamStall(c, staleWatchdog.TrippedGapTimeout(), PlatformOpenAI, originalModel, account.ID, globalStreamRetryMetrics) {
+			case stallFailover:
+				return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, "openai stream chunk gap timeout before output")
+			default:
+				return resultWithUsage(), fmt.Errorf("stream chunk gap timeout")
+			}
 
 		case <-keepaliveCh:
 			if clientDisconnected {
