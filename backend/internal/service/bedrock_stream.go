@@ -104,6 +104,11 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 		intervalCh = intervalTicker.C
 	}
 
+	// Stale-stream watchdog (TTFT + inter-chunk gap). nil when disabled.
+	staleWatchdog := newStreamWatchdogForPlatform(ctx, s.settingService, account.Platform)
+	defer staleWatchdog.Stop()
+	staleTTFTCh, staleGapWarnCh, staleGapTimeoutCh := staleWatchdog.Chans()
+
 	for {
 		select {
 		case ev, ok := <-events:
@@ -122,6 +127,7 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 				}
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("bedrock stream read error: %w", ev.err)
 			}
+			staleWatchdog.OnUpstreamEvent()
 
 			// payload 是 JSON，提取 chunk.bytes（base64 编码的 Claude SSE 事件数据）
 			sseData := extractBedrockChunkData(ev.payload)
@@ -173,6 +179,21 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 				s.rateLimitService.HandleStreamTimeout(ctx, account, model)
 			}
 			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
+
+		case <-staleTTFTCh:
+			if decideStreamStall(c, staleWatchdog.TrippedTTFT(), account.Platform, model, account.ID, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream ttft timeout")
+
+		case <-staleGapWarnCh:
+			decideStreamStall(c, staleWatchdog.TrippedGapWarn(), account.Platform, model, account.ID, globalStreamRetryMetrics)
+
+		case <-staleGapTimeoutCh:
+			if decideStreamStall(c, staleWatchdog.TrippedGapTimeout(), account.Platform, model, account.ID, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream chunk gap timeout")
 		}
 	}
 }
