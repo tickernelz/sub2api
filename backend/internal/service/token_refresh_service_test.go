@@ -17,14 +17,15 @@ type tokenRefreshAccountRepo struct {
 	updateCalls            int
 	fullUpdateCalls        int
 	updateCredentialsCalls int
+	updateExtraCalls       int
 	setErrorCalls          int
 	clearTempCalls         int
 	setTempUnschedCalls    int
-	updateExtraCalls       int
 	lastErrorMessage       string
 	lastTempUnschedReason  string
 	lastExtraUpdates       map[string]any
 	lastAccount            *Account
+	lastExtraUpdate        map[string]any
 	updateErr              error
 }
 
@@ -73,6 +74,7 @@ func (r *tokenRefreshAccountRepo) SetTempUnschedulable(ctx context.Context, id i
 func (r *tokenRefreshAccountRepo) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
 	r.updateExtraCalls++
 	r.lastExtraUpdates = shallowCopyMap(updates)
+	r.lastExtraUpdate = updates
 	if r.accountsByID != nil {
 		if acc, ok := r.accountsByID[id]; ok && acc != nil {
 			if acc.Extra == nil {
@@ -635,6 +637,94 @@ func TestTokenRefreshService_RefreshWithRetry_NonRetryableErrorAllPlatforms(t *t
 			require.Equal(t, 1, repo.setErrorCalls) // 所有平台不可重试错误都应 SetError
 		})
 	}
+}
+
+func TestTokenRefreshService_RefreshWithRetry_OpenAIRefreshTokenReusedKeepsAccountSchedulable(t *testing.T) {
+	expiresAt := time.Now().Add(time.Minute).Format(time.RFC3339)
+	account := &Account{
+		ID:       18,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":   "still-usable-access-token",
+			"refresh_token":  "already-used-refresh-token",
+			"expires_at":     expiresAt,
+			"_token_version": int64(12345),
+		},
+	}
+	repo := &tokenRefreshAccountRepo{}
+	repo.accountsByID = map[int64]*Account{account.ID: account}
+	cache := &mockTokenCacheForRefreshAPI{lockResult: true}
+	service, _ := buildPathAService(repo, cache, nil)
+	refresher := &tokenRefresherStub{
+		err: errors.New(`error: code=502 reason="OPENAI_OAUTH_TOKEN_REFRESH_FAILED" message="token refresh failed: status 400, body: {"error":{"code":"refresh_token_reused"}}"`),
+	}
+
+	err := service.refreshWithRetry(context.Background(), account, refresher, refresher, time.Hour)
+	require.Error(t, err)
+	require.Equal(t, 0, repo.setErrorCalls, "refresh_token_reused is a refresh-token failure, not proof the access_token is unusable")
+	require.Equal(t, 0, repo.setTempUnschedCalls, "refresh-token-only failure must not remove the account from scheduling")
+	require.Equal(t, 1, repo.updateExtraCalls)
+	require.Equal(t, "reused", repo.lastExtraUpdate["openai_refresh_token_status"])
+	require.Equal(t, true, repo.lastExtraUpdate["openai_requires_reauth"])
+	require.Contains(t, repo.lastExtraUpdate, "openai_refresh_token_reused_at")
+	require.Equal(t, int64(12345), repo.lastExtraUpdate["openai_refresh_token_reused_token_version"])
+}
+
+func TestOpenAITokenRefresher_NeedsRefreshSkipsRefreshTokenReusedUntilCredentialsChange(t *testing.T) {
+	expiresAt := time.Now().Add(time.Minute).Format(time.RFC3339)
+	refresher := NewOpenAITokenRefresher(nil, nil)
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":   "access-token",
+			"refresh_token":  "reused-refresh-token",
+			"expires_at":     expiresAt,
+			"_token_version": int64(12345),
+		},
+		Extra: map[string]any{
+			"openai_refresh_token_status":               "reused",
+			"openai_refresh_token_reused_token_version": int64(12345),
+		},
+	}
+
+	require.False(t, refresher.NeedsRefresh(account, time.Hour), "do not hammer OpenAI with a known reused refresh token")
+
+	account.Credentials["_token_version"] = int64(67890)
+	require.True(t, refresher.NeedsRefresh(account, time.Hour), "new OAuth credentials should be allowed to refresh again")
+}
+
+func TestOpenAITokenProvider_RefreshTokenReusedUsesExistingAccessToken(t *testing.T) {
+	expiresAt := time.Now().Add(time.Minute).Format(time.RFC3339)
+	account := &Account{
+		ID:       19,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token":   "existing-access-token",
+			"refresh_token":  "already-used-refresh-token",
+			"expires_at":     expiresAt,
+			"_token_version": int64(223344),
+		},
+	}
+	repo := &tokenRefreshAccountRepo{}
+	repo.accountsByID = map[int64]*Account{account.ID: account}
+	cache := &mockTokenCacheForRefreshAPI{lockResult: true}
+	refreshAPI := NewOAuthRefreshAPI(repo, cache)
+	provider := NewOpenAITokenProvider(repo, cache, nil)
+	refresher := &tokenRefresherStub{
+		err: errors.New(`OPENAI_OAUTH_TOKEN_REFRESH_FAILED: {"error":{"code":"refresh_token_reused"}}`),
+	}
+	provider.SetRefreshAPI(refreshAPI, refresher)
+
+	token, err := provider.GetAccessToken(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, "existing-access-token", token)
+	require.Equal(t, 0, repo.setErrorCalls)
+	require.Equal(t, 0, repo.setTempUnschedCalls)
+	require.Equal(t, 1, repo.updateExtraCalls)
+	require.Equal(t, "reused", repo.lastExtraUpdate["openai_refresh_token_status"])
 }
 
 func TestTokenRefreshService_RefreshWithRetry_NoRefreshTokenDoesNotTempUnschedule(t *testing.T) {
