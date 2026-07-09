@@ -1226,6 +1226,74 @@ export async function updateStreamTimeoutSettings(
   return data;
 }
 
+// ==================== Stream Retry (Stale Detection) Settings ====================
+
+/**
+ * Stream retry / stale-stream detection settings.
+ * Complements StreamTimeoutSettings: this controls WHEN a stream is considered
+ * stale (TTFT + inter-chunk gap) and whether to fail over before any output.
+ */
+export interface StreamRetrySettings {
+  enabled: boolean;
+  ttft_timeout_seconds: number;
+  chunk_gap_warn_seconds: number;
+  chunk_gap_timeout_seconds: number;
+  retry_max: number;
+  retry_backoff_ms: number;
+  platform_overrides?: Record<
+    string,
+    {
+      ttft_timeout_seconds?: number | null;
+      chunk_gap_warn_seconds?: number | null;
+      chunk_gap_timeout_seconds?: number | null;
+    }
+  >;
+}
+
+/**
+ * Stream retry runtime metrics (process-wide counters).
+ */
+export interface StreamRetryMetrics {
+  ttft_timeout_total: number;
+  gap_warn_total: number;
+  gap_timeout_total: number;
+  failover_total: number;
+  fail_clean_total: number;
+}
+
+/**
+ * Get stream retry (stale detection) settings
+ */
+export async function getStreamRetrySettings(): Promise<StreamRetrySettings> {
+  const { data } = await apiClient.get<StreamRetrySettings>(
+    "/admin/settings/stream-retry",
+  );
+  return data;
+}
+
+/**
+ * Update stream retry (stale detection) settings
+ */
+export async function updateStreamRetrySettings(
+  settings: StreamRetrySettings,
+): Promise<StreamRetrySettings> {
+  const { data } = await apiClient.put<StreamRetrySettings>(
+    "/admin/settings/stream-retry",
+    settings,
+  );
+  return data;
+}
+
+/**
+ * Get stream retry runtime metrics
+ */
+export async function getStreamRetryMetrics(): Promise<StreamRetryMetrics> {
+  const { data } = await apiClient.get<StreamRetryMetrics>(
+    "/admin/settings/stream-retry/metrics",
+  );
+  return data;
+}
+
 // ==================== Rectifier Settings ====================
 
 /**
@@ -1416,6 +1484,9 @@ export const settingsAPI = {
   updateRateLimit429CooldownSettings,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
+  getStreamRetrySettings,
+  updateStreamRetrySettings,
+  getStreamRetryMetrics,
   getRectifierSettings,
   updateRectifierSettings,
   getBetaPolicySettings,
