@@ -10,6 +10,15 @@
       >
         <div class="py-1">
           <template v-if="account">
+            <div
+              v-if="hasOpenAIRefreshTokenReauthRequired"
+              class="mx-2 mb-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-700/50 dark:bg-amber-900/20 dark:text-amber-200"
+            >
+              <div class="font-semibold">{{ t('admin.accounts.openai.refreshTokenReauthRequired') }}</div>
+              <div class="mt-0.5 text-amber-700 dark:text-amber-300">
+                {{ t('admin.accounts.openai.refreshTokenReauthActionHint') }}
+              </div>
+            </div>
             <button @click="$emit('test', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="play" size="sm" class="text-green-500" :stroke-width="2" />
               {{ t('admin.accounts.testConnection') }}
@@ -99,6 +108,10 @@ const isShadow = computed(() => props.account?.parent_account_id != null)
 // A "parent" OpenAI OAuth account is one that is NOT itself a shadow (parent_account_id == null)
 const isOpenAIOAuthParent = computed(() => isOpenAIOAuth.value && !isShadow.value)
 const supportsPrivacy = computed(() => (isAntigravityOAuth.value || isOpenAIOAuth.value) && !isShadow.value)
+const hasOpenAIRefreshTokenReauthRequired = computed(() => {
+  const extra = props.account?.extra as Record<string, unknown> | undefined
+  return Boolean(isOpenAIOAuth.value && (extra?.openai_requires_reauth === true || extra?.openai_refresh_token_status === 'reused'))
+})
 const hasQuotaLimit = computed(() => {
   return (props.account?.type === 'apikey' || props.account?.type === 'bedrock') && (
     (props.account?.quota_limit ?? 0) > 0 ||
