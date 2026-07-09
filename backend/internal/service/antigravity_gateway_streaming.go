@@ -198,6 +198,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		intervalCh = intervalTicker.C
 	}
 
+	// Stale-stream watchdog (TTFT + inter-chunk gap). nil when disabled.
+	staleWatchdog := newStreamWatchdogForPlatform(c.Request.Context(), s.settingService, PlatformAntigravity)
+	defer staleWatchdog.Stop()
+	staleTTFTCh, staleGapWarnCh, staleGapTimeoutCh := staleWatchdog.Chans()
+
 	// 下游 keepalive：防止代理/Cloudflare Tunnel 因连接空闲而断开
 	keepaliveInterval := time.Duration(0)
 	if s.settingService.cfg != nil && s.settingService.cfg.Gateway.StreamKeepaliveInterval > 0 {
@@ -259,6 +264,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 
 			line := ev.line
 			s.observeAntigravityGeminiSSELine(c, line)
+			staleWatchdog.OnUpstreamEvent()
 			trimmed := strings.TrimRight(line, "\r\n")
 			if strings.HasPrefix(trimmed, "data:") {
 				needsEventSeparator = false
@@ -331,6 +337,21 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			logger.LegacyPrintf("service.antigravity_gateway", "Stream data interval timeout (antigravity)")
 			sendErrorEvent("stream_timeout")
 			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
+
+		case <-staleTTFTCh:
+			if decideStreamStall(c, staleWatchdog.TrippedTTFT(), PlatformAntigravity, "", 0, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream ttft timeout")
+
+		case <-staleGapWarnCh:
+			decideStreamStall(c, staleWatchdog.TrippedGapWarn(), PlatformAntigravity, "", 0, globalStreamRetryMetrics)
+
+		case <-staleGapTimeoutCh:
+			if decideStreamStall(c, staleWatchdog.TrippedGapTimeout(), PlatformAntigravity, "", 0, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream chunk gap timeout")
 
 		case <-keepaliveCh:
 			if cw.Disconnected() {
@@ -424,6 +445,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 		intervalCh = intervalTicker.C
 	}
 
+	// Stale-stream watchdog (TTFT + inter-chunk gap). nil when disabled.
+	staleWatchdog := newStreamWatchdogForPlatform(c.Request.Context(), s.settingService, PlatformAntigravity)
+	defer staleWatchdog.Stop()
+	staleTTFTCh, staleGapWarnCh, staleGapTimeoutCh := staleWatchdog.Chans()
+
 	for {
 		select {
 		case ev, ok := <-events:
@@ -443,6 +469,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 
 			line := ev.line
 			s.observeAntigravityGeminiSSELine(c, line)
+			staleWatchdog.OnUpstreamEvent()
 			trimmed := strings.TrimRight(line, "\r\n")
 
 			if !strings.HasPrefix(trimmed, "data:") {
@@ -505,6 +532,21 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 			}
 			logger.LegacyPrintf("service.antigravity_gateway", "Stream data interval timeout (antigravity non-stream)")
 			return nil, fmt.Errorf("stream data interval timeout")
+
+		case <-staleTTFTCh:
+			if decideStreamStall(c, staleWatchdog.TrippedTTFT(), PlatformAntigravity, "", 0, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return nil, fmt.Errorf("stream ttft timeout")
+
+		case <-staleGapWarnCh:
+			decideStreamStall(c, staleWatchdog.TrippedGapWarn(), PlatformAntigravity, "", 0, globalStreamRetryMetrics)
+
+		case <-staleGapTimeoutCh:
+			if decideStreamStall(c, staleWatchdog.TrippedGapTimeout(), PlatformAntigravity, "", 0, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return nil, fmt.Errorf("stream chunk gap timeout")
 		}
 	}
 
@@ -844,6 +886,11 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 		intervalCh = intervalTicker.C
 	}
 
+	// Stale-stream watchdog (TTFT + inter-chunk gap). nil when disabled.
+	staleWatchdog := newStreamWatchdogForPlatform(c.Request.Context(), s.settingService, PlatformAntigravity)
+	defer staleWatchdog.Stop()
+	staleTTFTCh, staleGapWarnCh, staleGapTimeoutCh := staleWatchdog.Chans()
+
 	for {
 		select {
 		case ev, ok := <-events:
@@ -862,6 +909,7 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 			}
 
 			line := ev.line
+			staleWatchdog.OnUpstreamEvent()
 			trimmed := strings.TrimRight(line, "\r\n")
 
 			if !strings.HasPrefix(trimmed, "data:") {
@@ -915,6 +963,21 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 			}
 			logger.LegacyPrintf("service.antigravity_gateway", "Stream data interval timeout (antigravity claude non-stream)")
 			return nil, nil, fmt.Errorf("stream data interval timeout")
+
+		case <-staleTTFTCh:
+			if decideStreamStall(c, staleWatchdog.TrippedTTFT(), PlatformAntigravity, originalModel, 0, globalStreamRetryMetrics) == stallFailover {
+				return nil, nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return nil, nil, fmt.Errorf("stream ttft timeout")
+
+		case <-staleGapWarnCh:
+			decideStreamStall(c, staleWatchdog.TrippedGapWarn(), PlatformAntigravity, originalModel, 0, globalStreamRetryMetrics)
+
+		case <-staleGapTimeoutCh:
+			if decideStreamStall(c, staleWatchdog.TrippedGapTimeout(), PlatformAntigravity, originalModel, 0, globalStreamRetryMetrics) == stallFailover {
+				return nil, nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return nil, nil, fmt.Errorf("stream chunk gap timeout")
 		}
 	}
 
@@ -1081,6 +1144,11 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 		intervalCh = intervalTicker.C
 	}
 
+	// Stale-stream watchdog (TTFT + inter-chunk gap). nil when disabled.
+	staleWatchdog := newStreamWatchdogForPlatform(c.Request.Context(), s.settingService, PlatformAntigravity)
+	defer staleWatchdog.Stop()
+	staleTTFTCh, staleGapWarnCh, staleGapTimeoutCh := staleWatchdog.Chans()
+
 	// 下游 keepalive：防止代理/Cloudflare Tunnel 因连接空闲而断开
 	keepaliveInterval := time.Duration(0)
 	if s.settingService.cfg != nil && s.settingService.cfg.Gateway.StreamKeepaliveInterval > 0 {
@@ -1157,6 +1225,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 
 			// 处理 SSE 行，转换为 Claude 格式
 			claudeEvents := processor.ProcessLine(strings.TrimRight(ev.line, "\r\n"))
+			staleWatchdog.OnUpstreamEvent()
 			if len(claudeEvents) > 0 {
 				if firstTokenMs == nil {
 					ms := int(time.Since(startTime).Milliseconds())
@@ -1177,6 +1246,21 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 			logger.LegacyPrintf("service.antigravity_gateway", "Stream data interval timeout (antigravity)")
 			sendErrorEvent("stream_timeout")
 			return &antigravityStreamResult{usage: convertUsage(nil), firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
+
+		case <-staleTTFTCh:
+			if decideStreamStall(c, staleWatchdog.TrippedTTFT(), PlatformAntigravity, originalModel, 0, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return &antigravityStreamResult{usage: convertUsage(nil), firstTokenMs: firstTokenMs}, fmt.Errorf("stream ttft timeout")
+
+		case <-staleGapWarnCh:
+			decideStreamStall(c, staleWatchdog.TrippedGapWarn(), PlatformAntigravity, originalModel, 0, globalStreamRetryMetrics)
+
+		case <-staleGapTimeoutCh:
+			if decideStreamStall(c, staleWatchdog.TrippedGapTimeout(), PlatformAntigravity, originalModel, 0, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return &antigravityStreamResult{usage: convertUsage(nil), firstTokenMs: firstTokenMs}, fmt.Errorf("stream chunk gap timeout")
 
 		case <-keepaliveCh:
 			if cw.Disconnected() {
