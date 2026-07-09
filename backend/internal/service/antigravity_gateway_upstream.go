@@ -211,6 +211,11 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 		intervalCh = intervalTicker.C
 	}
 
+	// Stale-stream watchdog (TTFT + inter-chunk gap). nil when disabled.
+	staleWatchdog := newStreamWatchdogForPlatform(c.Request.Context(), s.settingService, PlatformAntigravity)
+	defer staleWatchdog.Stop()
+	staleTTFTCh, staleGapWarnCh, staleGapTimeoutCh := staleWatchdog.Chans()
+
 	// 下游 keepalive：防止代理/Cloudflare Tunnel 因连接空闲而断开
 	keepaliveInterval := time.Duration(0)
 	if s.settingService.cfg != nil && s.settingService.cfg.Gateway.StreamKeepaliveInterval > 0 {
@@ -247,6 +252,7 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 			lastDataAt = time.Now()
 
 			line := ev.line
+			staleWatchdog.OnUpstreamEvent()
 
 			// 记录首 token 时间
 			if firstTokenMs == nil && len(line) > 0 {
@@ -270,6 +276,17 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}
 			}
 			logger.LegacyPrintf("service.antigravity_gateway", "Stream data interval timeout (antigravity upstream)")
+			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}
+
+		case <-staleTTFTCh:
+			decideStreamStall(c, staleWatchdog.TrippedTTFT(), PlatformAntigravity, "", 0, globalStreamRetryMetrics)
+			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}
+
+		case <-staleGapWarnCh:
+			decideStreamStall(c, staleWatchdog.TrippedGapWarn(), PlatformAntigravity, "", 0, globalStreamRetryMetrics)
+
+		case <-staleGapTimeoutCh:
+			decideStreamStall(c, staleWatchdog.TrippedGapTimeout(), PlatformAntigravity, "", 0, globalStreamRetryMetrics)
 			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}
 
 		case <-keepaliveCh:
