@@ -591,6 +591,186 @@
             </div>
           </div>
 
+          <!-- Stream Retry (Stale Detection) Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.streamRetry.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.streamRetry.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div
+                v-if="streamRetryLoading"
+                class="flex items-center gap-2 text-gray-500"
+              >
+                <div
+                  class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
+                ></div>
+                {{ t("common.loading") }}
+              </div>
+
+              <template v-else>
+                <!-- Master Toggle -->
+                <div class="flex items-center justify-between">
+                  <div>
+                    <label class="font-medium text-gray-900 dark:text-white">{{
+                      t("admin.settings.streamRetry.enabled")
+                    }}</label>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamRetry.enabledHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="streamRetryForm.enabled" />
+                </div>
+
+                <div v-if="streamRetryForm.enabled" class="space-y-4">
+                  <div>
+                    <label
+                      class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >{{
+                        t("admin.settings.streamRetry.ttftTimeoutSeconds")
+                      }}</label
+                    >
+                    <input
+                      v-model.number="streamRetryForm.ttft_timeout_seconds"
+                      type="number"
+                      min="0"
+                      max="300"
+                      class="input w-full"
+                    />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.streamRetry.ttftTimeoutSecondsHint") }}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >{{
+                        t("admin.settings.streamRetry.chunkGapWarnSeconds")
+                      }}</label
+                    >
+                    <input
+                      v-model.number="streamRetryForm.chunk_gap_warn_seconds"
+                      type="number"
+                      min="0"
+                      max="120"
+                      class="input w-full"
+                    />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        t("admin.settings.streamRetry.chunkGapWarnSecondsHint")
+                      }}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >{{
+                        t("admin.settings.streamRetry.chunkGapTimeoutSeconds")
+                      }}</label
+                    >
+                    <input
+                      v-model.number="streamRetryForm.chunk_gap_timeout_seconds"
+                      type="number"
+                      min="0"
+                      max="300"
+                      class="input w-full"
+                    />
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        t(
+                          "admin.settings.streamRetry.chunkGapTimeoutSecondsHint",
+                        )
+                      }}
+                    </p>
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-4">
+                    <div>
+                      <label
+                        class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                        >{{ t("admin.settings.streamRetry.retryMax") }}</label
+                      >
+                      <input
+                        v-model.number="streamRetryForm.retry_max"
+                        type="number"
+                        min="0"
+                        max="5"
+                        class="input w-full"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                        >{{
+                          t("admin.settings.streamRetry.retryBackoffMs")
+                        }}</label
+                      >
+                      <input
+                        v-model.number="streamRetryForm.retry_backoff_ms"
+                        type="number"
+                        min="0"
+                        max="10000"
+                        class="input w-full"
+                      />
+                    </div>
+                  </div>
+
+                  <!-- Runtime metrics -->
+                  <div
+                    class="rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-400"
+                  >
+                    <div class="mb-1 font-medium">
+                      {{ t("admin.settings.streamRetry.metricsTitle") }}
+                    </div>
+                    <div class="flex flex-wrap gap-x-4 gap-y-1">
+                      <span
+                        >TTFT: {{ streamRetryMetrics.ttft_timeout_total }}</span
+                      >
+                      <span
+                        >Gap-warn: {{ streamRetryMetrics.gap_warn_total }}</span
+                      >
+                      <span
+                        >Gap-timeout:
+                        {{ streamRetryMetrics.gap_timeout_total }}</span
+                      >
+                      <span
+                        >Failover: {{ streamRetryMetrics.failover_total }}</span
+                      >
+                      <span
+                        >Fail-clean:
+                        {{ streamRetryMetrics.fail_clean_total }}</span
+                      >
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex justify-end">
+                  <button
+                    class="btn btn-primary"
+                    @click="saveStreamRetrySettings"
+                    :disabled="streamRetrySaving"
+                  >
+                    <div
+                      v-if="streamRetrySaving"
+                      class="mr-2 h-4 w-4 animate-spin rounded-full border-b-2 border-white"
+                    ></div>
+                    {{
+                      streamRetrySaving ? t("common.saving") : t("common.save")
+                    }}
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
           <!-- Request Rectifier Settings -->
           <div class="card">
             <div
@@ -7543,6 +7723,25 @@ const streamTimeoutForm = reactive({
   threshold_window_minutes: 10,
 });
 
+// Stream retry (stale detection) 状态
+const streamRetryLoading = ref(true);
+const streamRetrySaving = ref(false);
+const streamRetryForm = reactive({
+  enabled: true,
+  ttft_timeout_seconds: 60,
+  chunk_gap_warn_seconds: 10,
+  chunk_gap_timeout_seconds: 30,
+  retry_max: 2,
+  retry_backoff_ms: 1000,
+});
+const streamRetryMetrics = ref({
+  ttft_timeout_total: 0,
+  gap_warn_total: 0,
+  gap_timeout_total: 0,
+  failover_total: 0,
+  fail_clean_total: 0,
+});
+
 // Rectifier 状态
 const rectifierLoading = ref(true);
 const rectifierSaving = ref(false);
@@ -9998,6 +10197,48 @@ async function saveStreamTimeoutSettings() {
   }
 }
 
+async function loadStreamRetrySettings() {
+  streamRetryLoading.value = true;
+  try {
+    const settings = await adminAPI.settings.getStreamRetrySettings();
+    Object.assign(streamRetryForm, settings);
+  } catch (_error: unknown) {
+    // Silent fail - settings will use defaults
+  } finally {
+    streamRetryLoading.value = false;
+  }
+  try {
+    streamRetryMetrics.value = await adminAPI.settings.getStreamRetryMetrics();
+  } catch (_error: unknown) {
+    // metrics are best-effort
+  }
+}
+
+async function saveStreamRetrySettings() {
+  streamRetrySaving.value = true;
+  try {
+    const updated = await adminAPI.settings.updateStreamRetrySettings({
+      enabled: streamRetryForm.enabled,
+      ttft_timeout_seconds: streamRetryForm.ttft_timeout_seconds,
+      chunk_gap_warn_seconds: streamRetryForm.chunk_gap_warn_seconds,
+      chunk_gap_timeout_seconds: streamRetryForm.chunk_gap_timeout_seconds,
+      retry_max: streamRetryForm.retry_max,
+      retry_backoff_ms: streamRetryForm.retry_backoff_ms,
+    });
+    Object.assign(streamRetryForm, updated);
+    appStore.showSuccess(t("admin.settings.streamRetry.saved"));
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.settings.streamRetry.saveFailed"),
+      ),
+    );
+  } finally {
+    streamRetrySaving.value = false;
+  }
+}
+
 // Rectifier 方法
 async function loadRectifierSettings() {
   rectifierLoading.value = true;
@@ -10592,6 +10833,7 @@ onMounted(() => {
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
   loadStreamTimeoutSettings();
+  loadStreamRetrySettings();
   loadRectifierSettings();
   loadBetaPolicySettings();
   loadProviders();
