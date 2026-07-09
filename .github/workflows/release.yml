@@ -187,6 +187,7 @@ jobs:
 
       # Update DockerHub description
       - name: Update DockerHub description
+        continue-on-error: true # fork divergence: description-update can 403 on token perms; must not fail the release
         if: ${{ env.SIMPLE_RELEASE != 'true' && env.DOCKERHUB_USERNAME != '' }}
         uses: peter-evans/dockerhub-description@v5
         env:
