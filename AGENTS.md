@@ -94,22 +94,29 @@ Satu commit sumber (fork-only): `afb57148` `feat(gateway): stream stale detectio
 
 ---
 
-## 3. Divergensi `.github/` yang di-KEEP
+## 3. Kebijakan `.github/` — IKUT UPSTREAM, keep hanya URL repo `tickernelz`
 
-`.github/` **selalu pakai versi fork** (jangan pakai versi upstream). Perbedaan penting:
+**Kebijakan baru (2026-07-09, atas permintaan pemilik):** `.github/` workflow **ikut versi upstream terbaru**. SATU-SATUNYA divergence yang di-keep adalah **referensi repo `tickernelz/sub2api` di `cla.yml`** (guard `github.repository == 'tickernelz/sub2api'` + link `path-to-document` CLA). Selebihnya (versi tool, action, step) ikut upstream apa adanya.
+
+> Alasan pergantian kebijakan: divergence fork lama (pnpm `@v4`, `golangci-lint v2.9` pin, `continue-on-error`, `audit-exceptions.yml` expires_on lama) sudah **usang** — upstream sendiri sudah pindah ke `golangci-lint v2.9` (jadi bukan divergence lagi) dan divergence sisanya cuma bikin friksi tanpa manfaat nyata. Registry image di `release.yml` pakai `${{ github.repository_owner }}` **dinamis**, jadi otomatis resolve ke `tickernelz` tanpa perlu hardcode.
 
 | File | Delta fork vs upstream | Alasan |
 |---|---|---|
-| `backend-ci.yml` | `golangci-lint version: v2.9` (upstream: v2.12.2) | **Kritis.** Kode upstream cuma lulus lint di v2.9. v2.12.2 menyalakan aturan (gosec G703/G704, staticcheck SA1019, govet inline) yang bikin CI merah di file upstream murni. |
-| `backend-ci.yml`, `release.yml`, `security-scan.yml` | `pnpm/action-setup@v4` (upstream: v6) | Kompatibilitas runner. |
-| `cla.yml` | repo `tickernelz/sub2api` + link CLA fork | Referensi repo fork, bukan Wei-Shaw. |
-| `release.yml` | `continue-on-error: true` di step tertentu (baris ~191, ~209) | Step non-kritis (mis. GitHub Release entry / Docker Hub description) yang bisa kena `Forbidden` tapi tak boleh menggagalkan publish image. |
+| `cla.yml` | 5 baris: `github.repository == 'tickernelz/sub2api'` (2×) + `path-to-document`/link CLA `github.com/tickernelz/sub2api` (3×) | Guard job CLA hanya jalan di repo fork; link ke CLA.md fork. |
+| **semua file `.github` lain** | **TIDAK ADA** — 100% ikut upstream | pnpm/golangci/step ikut upstream terbaru. |
 
-**Cara restore `.github` setelah reset ke upstream:**
+**Cara apply `.github` setelah reset ke upstream (prosedur baru):**
 ```bash
-git checkout <fork-backup-ref> -- .github
+# semua workflow SUDAH benar dari reset ke upstream — TIDAK perlu restore dari fork backup.
+# Cukup re-apply URL repo tickernelz di cla.yml:
+sed -i 's#Wei-Shaw/sub2api#tickernelz/sub2api#g' .github/workflows/cla.yml
+# verifikasi: cuma cla.yml yang beda dari upstream, dan bedanya cuma 5 baris tickernelz
+for f in backend-ci.yml release.yml security-scan.yml; do
+  diff <(git show wei-shaw/main:.github/workflows/$f) .github/workflows/$f && echo "$f OK (==upstream)"
+done
+diff <(git show wei-shaw/main:.github/workflows/cla.yml) .github/workflows/cla.yml   # hanya 5 baris tickernelz
 ```
-Lalu verifikasi keempat delta di tabel masih ada. **Jangan lupa cek `golangci-lint version: v2.9`** — ini penyebab CI merah paling umum kalau kelewat.
+> ⚠️ **JANGAN** `git checkout <fork-backup> -- .github` lagi (cara lama) — itu membawa balik divergence usang. Cukup reset-ke-upstream + sed cla.yml.
 
 ### Divergensi lain di luar `.github/`
 

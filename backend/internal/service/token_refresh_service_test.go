@@ -21,7 +21,6 @@ type tokenRefreshAccountRepo struct {
 	setErrorCalls          int
 	clearTempCalls         int
 	setTempUnschedCalls    int
-	updateExtraCalls       int
 	lastErrorMessage       string
 	lastTempUnschedReason  string
 	lastExtraUpdates       map[string]any
@@ -61,22 +60,6 @@ func (r *tokenRefreshAccountRepo) SetError(ctx context.Context, id int64, errorM
 	return nil
 }
 
-func (r *tokenRefreshAccountRepo) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
-	r.updateExtraCalls++
-	r.lastExtraUpdate = updates
-	if r.accountsByID != nil {
-		if acc, ok := r.accountsByID[id]; ok && acc != nil {
-			if acc.Extra == nil {
-				acc.Extra = map[string]any{}
-			}
-			for k, v := range updates {
-				acc.Extra[k] = v
-			}
-		}
-	}
-	return nil
-}
-
 func (r *tokenRefreshAccountRepo) ClearTempUnschedulable(ctx context.Context, id int64) error {
 	r.clearTempCalls++
 	return nil
@@ -91,6 +74,7 @@ func (r *tokenRefreshAccountRepo) SetTempUnschedulable(ctx context.Context, id i
 func (r *tokenRefreshAccountRepo) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
 	r.updateExtraCalls++
 	r.lastExtraUpdates = shallowCopyMap(updates)
+	r.lastExtraUpdate = updates
 	if r.accountsByID != nil {
 		if acc, ok := r.accountsByID[id]; ok && acc != nil {
 			if acc.Extra == nil {
