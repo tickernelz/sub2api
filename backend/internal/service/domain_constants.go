@@ -386,6 +386,11 @@ const (
 	// SettingKeyStreamTimeoutSettings stores JSON config for stream timeout handling.
 	SettingKeyStreamTimeoutSettings = "stream_timeout_settings"
 
+	// SettingKeyStreamRetrySettings stores JSON config for stale-stream detection
+	// and failover (TTFT + inter-chunk gap watchdog). Complements
+	// SettingKeyStreamTimeoutSettings, which only governs post-timeout action.
+	SettingKeyStreamRetrySettings = "stream_retry_settings"
+
 	// =========================
 	// Request Rectifier (请求整流器)
 	// =========================

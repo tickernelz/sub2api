@@ -760,6 +760,11 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		intervalCh = intervalTicker.C
 	}
 
+	// Stale-stream watchdog (TTFT + inter-chunk gap). nil when disabled.
+	staleWatchdog := newStreamWatchdogForPlatform(c.Request.Context(), s.settingService, account.Platform)
+	defer staleWatchdog.Stop()
+	ttftCh, gapWarnCh, gapTimeoutCh := staleWatchdog.Chans()
+
 	// resultWithUsage builds the final result snapshot.
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
@@ -1057,6 +1062,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", ev.err)
 			}
 			lastDataAt = time.Now()
+			staleWatchdog.OnUpstreamEvent()
 			line := ev.line
 			if isOpenAICompatDoneSentinelLine(line) {
 				return missingTerminalErr()
@@ -1083,6 +1089,25 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				zap.Duration("interval", streamInterval),
 			)
 			return resultWithUsage(), fmt.Errorf("stream data interval timeout")
+
+		case <-ttftCh:
+			switch decideStreamStall(c, staleWatchdog.TrippedTTFT(), account.Platform, originalModel, account.ID, globalStreamRetryMetrics) {
+			case stallFailover:
+				return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, "openai messages stream ttft timeout before output")
+			default:
+				return resultWithUsage(), fmt.Errorf("stream ttft timeout")
+			}
+
+		case <-gapWarnCh:
+			decideStreamStall(c, staleWatchdog.TrippedGapWarn(), account.Platform, originalModel, account.ID, globalStreamRetryMetrics)
+
+		case <-gapTimeoutCh:
+			switch decideStreamStall(c, staleWatchdog.TrippedGapTimeout(), account.Platform, originalModel, account.ID, globalStreamRetryMetrics) {
+			case stallFailover:
+				return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, "openai messages stream chunk gap timeout before output")
+			default:
+				return resultWithUsage(), fmt.Errorf("stream chunk gap timeout")
+			}
 
 		case <-keepaliveCh:
 			if clientDisconnected {

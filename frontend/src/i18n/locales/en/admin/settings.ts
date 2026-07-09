@@ -948,6 +948,23 @@ export default {
         saved: 'Stream timeout settings saved',
         saveFailed: 'Failed to save stream timeout settings'
       },
+      streamRetry: {
+        title: 'Stream Stale Detection & Failover',
+        description: 'Detect streams that connect but stall mid-response (no chunks arriving) and fail over to another account before any output reaches the client. Complements Stream Timeout Handling.',
+        enabled: 'Enable Stale Detection',
+        enabledHint: 'Watchdog for TTFT and inter-chunk gaps across all providers. Failover only happens before any content is sent to the client.',
+        ttftTimeoutSeconds: 'TTFT Timeout (seconds)',
+        ttftTimeoutSecondsHint: 'Fail over if the first upstream event never arrives within this time. 0 = disabled (10-300s).',
+        chunkGapWarnSeconds: 'Chunk Gap Warning (seconds)',
+        chunkGapWarnSecondsHint: 'Log a warning when the gap between upstream events exceeds this. Observability only, no failover. 0 = disabled.',
+        chunkGapTimeoutSeconds: 'Chunk Gap Timeout (seconds)',
+        chunkGapTimeoutSecondsHint: 'Fail over when the gap between upstream events exceeds this. Must be greater than the warning threshold. 0 = disabled (10-300s).',
+        retryMax: 'Max Failover Attempts',
+        retryBackoffMs: 'Retry Backoff (ms)',
+        metricsTitle: 'Runtime counters (since start)',
+        saved: 'Stream retry settings saved',
+        saveFailed: 'Failed to save stream retry settings'
+      },
       rectifier: {
         title: 'Request Rectifier',
         description: 'Automatically fix request parameters and retry when upstream returns specific errors',

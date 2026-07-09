@@ -393,6 +393,33 @@ type StreamTimeoutSettings struct {
 	ThresholdWindowMinutes int    `json:"threshold_window_minutes"`
 }
 
+// StreamRetrySettingsPlatformOverride 每平台阈值覆盖 DTO
+type StreamRetrySettingsPlatformOverride struct {
+	TTFTTimeoutSeconds     *int `json:"ttft_timeout_seconds,omitempty"`
+	ChunkGapWarnSeconds    *int `json:"chunk_gap_warn_seconds,omitempty"`
+	ChunkGapTimeoutSeconds *int `json:"chunk_gap_timeout_seconds,omitempty"`
+}
+
+// StreamRetrySettings 流失速检测与故障转移配置 DTO
+type StreamRetrySettings struct {
+	Enabled                bool                                           `json:"enabled"`
+	TTFTTimeoutSeconds     int                                            `json:"ttft_timeout_seconds"`
+	ChunkGapWarnSeconds    int                                            `json:"chunk_gap_warn_seconds"`
+	ChunkGapTimeoutSeconds int                                            `json:"chunk_gap_timeout_seconds"`
+	RetryMax               int                                            `json:"retry_max"`
+	RetryBackoffMs         int                                            `json:"retry_backoff_ms"`
+	PlatformOverrides      map[string]StreamRetrySettingsPlatformOverride `json:"platform_overrides,omitempty"`
+}
+
+// StreamRetryMetrics 流失速检测运行指标 DTO
+type StreamRetryMetrics struct {
+	TTFTTimeoutTotal int64 `json:"ttft_timeout_total"`
+	GapWarnTotal     int64 `json:"gap_warn_total"`
+	GapTimeoutTotal  int64 `json:"gap_timeout_total"`
+	FailoverTotal    int64 `json:"failover_total"`
+	FailCleanTotal   int64 `json:"fail_clean_total"`
+}
+
 // RectifierSettings 请求整流器配置 DTO
 type RectifierSettings struct {
 	Enabled                  bool     `json:"enabled"`
