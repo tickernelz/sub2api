@@ -288,6 +288,11 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 		defer keepaliveTicker.Stop()
 	}
 
+	// Stale-stream watchdog (TTFT + inter-chunk gap). nil when disabled.
+	staleWatchdog := newStreamWatchdogForPlatform(c.Request.Context(), s.settingService, PlatformAntigravity)
+	defer staleWatchdog.Stop()
+	staleTTFTCh, staleGapWarnCh, staleGapTimeoutCh := staleWatchdog.Chans()
+
 	for {
 		select {
 		case event, open := <-events:
@@ -300,6 +305,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 			if event.err != nil {
 				return s.handleAntigravityCompatReadError(c, session, event.err, maxLineSize, prefix)
 			}
+			staleWatchdog.OnUpstreamEvent()
 			resetAntigravityCompatTimer(timeoutTimer, timeout)
 			session.consume(event.line)
 
@@ -313,6 +319,21 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 			logger.LegacyPrintf("service.antigravity_gateway", "Stream data interval timeout (%s)", prefix)
 			writeAntigravityCompatStreamError(c, adapter, writer, "stream_timeout")
 			return session.collectResult(false), fmt.Errorf("stream data interval timeout")
+
+		case <-staleTTFTCh:
+			if decideStreamStall(c, staleWatchdog.TrippedTTFT(), PlatformAntigravity, originalModel, 0, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return session.collectResult(false), fmt.Errorf("stream ttft timeout")
+
+		case <-staleGapWarnCh:
+			decideStreamStall(c, staleWatchdog.TrippedGapWarn(), PlatformAntigravity, originalModel, 0, globalStreamRetryMetrics)
+
+		case <-staleGapTimeoutCh:
+			if decideStreamStall(c, staleWatchdog.TrippedGapTimeout(), PlatformAntigravity, originalModel, 0, globalStreamRetryMetrics) == stallFailover {
+				return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, RetryableOnSameAccount: true}
+			}
+			return session.collectResult(false), fmt.Errorf("stream chunk gap timeout")
 
 		case <-keepaliveCh:
 			if session.hasMeaningfulData() && !writer.Disconnected() {
