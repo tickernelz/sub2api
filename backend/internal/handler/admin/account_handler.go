@@ -1464,6 +1464,15 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 			slog.Warn("apply_oauth_credentials.clear_grok_reauth_failed",
 				"account_id", accountID,
 				"err", clearErr,
+		)
+		}
+	}
+
+	if updatedAccount.IsOpenAI() && updatedAccount.Type == service.AccountTypeOAuth {
+		if clearErr := h.adminService.UpdateAccountExtra(ctx, accountID, service.OpenAIRefreshTokenRecoveredExtra(time.Now().UTC())); clearErr != nil {
+			slog.Warn("apply_oauth_credentials.clear_openai_refresh_token_marker_failed",
+				"account_id", accountID,
+				"err", clearErr,
 			)
 		}
 	}
