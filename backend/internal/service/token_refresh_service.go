@@ -308,8 +308,15 @@ func (s *TokenRefreshService) refreshWithRetry(ctx context.Context, account *Acc
 			return nil
 		}
 
-		// 不可重试错误（invalid_grant/invalid_client 等）直接标记 error 状态并返回
+		// 不可重试错误（invalid_grant/invalid_client 等）通常需要用户重新授权。
+		// OpenAI 的 refresh_token_reused 是例外：它只证明 refresh_token 已被消费/轮换，
+		// 不证明当前 access_token 不可用，因此不能直接 SetError/unschedule。
 		if isNonRetryableRefreshError(err) {
+			if shouldSoftHandleOpenAIRefreshTokenReused(account, err) {
+				markOpenAIRefreshTokenReused(ctx, s.accountRepo, account, err)
+				s.ensureOpenAIPrivacy(ctx, account)
+				return err
+			}
 			errorMsg := "Token refresh failed (non-retryable): " + logredact.RedactText(err.Error())
 			s.notifyAccountSchedulingBlocked(account, time.Time{}, "token_refresh_non_retryable")
 			s.clearAntigravityForceTokenRefresh(ctx, account, "non_retryable")
@@ -429,6 +436,7 @@ func (s *TokenRefreshService) postRefreshActions(ctx context.Context, account *A
 			slog.Debug("token_refresh.scheduler_cache_synced", "account_id", account.ID)
 		}
 	}
+	clearOpenAIRefreshTokenReusedMarker(ctx, s.accountRepo, account)
 	// OpenAI OAuth: 刷新成功后，检查是否已设置 privacy_mode，未设置则尝试关闭训练数据共享
 	s.ensureOpenAIPrivacy(ctx, account)
 	// Antigravity OAuth: 刷新成功后，检查是否已设置 privacy_mode，未设置则调用 setUserSettings
