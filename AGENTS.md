@@ -123,12 +123,17 @@ diff <(git show wei-shaw/main:.github/workflows/cla.yml) .github/workflows/cla.y
 | File | Delta fork vs upstream | Alasan |
 |---|---|---|
 | `.gitignore` | Baris `AGENTS.md` **dihapus** (upstream meng-ignore-nya di ~baris 127) | Supaya dokumen ini tetap tracked & tidak hilang saat sync. Setelah reset ke upstream, hapus lagi baris `AGENTS.md` dari `.gitignore` lalu `git add AGENTS.md`. |
+| `backend/go.mod` + 4 assertion CI | `go 1.26.5` (upstream: `1.26.4`) | **Security.** govulncheck menandai `GO-2026-5856` (crypto/tls ECH privacy leak), fixed di go1.26.5. Workflow ambil versi dari `go.mod` via `setup-go go-version-file`, jadi `go.mod` = sumber kebenaran; tapi ada 4 guard `go version \| grep -q 'go1.26.X'` di `backend-ci.yml`/`security-scan.yml`/`release.yml` yang harus ikut di-bump. **Buang divergence ini begitu upstream sudah ≥1.26.5.** |
 
 Upstream `.gitignore` meng-ignore `AGENTS.md` dan `CLAUDE.md` (dianggap file lokal). Karena kita justru mau AGENTS.md ini masuk repo, tiap sync **hapus baris `AGENTS.md` dari `.gitignore`** dan pastikan file ini ikut ter-commit:
 ```bash
 sed -i '/^AGENTS\.md$/d' .gitignore   # atau edit manual
 git add AGENTS.md .gitignore
 ```
+
+> ⚠️ **VERIFIKASI PAKAI PERINTAH CI YANG SEBENARNYA — bukan `go test ./...` polos.** CI jalanin `make test-unit` = `go test -tags=unit ./...` dan `make test-integration` = `go test -tags=integration ./...`. `go test ./...` polos MELEWATI file ber-`//go:build unit`, jadi error kompilasi (mis. deklarasi ganda dari auto-merge `_test.go`) LOLOS lokal tapi bikin CI merah `FAIL <pkg> [build failed]`. Ini yang bikin CI v0.1.157 merah (cherry-pick OAuth nambah `updateExtraCalls`/`UpdateExtra` yang upstream juga sudah punya). **Selalu tutup gate backend dengan:** `go test -tags=unit ./...`, `go test -tags=integration ./...`, `govulncheck ./...`, dan golangci-lint versi CI. Jalankan `GOTOOLCHAIN=go1.26.5` kalau toolchain lokal beda.
+
+> ℹ️ **Release job bisa merah walau image sukses publish.** Setelah `.github` ikut upstream (drop `continue-on-error` fork lama), step terakhir `Update DockerHub description` bisa kena `##[error]Forbidden` (permission) dan menandai job Release merah — PADAHAL image sudah ke-push. Verifikasi publish dari log GoReleaser (`artifact pushed image=ghcr.io/tickernelz/sub2api:X.Y.Z digest=sha256:...`), bukan dari `conclusion` job. Kalau mau job-nya hijau, tambahkan `continue-on-error: true` HANYA di step DockerHub-description itu (divergence 1 baris).
 
 ### Divergensi struktural upstream yang mempengaruhi re-apply fitur (per sync 2026-07)
 
