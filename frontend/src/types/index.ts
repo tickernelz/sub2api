@@ -1102,6 +1102,10 @@ export interface OpenAICompactState {
   openai_compact_checked_at?: string
   openai_compact_last_status?: number
   openai_compact_last_error?: string
+  openai_requires_reauth?: boolean
+  openai_refresh_token_status?: 'reused' | 'ok' | string
+  openai_refresh_token_reused_at?: string
+  openai_refresh_token_recovered_at?: string
 }
 
 export interface OpenAIResponsesState {
