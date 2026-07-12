@@ -28,9 +28,9 @@ git fetch wei-shaw
 
 ## 2. Fitur Kustom yang WAJIB di-KEEP
 
-Ada **dua fitur produk** yang di-keep, total 3 commit. Selain ini, ikuti upstream apa adanya.
+Ada **tiga fitur produk** yang di-keep, total 4 commit. Selain ini, ikuti upstream apa adanya.
 
-> ⚠️ **SHA berubah tiap sync.** SHA aktif setelah sync 2026-07-11 di atas upstream `e316ebf52` adalah `6946ce8bc`, `40f41af36`, dan `4c5c53823`. Setiap reset + cherry-pick menghasilkan SHA baru; cari ulang berdasarkan judul commit dengan `git log --oneline --all --grep=...` (lihat §4).
+> ⚠️ **SHA berubah tiap sync.** SHA aktif setelah sync 2026-07-11 di atas upstream `e316ebf52` adalah `6946ce8bc`, `40f41af36`, dan `4c5c53823` (Fitur A & B). Fitur C ditambahkan 2026-07-12 di atasnya. Setiap reset + cherry-pick menghasilkan SHA baru; cari ulang berdasarkan judul commit dengan `git log --oneline --all --grep=...` (lihat §4).
 
 ### Fitur A: OpenAI/Codex OAuth jangan auto-disable saat refresh token gagal/reused
 
@@ -92,6 +92,45 @@ Satu commit sumber (fork-only): `4c5c53823` `feat(gateway): stream stale detecti
 **Admin surface (additive):** `setting_handler_runtime.go` (3 handler: Get/Update StreamRetry + Metrics), `dto/settings.go`, `server/routes/admin.go` (3 route), `domain_constants.go` (`SettingKeyStreamRetrySettings`), frontend `api/admin/settings.ts` + `SettingsView.vue` + i18n `streamRetry` block.
 
 > ⚠️ **PITFALL WIRING (pelajaran sync 2026-07):** upstream me-refactor besar gateway — `gateway_service.go` (7294→1289 baris) dipecah jadi `gateway_anthropic_passthrough.go`, `gateway_upstream_response.go`; antigravity dipecah jadi `antigravity_gateway_streaming.go` + `antigravity_gateway_upstream.go`. **10 titik wiring watchdog pindah file.** Jika cherry-pick mentah gagal atau upstream mengubah loop, **JANGAN merge body lama secara buta** — re-implement wiring ke lokasi loop upstream yang baru: (1) init watchdog setelah `intervalCh = intervalTicker.C`, (2) `staleWatchdog.OnUpstreamEvent()` setelah `line := ev.line`, (3) 3 select-arm (`staleTTFTCh`/`staleGapWarnCh`/`staleGapTimeoutCh`) sebelum `case <-keepaliveCh`. Setelah re-apply, audit total 10 init, 10 event-reset, dan 30 `decideStreamStall` call.
+
+### Fitur C: Netralisasi harmony `<|channel|>` token supaya request tak kena upstream `invalid_prompt` block
+
+OpenAI `/v1/responses` upstream punya **request-level hard guard** untuk harmony "hidden analysis channel" header. Ketika request body memuat literal ASCII `<|channel|>` yang **langsung diikuti** `analysis` (header chain-of-thought tersembunyi harmony; toleran spasi/newline), upstream menolak **seluruh request** dengan HTTP 200 stream-internal `response.failed` + `error.code=invalid_prompt` (message `"Request blocked."`). Ini guard anti-injection (mencegah spoofing channel reasoning tersembunyi), **bukan** content-moderation — `content_moderation` lokal mencatat `allowed=true`.
+
+Dampak nyata: request sah yang kebetulan memuat literal itu (mis. Hermes me-review file kode/test yang berisi `<|channel|>analysis` sebagai fixture) ikut kena block, lalu client (Hermes) me-retry 10× dengan body identik → pasti gagal terus, buang menit.
+
+**Perbaikan (fork-only):** sebelum body dikirim ke upstream, ganti dua ASCII pipe `|` (U+007C) di dalam `<|channel|>` jadi fullwidth pipe `｜` (U+FF5C) → `<｜channel｜>`. Terbukti empiris (gpt-5.6-sol, `/v1/responses` stream) varian ini **lolos** upstream, hampir tak terlihat beda oleh model/manusia (fixture text tetap terbaca), dan reversibel visual (bukan delete). Zero-width chars (U+200B dll) **tidak** menetralkan karena upstream strip zero-width sebelum matching. Hanya token `<|channel|>` yang disentuh; harmony token lain (`<|start|>`, `<|message|>`, `<|end|>`) dan `analysis` tidak diutak-atik.
+
+Satu commit sumber (fork-only): cari dengan `git log --oneline --all --grep="harmony"` atau `--grep="invalid_prompt"`. Default **enabled** (`gateway.neutralize_harmony_channel_token=true`); bisa dimatikan tanpa rebuild.
+
+**File inti (file baru — 0 collision dengan upstream):**
+- `backend/internal/service/openai_harmony_channel_neutralize.go` *(helper `neutralizeOpenAIHarmonyChannelToken`, byte-level, hot-path aman: `bytes.Contains` guard → nol alokasi saat tak ada token)*
+- `+ openai_harmony_channel_neutralize_test.go` *(unit: glued/spaced/multi/no-op/idempotent/no-mutation)*
+- `+ openai_harmony_channel_neutralize_forward_test.go` *(integrasi: kedua builder, flag ON/OFF, cfg nil = ON)*
+
+**Titik wiring (2 builder HTTP `/v1/responses` — keduanya WAJIB, path berbeda):**
+- `backend/internal/service/openai_gateway_forward.go` → `buildUpstreamRequest` (jalur rewrite), tepat sebelum `http.NewRequestWithContext(ctx, "POST", targetURL, ...)`.
+- `backend/internal/service/openai_gateway_passthrough.go` → `buildUpstreamRequestOpenAIPassthrough` (jalur passthrough — **builder terpisah**, tidak lewat `buildUpstreamRequest`; ini yang dipakai akun `openai_passthrough`/`codex_responses`).
+
+Pola wiring identik di kedua tempat:
+```go
+if s.cfg == nil || s.cfg.Gateway.NeutralizeHarmonyChannelToken {
+    if neutralized, changed := neutralizeOpenAIHarmonyChannelToken(body); changed {
+        body = neutralized
+        logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Neutralized harmony <|channel|> token ... (account: %s)", account.Name)
+    }
+}
+```
+
+**Config surface (additive):**
+- `backend/internal/config/config.go`: field `GatewayConfig.NeutralizeHarmonyChannelToken bool` (mapstructure `neutralize_harmony_channel_token`) + `viper.SetDefault("gateway.neutralize_harmony_channel_token", true)`.
+
+**Titik konflik yang mungkin saat re-apply:**
+1. **Jangan cukup wire satu builder.** Passthrough punya builder sendiri; kalau upstream me-refactor/memindah salah satu builder, pastikan **kedua** titik `http.NewRequestWithContext(... "POST" ...)` untuk `/v1/responses` tetap ter-cover. Audit: `grep -n 'NewRequestWithContext' internal/service/openai_gateway_forward.go internal/service/openai_gateway_passthrough.go`.
+2. **Guard `s.cfg == nil`** wajib dipertahankan supaya test tanpa cfg (dan default) berperilaku ON — konsisten dengan viper default `true`.
+3. **Kalau upstream sudah punya penanganan setara** (mis. upstream menambah sanitizer/neutralizer harmony sendiri, atau upstream tak lagi kena block ini), **fitur ini gugur** — jangan re-apply; verifikasi dulu dengan repro block di §2-C di bawah, lalu hapus Fitur C dari daftar ini.
+
+**Repro/verifikasi cepat (opsional, butuh 1 request berbayar ke upstream):** kirim `/v1/responses` dengan `input` memuat `<|channel|>analysis`. Sebelum fix → `invalid_prompt`/`Request blocked`. Sesudah fix → lolos normal. Unit+integration test sudah mengunci byte output = `<｜channel｜>` (fullwidth, UTF-8 `ef bd 9c`), yang identik dengan varian yang terbukti lolos live.
 
 ---
 
@@ -176,11 +215,12 @@ git reset --hard wei-shaw/main
 git status --porcelain          # cek dulu
 # rm -rf <path-fork-only-untracked>
 
-# 4. Cherry-pick 3 commit fitur yang di-keep (urut; cari SHA terbaru berdasarkan subject)
+# 4. Cherry-pick commit fitur yang di-keep (urut; cari SHA terbaru berdasarkan subject)
 git cherry-pick <sha-backend-soft-handle>
 git cherry-pick <sha-frontend-reauth-warning>
 git cherry-pick <sha-stream-watchdog>
-#   -> resolve konflik sesuai §2 dan audit wiring watchdog
+git cherry-pick <sha-harmony-channel-neutralize>
+#   -> resolve konflik sesuai §2 dan audit wiring watchdog (Fitur B) + 2 builder (Fitur C)
 #   -> pastikan TIDAK ada import 'tickernelz/sub2api' yang bocor:
 #      git diff --cached | grep tickernelz   # harus kosong
 
@@ -274,9 +314,10 @@ rm -f frontend/pnpm-workspace.yaml
 Setelah sync bersih, `main` harus terlihat seperti:
 ```
 <chore>   chore: keep fork CI workflows, bump VERSION to 0.1.xxx
+<feat>    feat(gateway): neutralize harmony <|channel|> token to avoid upstream invalid_prompt block  ← Fitur C
 <feat>    feat(gateway): stream stale detection + auto-failover...  ← Fitur B (watchdog)
 <feat>    feat(admin): show OpenAI OAuth reauth warning             ← Fitur A (frontend)
 <fix>     fix(openai): keep oauth accounts schedulable...           ← Fitur A (backend)
 <upstream HEAD = wei-shaw/main>
 ```
-Cuma **3 commit fitur + 1 chore** di atas upstream (2 fitur produk: A = OAuth soft-handle, B = stream watchdog). Kalau lebih dari itu, ada drift yang perlu ditinjau.
+Cuma **4 commit fitur + 1 chore** di atas upstream (3 fitur produk: A = OAuth soft-handle, B = stream watchdog, C = harmony channel neutralize). Kalau lebih dari itu, ada drift yang perlu ditinjau.
