@@ -862,6 +862,16 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	}
 	targetURL = appendOpenAIResponsesRequestPathSuffix(targetURL, openAIResponsesRequestPathSuffix(c))
 
+	// 中和 harmony `<|channel|>` 头，规避上游对伪造隐藏 analysis 通道的 invalid_prompt
+	// 硬拦截（默认开启，可用 gateway.neutralize_harmony_channel_token=false 关闭）。
+	// 放在所有转发路径（改写/透传/compact）共同收口的上游请求构造点，一处覆盖全部。
+	if s.cfg == nil || s.cfg.Gateway.NeutralizeHarmonyChannelToken {
+		if neutralized, changed := neutralizeOpenAIHarmonyChannelToken(body); changed {
+			body = neutralized
+			logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Neutralized harmony <|channel|> token in request body (account: %s)", account.Name)
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err

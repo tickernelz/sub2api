@@ -314,6 +314,15 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	}
 	targetURL = appendOpenAIResponsesRequestPathSuffix(targetURL, openAIResponsesRequestPathSuffix(c))
 
+	// 与 buildUpstreamRequest 一致：中和 harmony `<|channel|>` 头，规避上游 invalid_prompt
+	// 硬拦截。透传路径有独立的上游请求构造点，故此处同样收口一次（默认开启）。
+	if s.cfg == nil || s.cfg.Gateway.NeutralizeHarmonyChannelToken {
+		if neutralized, changed := neutralizeOpenAIHarmonyChannelToken(body); changed {
+			body = neutralized
+			logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Neutralized harmony <|channel|> token in passthrough request body (account: %s)", account.Name)
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
