@@ -919,6 +919,13 @@ type GatewayConfig struct {
 	// DisableCodexOriginatorNormalization: 已废弃，等价于 DisableCodexIdentityEnforcement。
 	// 保留以兼容既有配置文件；加载时会折叠进新键，不要在新代码里直接读取。
 	DisableCodexOriginatorNormalization bool `mapstructure:"disable_codex_originator_normalization"`
+	// NeutralizeHarmonyChannelToken: 是否在转发前中和请求体里的字面量 `<｜channel｜>`。
+	// OpenAI /v1/responses 上游对 harmony「隐藏 analysis 通道」头（`<｜channel｜>analysis`）
+	// 做请求级硬校验，命中即以 HTTP 200 流内 response.failed + error.code=invalid_prompt
+	// （"Request blocked."）拒绝整个请求。合法请求体里出现该字面量（如 review 含此 token 的
+	// 代码/测试 fixture）会被误伤。开启后把 `<｜channel｜>` 的 ASCII 竖线替换为全角竖线，
+	// 解除拦截且视觉几乎无差异。默认开启；如需完全保留原始字节可置 false。
+	NeutralizeHarmonyChannelToken bool `mapstructure:"neutralize_harmony_channel_token"`
 	// CodexImageGenerationBridgeEnabled: 是否为 Codex `/v1/responses` 自动注入 image_generation 工具和桥接指令。
 	// 默认关闭，避免纯文本 Codex 请求被意外改写；显式携带 image_generation 工具的请求仍按分组能力转发。
 	CodexImageGenerationBridgeEnabled bool `mapstructure:"codex_image_generation_bridge_enabled"`
@@ -2271,6 +2278,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.force_codex_cli", false)
 	viper.SetDefault("gateway.disable_codex_identity_enforcement", false)
 	viper.SetDefault("gateway.disable_codex_originator_normalization", false)
+	viper.SetDefault("gateway.neutralize_harmony_channel_token", true)
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.4")
