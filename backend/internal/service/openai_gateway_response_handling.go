@@ -254,7 +254,9 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 				// 再打 cyber 标记，否则 mark 记到的是解析前的 0，导致流式 cyber 按 0 token 计费
 				// 而漏记真实用量。对齐 WS V2 / Chat 流式路径（均先解析 usage 再 Mark）。
 				s.parseSSEUsageBytes(dataBytes, usage)
+				cyberMarked := false
 				if hit, code, msg := detectOpenAICyberPolicy(dataBytes); hit {
+					cyberMarked = true
 					MarkOpsCyberPolicy(c, CyberPolicyMark{
 						Code:           code,
 						Message:        msg,
@@ -285,6 +287,15 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 						sawFailedEvent = true
 						streamEarlyErr = s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, dataBytes, failedMessage)
 						return
+					}
+				}
+				// Layer 2 观测：到这里说明该 response.failed 既不是 cyber，也未命中透传规则、
+				// 且不 failover——即将原样透传给客户端，当前不会写 ops_error_logs。若
+				// error.code=invalid_prompt（如 harmony `<|channel|>analysis` 被上游硬拦截），
+				// 补记一条 ops 事件（kind=invalid_prompt）使拦截在监控可见。仅记录，不改变行为。
+				if !cyberMarked {
+					if ipHit, _, ipMsg := detectOpenAIInvalidPrompt(dataBytes); ipHit {
+						s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "invalid_prompt", dataBytes, ipMsg)
 					}
 				}
 				forceFlushFailedEvent = true
