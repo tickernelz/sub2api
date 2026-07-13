@@ -101,3 +101,68 @@ func TestNeutralizeOpenAIHarmonyChannelTokenDoesNotMutateInput(t *testing.T) {
 		t.Fatalf("output should differ from input")
 	}
 }
+
+func TestDetectOpenAIInvalidPrompt(t *testing.T) {
+	cases := []struct {
+		name        string
+		payload     string
+		wantHit     bool
+		wantMessage string
+	}{
+		{
+			name:        "flat error.code invalid_prompt",
+			payload:     `{"error":{"code":"invalid_prompt","type":"invalid_request_error","message":"Request blocked."}}`,
+			wantHit:     true,
+			wantMessage: "Request blocked.",
+		},
+		{
+			name:        "nested response.error.code invalid_prompt (stream response.failed shape)",
+			payload:     `{"type":"response.failed","response":{"id":"resp_x","status":"failed","error":{"code":"invalid_prompt","message":"Request blocked."}}}`,
+			wantHit:     true,
+			wantMessage: "Request blocked.",
+		},
+		{
+			name:        "case-insensitive code",
+			payload:     `{"error":{"code":"INVALID_PROMPT","message":"nope"}}`,
+			wantHit:     true,
+			wantMessage: "nope",
+		},
+		{
+			name:    "cyber_policy is not invalid_prompt",
+			payload: `{"error":{"code":"cyber_policy","message":"blocked"}}`,
+			wantHit: false,
+		},
+		{
+			name:    "upstream_error is not invalid_prompt",
+			payload: `{"type":"response.failed","response":{"error":{"code":"upstream_error","message":"input exceeds the context window"}}}`,
+			wantHit: false,
+		},
+		{
+			name:    "no error code",
+			payload: `{"type":"response.completed","response":{"status":"completed"}}`,
+			wantHit: false,
+		},
+		{
+			name:    "empty payload",
+			payload: "",
+			wantHit: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hit, code, msg := detectOpenAIInvalidPrompt([]byte(tc.payload))
+			if hit != tc.wantHit {
+				t.Fatalf("hit = %v, want %v", hit, tc.wantHit)
+			}
+			if !tc.wantHit {
+				return
+			}
+			if code != "invalid_prompt" {
+				t.Fatalf("code = %q, want invalid_prompt", code)
+			}
+			if msg != tc.wantMessage {
+				t.Fatalf("message = %q, want %q", msg, tc.wantMessage)
+			}
+		})
+	}
+}
