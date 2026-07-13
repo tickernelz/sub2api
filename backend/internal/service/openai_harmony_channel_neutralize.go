@@ -1,6 +1,11 @@
 package service
 
-import "bytes"
+import (
+	"bytes"
+	"strings"
+
+	"github.com/tidwall/gjson"
+)
 
 // OpenAI 的 /v1/responses 上游对 harmony「hidden analysis channel」头做请求级硬校验：
 // 当请求体里出现 ASCII 字面量 `<|channel|>` 紧跟 `analysis`（harmony 隐藏思维链
@@ -38,4 +43,34 @@ func neutralizeOpenAIHarmonyChannelToken(body []byte) (out []byte, changed bool)
 		return body, false
 	}
 	return bytes.ReplaceAll(body, openAIHarmonyChannelTokenBytes, openAIHarmonyChannelTokenNeutralizedBytes), true
+}
+
+// detectOpenAIInvalidPrompt 识别上游 `invalid_prompt` 硬拦截（对齐 detectOpenAICyberPolicy
+// 的结构）。命中返回 (true, "invalid_prompt", message)。
+//
+// GPT-5.x /v1/responses 会以 HTTP 200 流内 `response.failed` 或非流 400 返回
+// error.code=`invalid_prompt`（如 harmony `<|channel|>analysis` 伪造隐藏推理通道、
+// 蒸馏/越狱结构等）。此类拦截是请求级、不可 failover、不冷却账号，但当前若既非 cyber、
+// 又未命中管理员透传规则，则不会写入 ops_error_logs——从而在监控里“隐形”。本函数供
+// Layer 2 观测使用：命中即补记一条 ops 上游错误事件（kind=invalid_prompt），使新拦截
+// 模式可被及早发现（例如 harmony 护栏收紧到其它 token 时，中和逻辑失效会立即可见）。
+//
+// 注意：只匹配 error.code / response.error.code == "invalid_prompt"，不做关键字模糊匹配，
+// 避免与 context-window、compact 等其它 400 混淆。
+func detectOpenAIInvalidPrompt(payload []byte) (hit bool, code string, message string) {
+	if len(payload) == 0 {
+		return false, "", ""
+	}
+	c := gjson.GetBytes(payload, "error.code").String()
+	if c == "" {
+		c = gjson.GetBytes(payload, "response.error.code").String()
+	}
+	if !strings.EqualFold(strings.TrimSpace(c), "invalid_prompt") {
+		return false, "", ""
+	}
+	msg := gjson.GetBytes(payload, "error.message").String()
+	if msg == "" {
+		msg = gjson.GetBytes(payload, "response.error.message").String()
+	}
+	return true, "invalid_prompt", strings.TrimSpace(msg)
 }
