@@ -104,13 +104,19 @@ Dampak nyata: request sah yang kebetulan memuat literal itu (mis. Hermes me-revi
 Satu commit sumber (fork-only): cari dengan `git log --oneline --all --grep="harmony"` atau `--grep="invalid_prompt"`. Default **enabled** (`gateway.neutralize_harmony_channel_token=true`); bisa dimatikan tanpa rebuild.
 
 **File inti (file baru — 0 collision dengan upstream):**
-- `backend/internal/service/openai_harmony_channel_neutralize.go` *(helper `neutralizeOpenAIHarmonyChannelToken`, byte-level, hot-path aman: `bytes.Contains` guard → nol alokasi saat tak ada token)*
-- `+ openai_harmony_channel_neutralize_test.go` *(unit: glued/spaced/multi/no-op/idempotent/no-mutation)*
+- `backend/internal/service/openai_harmony_channel_neutralize.go` *(helper `neutralizeOpenAIHarmonyChannelToken` + detektor `detectOpenAIInvalidPrompt`; byte-level, hot-path aman: `bytes.Contains` guard → nol alokasi saat tak ada token)*
+- `+ openai_harmony_channel_neutralize_test.go` *(unit: neutralize glued/spaced/multi/no-op/idempotent/no-mutation + `detectOpenAIInvalidPrompt` flat/nested/case-insensitive/negatif)*
 - `+ openai_harmony_channel_neutralize_forward_test.go` *(integrasi: kedua builder, flag ON/OFF, cfg nil = ON)*
 
 **Titik wiring (2 builder HTTP `/v1/responses` — keduanya WAJIB, path berbeda):**
 - `backend/internal/service/openai_gateway_forward.go` → `buildUpstreamRequest` (jalur rewrite), tepat sebelum `http.NewRequestWithContext(ctx, "POST", targetURL, ...)`.
 - `backend/internal/service/openai_gateway_passthrough.go` → `buildUpstreamRequestOpenAIPassthrough` (jalur passthrough — **builder terpisah**, tidak lewat `buildUpstreamRequest`; ini yang dipakai akun `openai_passthrough`/`codex_responses`).
+
+**Layer 2 — observability `invalid_prompt` (additive, bagian dari Fitur C):**
+Saat block masih terjadi (mis. harmony guard upstream berubah ke token lain sehingga netralisasi meleset), block itu tidak boleh "hilang diam-diam" di monitoring. `detectOpenAIInvalidPrompt(payload)` (mengikuti struktur `detectOpenAICyberPolicy`) mendeteksi `error.code`/`response.error.code == "invalid_prompt"` pada event stream `response.failed`, lalu memanggil `recordOpenAIStreamUpstreamError(..., "invalid_prompt", ...)` supaya masuk `ops_error_logs` (kind=`invalid_prompt`). Di-wire di **dua** loop streaming `response.failed`, ditempatkan **setelah** cabang cyber + passthrough-rule + failover (yang semuanya `return`/`Mark` lebih dulu), dijaga flag `cyberMarked` supaya tidak double-record:
+- `openai_gateway_passthrough.go` → `handleStreamingResponsePassthrough` (passthrough=true)
+- `openai_gateway_response_handling.go` → loop `response.failed` jalur rewrite (passthrough=false)
+Sifatnya murni observasi: tidak mengubah perilaku transfer/return/failover yang ada; hanya menambah 1 baris ops event kalau sebelumnya event `invalid_prompt` itu tidak tercatat.
 
 Pola wiring identik di kedua tempat:
 ```go
