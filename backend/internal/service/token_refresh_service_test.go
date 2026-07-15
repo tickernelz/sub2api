@@ -707,6 +707,7 @@ func TestTokenRefreshService_RefreshWithRetry_OpenAIRefreshTokenReusedKeepsAccou
 		ID:       18,
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
 		Credentials: map[string]any{
 			"access_token":   "still-usable-access-token",
 			"refresh_token":  "already-used-refresh-token",
@@ -763,6 +764,7 @@ func TestOpenAITokenProvider_RefreshTokenReusedUsesExistingAccessToken(t *testin
 		ID:       19,
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
 		Credentials: map[string]any{
 			"access_token":   "existing-access-token",
 			"refresh_token":  "already-used-refresh-token",
