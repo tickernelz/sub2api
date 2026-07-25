@@ -1158,6 +1158,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					return nil
 				}
 				eventType, _, _ := parseOpenAIWSEventEnvelope(payload)
+				if isOpenAIWSInvalidPromptObservableEvent(eventType) {
+					s.recordOpenAIWSInvalidPrompt(c, account, true, strings.TrimSpace(handshakeHeaders.Get("x-request-id")), payload)
+				}
 				if isOpenAIWSTerminalEvent(eventType) {
 					s.handleOpenAIWSTerminalTransientFailure(ctx, account, capturedSessionModel, handshakeHeaders, payload)
 				}
