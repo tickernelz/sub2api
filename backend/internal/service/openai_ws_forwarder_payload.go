@@ -215,6 +215,16 @@ func (s *OpenAIGatewayService) buildOpenAIWSCreatePayload(reqBody map[string]any
 	if account != nil && account.UsesOpenAICodexProtocol() && !s.isOpenAIWSStoreRecoveryAllowed(account) {
 		payload["store"] = false
 	}
+	if s.openAIHarmonyChannelNeutralizationEnabled() {
+		if neutralized, changed := neutralizeOpenAIHarmonyChannelTokenJSONObject(payload); changed {
+			payload = neutralized
+			accountID := int64(0)
+			if account != nil {
+				accountID = account.ID
+			}
+			logOpenAIWSModeInfo("ws_create_payload_harmony_channel_token_neutralized account_id=%d", accountID)
+		}
+	}
 	return payload
 }
 
