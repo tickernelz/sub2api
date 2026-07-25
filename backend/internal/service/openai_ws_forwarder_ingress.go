@@ -962,6 +962,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					})
 				}
 			}
+			if isOpenAIWSInvalidPromptObservableEvent(eventType) {
+				s.recordOpenAIWSInvalidPrompt(c, account, false, lease.HandshakeHeader("x-request-id"), upstreamMessage)
+			}
 
 			if !clientDisconnected {
 				if needModelReplace && len(mappedModelBytes) > 0 && openAIWSEventMayContainModel(eventType) && bytes.Contains(upstreamMessage, mappedModelBytes) {
