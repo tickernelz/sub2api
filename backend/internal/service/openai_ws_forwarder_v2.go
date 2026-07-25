@@ -588,6 +588,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		if eventType == "error" || eventType == "response.failed" {
 			markOpenAICyberPolicyEvent(c, message, http.StatusOK, usage)
 		}
+		if isOpenAIWSInvalidPromptObservableEvent(eventType) {
+			s.recordOpenAIWSInvalidPrompt(c, account, false, lease.HandshakeHeader("x-request-id"), message)
+		}
 
 		if eventType == "error" {
 			s.handleOpenAIWSErrorEventTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), message)
