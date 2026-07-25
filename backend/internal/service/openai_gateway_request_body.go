@@ -1116,7 +1116,21 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 	account *Account,
 	model string,
 	frame []byte,
-) ([]byte, *OpenAIFastBlockedError, error) {
+) (out []byte, blocked *OpenAIFastBlockedError, err error) {
+	responseCreate := false
+	defer func() {
+		if !responseCreate || blocked != nil || err != nil || !s.openAIHarmonyChannelNeutralizationEnabled() {
+			return
+		}
+		if neutralized, changed := neutralizeOpenAIHarmonyChannelTokenJSON(out); changed {
+			out = neutralized
+			accountID := int64(0)
+			if account != nil {
+				accountID = account.ID
+			}
+			logOpenAIWSModeInfo("ws_response_create_harmony_channel_token_neutralized account_id=%d", accountID)
+		}
+	}()
 	if len(frame) == 0 {
 		return frame, nil, nil
 	}
@@ -1133,6 +1147,7 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 	if frameType != "response.create" {
 		return frame, nil, nil
 	}
+	responseCreate = true
 	rawTier := gjson.GetBytes(frame, "service_tier").String()
 	if rawTier == "" {
 		return frame, nil, nil
