@@ -1042,6 +1042,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if eventType == "error" || eventType == "response.failed" {
 				markOpenAICyberPolicyEvent(c, upstreamMessage, http.StatusOK, &usage)
 			}
+			if isOpenAIWSInvalidPromptObservableEvent(eventType) {
+				s.recordOpenAIWSInvalidPrompt(c, account, false, lease.HandshakeHeader("x-request-id"), upstreamMessage)
+			}
 			if eventType == "error" {
 				s.handleOpenAIWSErrorEventTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), upstreamMessage)
 				errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(upstreamMessage)
