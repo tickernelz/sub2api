@@ -28,9 +28,9 @@ git fetch wei-shaw
 
 ## 2. Fitur Kustom yang WAJIB di-KEEP
 
-Ada **tiga fitur produk** yang di-keep, total 5 commit. Selain ini, ikuti upstream apa adanya.
+Ada **tiga fitur produk** yang di-keep, total 6 commit. Selain ini, ikuti upstream apa adanya.
 
-> ⚠️ **SHA berubah tiap sync.** SHA aktif setelah sync 2026-07-25 di atas upstream `2730c1c43`: `e19cd230d`, `abb0d4cc8`, `6dc5a4d1a`, `934ca1878`, dan `b8977a3f5`. Setiap reset + cherry-pick menghasilkan SHA baru; cari ulang berdasarkan judul commit dengan `git log --oneline --all --grep=...` (lihat §4).
+> ⚠️ **SHA berubah tiap sync.** SHA aktif setelah sync 2026-07-25 di atas upstream `2730c1c43`: `e19cd230d`, `abb0d4cc8`, `6dc5a4d1a`, `934ca1878`, `b8977a3f5`, dan `3e0d3965b`. Setiap reset + cherry-pick menghasilkan SHA baru; cari ulang berdasarkan judul commit dengan `git log --oneline --all --grep=...` (lihat §4).
 
 ### Fitur A: OpenAI/Codex OAuth jangan auto-disable saat refresh token gagal/reused
 
@@ -60,7 +60,7 @@ Frontend (`abb0d4cc8`):
 - `frontend/src/views/admin/AccountsView.vue`
 - `frontend/src/types/index.ts`
 - `frontend/src/i18n/locales/en/admin/accounts.ts`, `frontend/src/i18n/locales/zh/admin/accounts.ts`
-- `frontend/src/views/admin/__tests__/AccountsView.openaiReauthWarning.spec.ts`
+- `frontend/src/views/admin/__tests__/AccountsView.openaiReauthWarning.spec.ts` *(fixture wajib mock `getUpstreamBillingProbeSettings`, karena AccountsView memanggilnya saat mount)*
 - `Makefile`
 
 **Titik konflik yang sudah diketahui saat re-apply:**
@@ -109,27 +109,40 @@ Dampak nyata: request sah yang kebetulan memuat literal itu (mis. Hermes me-revi
 
 **Perbaikan (fork-only):** sebelum body dikirim ke upstream, ganti dua ASCII pipe `|` (U+007C) di dalam `<|channel|>` jadi fullwidth pipe `｜` (U+FF5C) → `<｜channel｜>`. Terbukti empiris (gpt-5.6-sol, `/v1/responses` stream) varian ini **lolos** upstream, hampir tak terlihat beda oleh model/manusia (fixture text tetap terbaca), dan reversibel visual (bukan delete). Zero-width chars (U+200B dll) **tidak** menetralkan karena upstream strip zero-width sebelum matching. Hanya token `<|channel|>` yang disentuh; harmony token lain (`<|start|>`, `<|message|>`, `<|end|>`) dan `analysis` tidak diutak-atik.
 
-Dua commit sumber (fork-only): `934ca1878` (neutralizer + dua builder) dan `b8977a3f5` (observability `invalid_prompt`). Cari ulang dengan `git log --oneline --all --grep="harmony"` atau `--grep="invalid_prompt"`. Default **enabled** (`gateway.neutralize_harmony_channel_token=true`); bisa dimatikan tanpa rebuild.
+Tiga commit sumber (fork-only): `934ca1878` (neutralizer + dua builder HTTP), `b8977a3f5` (observability `invalid_prompt` HTTP), dan `3e0d3965b` (coverage native WebSocket request + response observability). Cari ulang dengan `git log --oneline --all --grep="harmony"` atau `--grep="invalid_prompt"`. Default **enabled** (`gateway.neutralize_harmony_channel_token=true`); bisa dimatikan tanpa rebuild.
 
 **File inti (file baru — 0 collision dengan upstream):**
-- `backend/internal/service/openai_harmony_channel_neutralize.go` *(helper `neutralizeOpenAIHarmonyChannelToken` + detektor `detectOpenAIInvalidPrompt`; byte-level, hot-path aman: `bytes.Contains` guard → nol alokasi saat tak ada token)*
+- `backend/internal/service/openai_harmony_channel_neutralize.go` *(literal byte fast-path `neutralizeOpenAIHarmonyChannelToken`, guarded JSON-aware fallback `neutralizeOpenAIHarmonyChannelTokenJSON` dengan `UseNumber`, recursive values+keys copy-on-write, serta detektor `detectOpenAIInvalidPrompt`; request tanpa token tetap no-op tanpa replacement allocation)*
 - `+ openai_harmony_channel_neutralize_test.go` *(unit: neutralize glued/spaced/multi/no-op/idempotent/no-mutation + `detectOpenAIInvalidPrompt` flat/nested/case-insensitive/negatif)*
 - `+ openai_harmony_channel_neutralize_forward_test.go` *(integrasi: kedua builder, flag ON/OFF, cfg nil = ON)*
+- `+ openai_harmony_channel_neutralize_ws_test.go` *(native WS request paths: literal + JSON-escaped token, large-integer precision, decoded map values+keys copy-on-write, deterministic safe-key collision, flag ON/OFF, original map tidak termutasi)*
+- `+ openai_ws_invalid_prompt_observability_test.go` *(WS `response.failed`/top-level `error` invalid_prompt → tepat satu ops event; non-match no-op)*
 
 **Titik wiring (2 builder HTTP `/v1/responses` — keduanya WAJIB, path berbeda):**
 - `backend/internal/service/openai_gateway_forward.go` → `buildUpstreamRequest` (jalur rewrite), tepat sebelum `http.NewRequestWithContext(ctx, "POST", targetURL, ...)`.
 - `backend/internal/service/openai_gateway_passthrough.go` → `buildUpstreamRequestOpenAIPassthrough` (jalur passthrough — **builder terpisah**, tidak lewat `buildUpstreamRequest`; ini yang dipakai akun `openai_passthrough`/`codex_responses`).
 
+**Titik wiring native WebSocket request (commit `3e0d3965b`):**
+- `backend/internal/service/openai_gateway_request_body.go` → finalizer `applyOpenAIFastPolicyToWSResponseCreate`; satu choke point ini mencakup WS ingress dan WS v2 passthrough, termasuk first + follow-up `response.create`. Neutralisasi dilakukan setelah policy rewrite, dan dilewati jika frame diblok/error atau config OFF.
+- `backend/internal/service/openai_ws_forwarder_payload.go` → `buildOpenAIWSCreatePayload`; ini mencakup HTTP request yang diteruskan ke upstream melalui WS v2. Gunakan recursive copy-on-write `neutralizeOpenAIHarmonyChannelTokenJSONValue`/`JSONObject` karena payload sudah menjadi decoded map; neutralisasi values **dan keys**, original request map tidak boleh termutasi, dan bila unsafe key berkolisi dengan safe key yang sudah eksplisit maka safe key menang deterministik.
+- Semua raw-body boundaries memakai `neutralizeOpenAIHarmonyChannelTokenJSON`: literal token tetap lewat byte fast-path, tetapi representasi JSON ekuivalen seperti `<\u007cchannel\u007c>` juga harus dinetralkan. Fallback hanya decode jika ada `\u`, memakai `json.Decoder.UseNumber()` agar integer besar tidak berubah saat re-marshal.
+
 **Layer 2 — observability `invalid_prompt` (additive, bagian dari Fitur C):**
-Saat block masih terjadi (mis. harmony guard upstream berubah ke token lain sehingga netralisasi meleset), block itu tidak boleh "hilang diam-diam" di monitoring. `detectOpenAIInvalidPrompt(payload)` (mengikuti struktur `detectOpenAICyberPolicy`) mendeteksi `error.code`/`response.error.code == "invalid_prompt"` pada event stream `response.failed`, lalu memanggil `recordOpenAIStreamUpstreamError(..., "invalid_prompt", ...)` supaya masuk `ops_error_logs` (kind=`invalid_prompt`). Di-wire di **dua** loop streaming `response.failed`, ditempatkan **setelah** cabang cyber + passthrough-rule + failover (yang semuanya `return`/`Mark` lebih dulu), dijaga flag `cyberMarked` supaya tidak double-record:
+Saat block masih terjadi (mis. harmony guard upstream berubah ke token lain sehingga netralisasi meleset), block itu tidak boleh "hilang diam-diam" di monitoring. `detectOpenAIInvalidPrompt(payload)` (mengikuti struktur `detectOpenAICyberPolicy`) mendeteksi `error.code`/`response.error.code == "invalid_prompt"` pada event stream `response.failed`, lalu memanggil `recordOpenAIStreamUpstreamError(..., "invalid_prompt", ...)` supaya masuk `ops_error_logs` (kind=`invalid_prompt`). Pada transport HTTP, di-wire di **dua** loop streaming `response.failed`, ditempatkan **setelah** cabang cyber + passthrough-rule + failover (yang semuanya `return`/`Mark` lebih dulu), dijaga flag `cyberMarked` supaya tidak double-record:
 - `openai_gateway_passthrough.go` → `handleStreamingResponsePassthrough` (passthrough=true)
 - `openai_gateway_response_handling.go` → loop `response.failed` jalur rewrite (passthrough=false)
 Sifatnya murni observasi: tidak mengubah perilaku transfer/return/failover yang ada; hanya menambah 1 baris ops event kalau sebelumnya event `invalid_prompt` itu tidak tercatat.
 
-Pola wiring identik di kedua tempat:
+Pada transport native WS, shared `recordOpenAIWSInvalidPrompt` di-wire tepat di tiga jalur untuk envelope `response.failed` **dan** top-level `error`, tanpa memasukkan OpenAI Live/image loops:
+- `openai_ws_forwarder_ingress.go` (client native WS ingress, passthrough=false)
+- `openai_ws_forwarder_v2.go` (HTTP request → upstream WS v2, passthrough=false)
+- `openai_ws_v2_passthrough_adapter.go` (`BeforeWriteClient` relay callback, passthrough=true)
+Gunakan handshake `x-request-id` sebagai upstream correlation id. Detector exact-code membuat `cyber_policy`/`server_error` tetap no-op; jangan ubah response/failover semantics.
+
+Pola wiring identik di kedua builder HTTP:
 ```go
 if s.cfg == nil || s.cfg.Gateway.NeutralizeHarmonyChannelToken {
-    if neutralized, changed := neutralizeOpenAIHarmonyChannelToken(body); changed {
+    if neutralized, changed := neutralizeOpenAIHarmonyChannelTokenJSON(body); changed {
         body = neutralized
         logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Neutralized harmony <|channel|> token ... (account: %s)", account.Name)
     }
@@ -143,6 +156,7 @@ if s.cfg == nil || s.cfg.Gateway.NeutralizeHarmonyChannelToken {
 1. **Jangan cukup wire satu builder.** Passthrough punya builder sendiri; kalau upstream me-refactor/memindah salah satu builder, pastikan **kedua** titik `http.NewRequestWithContext(... "POST" ...)` untuk `/v1/responses` tetap ter-cover. Audit: `grep -n 'NewRequestWithContext' internal/service/openai_gateway_forward.go internal/service/openai_gateway_passthrough.go`.
 2. **Guard `s.cfg == nil`** wajib dipertahankan supaya test tanpa cfg (dan default) berperilaku ON — konsisten dengan viper default `true`.
 3. **Kalau upstream sudah punya penanganan setara** (mis. upstream menambah sanitizer/neutralizer harmony sendiri, atau upstream tak lagi kena block ini), **fitur ini gugur** — jangan re-apply; verifikasi dulu dengan repro block di §2-C di bawah, lalu hapus Fitur C dari daftar ini.
+4. **Audit semua transport baru.** Setelah upstream menambah native WS, dua builder HTTP saja tidak lagi cukup. Untuk tiap path yang mengirim `response.create`, cari final request boundary dan pastikan config ON/OFF + first/follow-up frames ter-cover. Untuk observability, hitung tepat tiga production call `recordOpenAIWSInvalidPrompt` pada WS paths; OpenAI Live dan image streaming tetap bukan target.
 
 **Repro/verifikasi cepat (opsional, butuh 1 request berbayar ke upstream):** kirim `/v1/responses` dengan `input` memuat `<|channel|>analysis`. Sebelum fix → `invalid_prompt`/`Request blocked`. Sesudah fix → lolos normal. Unit+integration test sudah mengunci byte output = `<｜channel｜>` (fullwidth, UTF-8 `ef bd 9c`), yang identik dengan varian yang terbukti lolos live.
 
@@ -332,11 +346,12 @@ rm -f frontend/pnpm-workspace.yaml
 Setelah sync bersih, `main` harus terlihat seperti:
 ```
 <chore>   chore: adapt fork to upstream and bump VERSION to 0.1.xxx
-<feat>    feat(gateway): record invalid_prompt blocks to ops_error_logs       ← Fitur C Layer 2
+<fix>     fix(openai): extend harmony guard to native websocket paths            ← Fitur C native WS
+<feat>    feat(gateway): record invalid_prompt blocks to ops_error_logs           ← Fitur C Layer 2
 <feat>    feat(gateway): neutralize harmony <｜channel｜> token to avoid upstream invalid_prompt block  ← Fitur C
-<feat>    feat(gateway): stream stale detection + auto-failover...  ← Fitur B (watchdog)
-<feat>    feat(admin): show OpenAI OAuth reauth warning             ← Fitur A (frontend)
-<fix>     fix(openai): keep oauth accounts schedulable...           ← Fitur A (backend)
+<feat>    feat(gateway): stream stale detection + auto-failover...                 ← Fitur B (watchdog)
+<feat>    feat(admin): show OpenAI OAuth reauth warning                            ← Fitur A (frontend)
+<fix>     fix(openai): keep oauth accounts schedulable...                          ← Fitur A (backend)
 <upstream HEAD = wei-shaw/main>
 ```
-Cuma **5 commit fitur + 1 chore** di atas upstream (3 fitur produk: A = OAuth soft-handle, B = stream watchdog, C = harmony neutralization + observability). Kalau lebih dari itu, ada drift yang perlu ditinjau.
+Cuma **6 commit fitur + 1 chore** di atas upstream setelah full-rewrite sync bersih (3 fitur produk: A = OAuth soft-handle, B = stream watchdog, C = harmony neutralization + HTTP/WS observability). Patch release tanpa upstream reset boleh sementara punya chore release tambahan; saat full sync berikutnya, reset ke upstream + replay 6 feature commits lalu buat satu chore terbaru, sehingga chore historis gugur. Selain pola itu, commit ekstra adalah drift yang perlu ditinjau.
