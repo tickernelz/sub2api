@@ -575,6 +575,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 				})
 			}
 		}
+		if isOpenAIWSInvalidPromptObservableEvent(eventType) {
+			s.recordOpenAIWSInvalidPrompt(c, account, false, lease.HandshakeHeader("x-request-id"), message)
+		}
 
 		if eventType == "error" {
 			s.handleOpenAIWSErrorEventTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), message)

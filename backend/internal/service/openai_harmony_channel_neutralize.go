@@ -2,8 +2,11 @@ package service
 
 import (
 	"bytes"
+	"encoding/json"
+	"io"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
@@ -43,6 +46,129 @@ func neutralizeOpenAIHarmonyChannelToken(body []byte) (out []byte, changed bool)
 		return body, false
 	}
 	return bytes.ReplaceAll(body, openAIHarmonyChannelTokenBytes, openAIHarmonyChannelTokenNeutralizedBytes), true
+}
+
+// neutralizeOpenAIHarmonyChannelTokenJSON keeps the literal byte replacement
+// as the hot path, then falls back to decoded JSON only when a Unicode escape
+// could encode the same logical token. UseNumber prevents large integers from
+// losing precision when the fallback has to re-marshal the request.
+func neutralizeOpenAIHarmonyChannelTokenJSON(body []byte) ([]byte, bool) {
+	if out, changed := neutralizeOpenAIHarmonyChannelToken(body); changed {
+		return out, true
+	}
+	if !bytes.Contains(body, []byte(`\u`)) {
+		return body, false
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return body, false
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return body, false
+	}
+	updated, changed := neutralizeOpenAIHarmonyChannelTokenJSONValue(value)
+	if !changed {
+		return body, false
+	}
+	out, err := json.Marshal(updated)
+	if err != nil {
+		return body, false
+	}
+	return out, true
+}
+
+func (s *OpenAIGatewayService) openAIHarmonyChannelNeutralizationEnabled() bool {
+	return s == nil || s.cfg == nil || s.cfg.Gateway.NeutralizeHarmonyChannelToken
+}
+
+// neutralizeOpenAIHarmonyChannelTokenJSONValue applies the same exact token
+// replacement to decoded JSON values. It clones maps/slices only along changed
+// paths so callers can safely reuse the original request body.
+func neutralizeOpenAIHarmonyChannelTokenJSONValue(value any) (any, bool) {
+	switch v := value.(type) {
+	case string:
+		out, changed := neutralizeOpenAIHarmonyChannelToken([]byte(v))
+		if !changed {
+			return value, false
+		}
+		return string(out), true
+	case []any:
+		var out []any
+		for i, item := range v {
+			updated, changed := neutralizeOpenAIHarmonyChannelTokenJSONValue(item)
+			if !changed {
+				continue
+			}
+			if out == nil {
+				out = append([]any(nil), v...)
+			}
+			out[i] = updated
+		}
+		if out == nil {
+			return value, false
+		}
+		return out, true
+	case map[string]any:
+		return neutralizeOpenAIHarmonyChannelTokenJSONObject(v)
+	default:
+		return value, false
+	}
+}
+
+func neutralizeOpenAIHarmonyChannelTokenJSONObject(value map[string]any) (map[string]any, bool) {
+	var out map[string]any
+	for key, item := range value {
+		updated, changed := neutralizeOpenAIHarmonyChannelTokenJSONValue(item)
+		updatedKey := key
+		keyChanged := strings.Contains(key, openAIHarmonyChannelToken)
+		if keyChanged {
+			updatedKey = strings.ReplaceAll(key, openAIHarmonyChannelToken, openAIHarmonyChannelTokenNeutralized)
+		}
+		if !changed && !keyChanged {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]any, len(value))
+			for existingKey, existingValue := range value {
+				out[existingKey] = existingValue
+			}
+		}
+		if keyChanged {
+			delete(out, key)
+			if _, safeKeyAlreadyExists := value[updatedKey]; safeKeyAlreadyExists {
+				// Prefer an explicitly supplied safe key deterministically instead
+				// of making the result depend on Go map iteration order.
+				continue
+			}
+		}
+		out[updatedKey] = updated
+	}
+	if out == nil {
+		return value, false
+	}
+	return out, true
+}
+
+func isOpenAIWSInvalidPromptObservableEvent(eventType string) bool {
+	return eventType == "response.failed" || eventType == "error"
+}
+
+func (s *OpenAIGatewayService) recordOpenAIWSInvalidPrompt(
+	c *gin.Context,
+	account *Account,
+	passthrough bool,
+	upstreamRequestID string,
+	payload []byte,
+) bool {
+	hit, _, message := detectOpenAIInvalidPrompt(payload)
+	if !hit {
+		return false
+	}
+	s.recordOpenAIStreamUpstreamError(c, account, passthrough, upstreamRequestID, "invalid_prompt", payload, message)
+	return true
 }
 
 // detectOpenAIInvalidPrompt 识别上游 `invalid_prompt` 硬拦截（对齐 detectOpenAICyberPolicy
