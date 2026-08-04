@@ -126,7 +126,7 @@ scripts
 .code-review-state
 #openspec/
 code-reviews/
-AGENTS.md
+# AGENTS.md is intentionally tracked in the fork
 backend/cmd/server/server
 deploy/docker-compose.override.yml
 .gocache/
