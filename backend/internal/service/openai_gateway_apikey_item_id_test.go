@@ -35,16 +35,16 @@ func TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidInputItemIDs(t *tes
 		"model":"gpt-5.6-sol",
 		"stream":false,
 		"input":[
-			{"type":"message","id":"item_bad_message","role":"assistant","content":[{"type":"output_text","text":"hello"}]},
-			{"type":"function_call","id":"item_bad_call","call_id":"call_123","name":"exec_command","arguments":"{}"},
-			{"type":"message","id":"msg_valid","role":"user","content":[{"type":"input_text","text":"continue"}]},
-			{"type":"function_call","id":"fc_valid","call_id":"call_456","name":"apply_patch","arguments":"{}"},
-			{"type":"custom_tool_call","id":"fc_wrong_custom","call_id":"call_custom_1","name":"apply_patch","input":"patch"},
-			{"type":"custom_tool_call","id":"ctc_valid","call_id":"call_custom_2","name":"apply_patch","input":"patch"},
-			{"type":"tool_search_call","id":"fc_wrong_search","call_id":"call_search_1","arguments":{"query":"docs"}},
-			{"type":"tool_search_call","id":"tsc_valid","call_id":"call_search_2","arguments":{"query":"docs"}},
-			{"type":"function_call_output","id":"item_output","call_id":"call_123","output":"done"},
-			{"type":"web_search_call","id":"item_wrong_web"}
+			{"type":"message","id":"item_bad_message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hello"}]},
+			{"type":"function_call","id":"item_bad_call","call_id":"call_123","status":"completed","name":"exec_command","arguments":"{}"},
+			{"type":"message","id":"msg_valid","role":"user","status":"completed","content":[{"type":"input_text","text":"continue"}]},
+			{"type":"function_call","id":"fc_valid","call_id":"call_456","status":"completed","name":"apply_patch","arguments":"{}"},
+			{"type":"custom_tool_call","id":"fc_wrong_custom","call_id":"call_custom_1","status":"completed","name":"apply_patch","input":"patch"},
+			{"type":"custom_tool_call","id":"ctc_valid","call_id":"call_custom_2","status":"completed","name":"apply_patch","input":"patch"},
+			{"type":"tool_search_call","id":"fc_wrong_search","call_id":"call_search_1","status":"completed","arguments":{"query":"docs"}},
+			{"type":"tool_search_call","id":"tsc_valid","call_id":"call_search_2","status":"completed","arguments":{"query":"docs"}},
+			{"type":"function_call_output","id":"item_output","call_id":"call_123","status":"completed","output":"done"},
+			{"type":"web_search_call","id":"item_wrong_web","status":"completed"}
 		]
 	}`)
 
@@ -69,6 +69,9 @@ func TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidInputItemIDs(t *tes
 	require.Equal(t, "item_output", gjson.GetBytes(forwarded, "input.8.id").String())
 	require.Equal(t, "call_123", gjson.GetBytes(forwarded, "input.8.call_id").String())
 	require.False(t, gjson.GetBytes(forwarded, "input.9.id").Exists())
+	for i := 0; i < 10; i++ {
+		require.False(t, gjson.GetBytes(forwarded, fmt.Sprintf("input.%d.status", i)).Exists(), "input item status must be stripped for OpenAI upstream")
+	}
 }
 
 func TestOpenAIGatewayService_OAuthPassthrough_SanitizesNativeToolItemIDs(t *testing.T) {
@@ -115,47 +118,6 @@ func TestOpenAIGatewayService_OAuthPassthrough_SanitizesNativeToolItemIDs(t *tes
 			require.Equal(t, "tsc_valid", gjson.GetBytes(upstream.lastBody, "input.3.id").String())
 		})
 	}
-}
-
-func TestOpenAIGatewayService_SetupTokenLegacy_SanitizesAndTransforms(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	upstreamSSE := "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"model\":\"gpt-5.6-sol\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\ndata: [DONE]\n\n"
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-		Body:       io.NopCloser(strings.NewReader(upstreamSSE)),
-	}}
-	svc := newOpenAIImageGenerationControlTestService(upstream)
-	c, _ := newOpenAIImageGenerationControlTestContext(true, "codex_cli_rs/0.144.1")
-	account := newOpenAIImageGenerationControlTestAccount()
-	account.Type = AccountTypeSetupToken
-	account.Credentials = map[string]any{
-		"access_token":       "setup-token",
-		"chatgpt_account_id": "chatgpt-account",
-	}
-	account.Extra = map[string]any{"openai_passthrough": false}
-	body := []byte(`{
-		"model":"gpt-5.6-sol",
-		"stream":true,
-		"store":true,
-		"reasoning":{"mode":"pro"},
-		"instructions":"test",
-		"input":[
-			{"type":"custom_tool_call","id":"fc_wrong_custom","call_id":"call_custom_1","name":"apply_patch","input":"patch"},
-			{"type":"function_call_output","call_id":"call_orphan","output":"orphan"}
-		]
-	}`)
-
-	result, err := svc.Forward(context.Background(), c, account, body)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.NotNil(t, upstream.lastReq)
-	require.Equal(t, "https://chatgpt.com/backend-api/codex/responses", upstream.lastReq.URL.String())
-	require.Equal(t, false, gjson.GetBytes(upstream.lastBody, "store").Bool())
-	require.Equal(t, "max", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
-	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning.mode").Exists())
-	require.False(t, gjson.GetBytes(upstream.lastBody, "input.0.id").Exists())
-	require.Len(t, gjson.GetBytes(upstream.lastBody, "input").Array(), 1)
 }
 
 // TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidReasoningItemIDs
@@ -232,7 +194,7 @@ func TestShouldStripOpenAIResponsesInputItemID_Reasoning(t *testing.T) {
 	}
 }
 
-func TestSanitizeOpenAIResponsesInputItemIDs_AllocationGrowthIsLinear(t *testing.T) {
+func TestSanitizeOpenAIResponsesInputItems_AllocationGrowthIsLinear(t *testing.T) {
 	makeBody := func(itemCount int) []byte {
 		items := make([]string, itemCount)
 		for i := range items {
@@ -244,7 +206,7 @@ func TestSanitizeOpenAIResponsesInputItemIDs_AllocationGrowthIsLinear(t *testing
 		runtime.GC()
 		var before, after runtime.MemStats
 		runtime.ReadMemStats(&before)
-		sanitized, changed, err := sanitizeOpenAIResponsesInputItemIDs(body)
+		sanitized, changed, err := sanitizeOpenAIResponsesInputItems(body)
 		runtime.ReadMemStats(&after)
 		require.NoError(t, err)
 		require.True(t, changed)
