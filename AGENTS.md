@@ -130,7 +130,7 @@ This feature is separate from the existing `openai_fast_policy_settings`. It con
 
 Scope:
 
-- OpenAI API-key gateway routes.
+- OpenAI API-key and OAuth gateway routes.
 - Anthropic API-key gateway routes.
 - Modes: `disabled`, `fill_missing`, and `force`.
 - Provider-native values only.
@@ -142,7 +142,7 @@ Accepted values:
 
 Deliberate exclusions:
 
-- OpenAI OAuth and other unsupported account types.
+- OpenAI account types outside API-key and OAuth.
 - Vertex, Bedrock, Antigravity, Gemini, and custom-compatible providers.
 - Anthropic `count_tokens` requests.
 - The existing `openai_fast_policy_settings` behavior and storage key.
