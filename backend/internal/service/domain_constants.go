@@ -506,6 +506,11 @@ const (
 	// anthropic-beta header.
 	SettingKeyOpenAIFastPolicySettings = "openai_fast_policy_settings"
 
+	// SettingKeyGatewayServiceTierSettings stores provider-aware gateway
+	// service_tier defaults/overrides. It is intentionally separate from the
+	// OpenAI fast/flex enforcement policy.
+	SettingKeyGatewayServiceTierSettings = "gateway_service_tier_settings"
+
 	// =========================
 	// Claude Code Version Check
 	// =========================
