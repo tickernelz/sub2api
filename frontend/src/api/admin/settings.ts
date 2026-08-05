@@ -727,7 +727,8 @@ export interface SystemSettings {
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
-  // Allow user view error requests
+  // Provider-aware gateway service-tier defaults/overrides
+  gateway_service_tier_settings?: GatewayServiceTierSettings;
   allow_user_view_error_requests: boolean;
 }
 
@@ -1024,6 +1025,9 @@ export interface UpdateSettingsRequest {
 
   // OpenAI fast/flex policy
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
+
+  // Provider-aware gateway service-tier defaults/overrides
+  gateway_service_tier_settings?: GatewayServiceTierSettings;
 
   allow_user_view_error_requests?: boolean;
 }
@@ -1500,6 +1504,18 @@ export interface OpenAIFastPolicyRule {
  */
 export interface OpenAIFastPolicySettings {
   rules: OpenAIFastPolicyRule[];
+}
+
+export type GatewayServiceTierMode = "disabled" | "fill_missing" | "force";
+
+export interface GatewayServiceTierRule {
+  mode: GatewayServiceTierMode;
+  service_tier: string;
+}
+
+export interface GatewayServiceTierSettings {
+  openai: GatewayServiceTierRule;
+  anthropic: GatewayServiceTierRule;
 }
 
 // ==================== Beta Policy Settings ====================

@@ -332,6 +332,9 @@ type SystemSettings struct {
 	// OpenAI fast/flex policy
 	OpenAIFastPolicySettings *OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
 
+	// Provider-aware gateway service-tier defaults/overrides.
+	GatewayServiceTierSettings *GatewayServiceTierSettings `json:"gateway_service_tier_settings,omitempty"`
+
 	// 系统全局默认平台配额（key = platform，nil/缺省 = 不限制）
 	DefaultPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"default_platform_quotas,omitempty"`
 
@@ -530,6 +533,19 @@ type OpenAIFastPolicyRule struct {
 // OpenAIFastPolicySettings OpenAI fast 策略配置 DTO
 type OpenAIFastPolicySettings struct {
 	Rules []OpenAIFastPolicyRule `json:"rules"`
+}
+
+// GatewayServiceTierRule controls one provider's outbound service_tier field.
+type GatewayServiceTierRule struct {
+	Mode        string `json:"mode"`
+	ServiceTier string `json:"service_tier"`
+}
+
+// GatewayServiceTierSettings is the admin API representation of provider-aware
+// gateway service-tier behavior.
+type GatewayServiceTierSettings struct {
+	OpenAI    GatewayServiceTierRule `json:"openai"`
+	Anthropic GatewayServiceTierRule `json:"anthropic"`
 }
 
 // EmailTemplateEventOption 描述可编辑的通知邮件事件。

@@ -1215,6 +1215,25 @@ export default {
         fallbackActionHint: '当请求模型不在白名单中时的处理方式。',
         fallbackErrorMessagePlaceholder: '未匹配模型被拦截时返回的自定义错误消息'
       },
+      gatewayServiceTier: {
+        title: '网关 Service Tier',
+        description: '配置按 provider 区分的 outbound service_tier 默认值。默认关闭，仅作用于已支持的 API Key 网关路径。',
+        openai: 'OpenAI',
+        anthropic: 'Anthropic',
+        mode: '模式',
+        value: 'Service tier',
+        modeDisabled: '关闭',
+        modeFillMissing: '仅在缺失时补充',
+        modeForce: '强制覆盖',
+        openaiAuto: 'auto',
+        openaiDefault: 'default',
+        openaiFlex: 'flex',
+        openaiPriority: 'priority',
+        openaiScale: 'scale',
+        anthropicAuto: 'auto',
+        anthropicStandardOnly: 'standard_only',
+        warning: '强制模式会覆盖客户端传入的值。OAuth、Vertex、Bedrock 及其他未支持的账号路径会保持原样，不注入字段。'
+      },
       wechatConnect: {
         title: '微信登录',
         description: '用于微信开放平台或公众号/小程序的第三方登录配置。',

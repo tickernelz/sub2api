@@ -88,6 +88,12 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		body = syncBillingHeaderVersion(body, fingerprint.UserAgent)
 	}
 
+	if configuredBody, err := s.applyConfiguredAnthropicServiceTier(ctx, account, body); err != nil {
+		return nil, nil, fmt.Errorf("apply configured Anthropic service_tier: %w", err)
+	} else {
+		body = configuredBody
+	}
+
 	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
 	//
 	// 顺序约束：

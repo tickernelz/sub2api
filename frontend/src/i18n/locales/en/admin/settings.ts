@@ -1221,6 +1221,25 @@ export default {
         fallbackActionHint: 'Action for models not matching the whitelist.',
         fallbackErrorMessagePlaceholder: 'Custom error message when non-whitelisted models are blocked'
       },
+      gatewayServiceTier: {
+        title: 'Gateway Service Tier',
+        description: 'Configure provider-aware service_tier defaults for outbound API requests. Settings are disabled by default and only apply to supported API-key gateway routes.',
+        openai: 'OpenAI',
+        anthropic: 'Anthropic',
+        mode: 'Mode',
+        value: 'Service tier',
+        modeDisabled: 'Disabled',
+        modeFillMissing: 'Fill only when missing',
+        modeForce: 'Force override',
+        openaiAuto: 'auto',
+        openaiDefault: 'default',
+        openaiFlex: 'flex',
+        openaiPriority: 'priority',
+        openaiScale: 'scale',
+        anthropicAuto: 'auto',
+        anthropicStandardOnly: 'standard_only',
+        warning: 'Force mode replaces a client-provided value. OAuth, Vertex, Bedrock, and other unsupported account routes are intentionally left unchanged.'
+      },
       wechatConnect: {
         title: 'WeChat Connect',
         description: 'Third-party login configuration for WeChat Open Platform or Official Account / Mini Program.',

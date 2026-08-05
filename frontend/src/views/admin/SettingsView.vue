@@ -1549,6 +1549,89 @@
               </div>
             </div>
           </div>
+
+          <!-- Gateway Service Tier Settings -->
+          <div
+            class="card"
+            data-testid="gateway-service-tier-settings"
+          >
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.gatewayServiceTier.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.gatewayServiceTier.description") }}
+              </p>
+            </div>
+            <div class="space-y-5 p-6">
+              <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+                  <h3 class="font-medium text-gray-900 dark:text-white">
+                    {{ t("admin.settings.gatewayServiceTier.openai") }}
+                  </h3>
+                  <div class="mt-3 space-y-3">
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t("admin.settings.gatewayServiceTier.mode") }}
+                      </label>
+                      <Select
+                        data-testid="gateway-service-tier-openai-mode"
+                        :modelValue="gatewayServiceTierForm.openai.mode"
+                        @update:modelValue="gatewayServiceTierForm.openai.mode = $event as GatewayServiceTierSettings['openai']['mode']"
+                        :options="gatewayServiceTierModeOptions"
+                      />
+                    </div>
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t("admin.settings.gatewayServiceTier.value") }}
+                      </label>
+                      <Select
+                        data-testid="gateway-service-tier-openai-value"
+                        :modelValue="gatewayServiceTierForm.openai.service_tier"
+                        @update:modelValue="gatewayServiceTierForm.openai.service_tier = String($event)"
+                        :options="gatewayOpenAIServiceTierOptions"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+                  <h3 class="font-medium text-gray-900 dark:text-white">
+                    {{ t("admin.settings.gatewayServiceTier.anthropic") }}
+                  </h3>
+                  <div class="mt-3 space-y-3">
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t("admin.settings.gatewayServiceTier.mode") }}
+                      </label>
+                      <Select
+                        data-testid="gateway-service-tier-anthropic-mode"
+                        :modelValue="gatewayServiceTierForm.anthropic.mode"
+                        @update:modelValue="gatewayServiceTierForm.anthropic.mode = $event as GatewayServiceTierSettings['anthropic']['mode']"
+                        :options="gatewayServiceTierModeOptions"
+                      />
+                    </div>
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t("admin.settings.gatewayServiceTier.value") }}
+                      </label>
+                      <Select
+                        data-testid="gateway-service-tier-anthropic-value"
+                        :modelValue="gatewayServiceTierForm.anthropic.service_tier"
+                        @update:modelValue="gatewayServiceTierForm.anthropic.service_tier = String($event)"
+                        :options="gatewayAnthropicServiceTierOptions"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-gray-400 dark:text-gray-500">
+                {{ t("admin.settings.gatewayServiceTier.warning") }}
+              </p>
+            </div>
+          </div>
         </div>
         <!-- /Tab: Gateway -->
 
@@ -8856,6 +8939,7 @@ import type {
   UpdateSettingsRequest,
   DefaultSubscriptionSetting,
   DefaultPlatformQuotasMap,
+  GatewayServiceTierSettings,
   OpenAIFastPolicyRule,
   WeChatConnectMode,
   WebSearchEmulationConfig,
@@ -9133,6 +9217,12 @@ const openaiFastPolicyForm = reactive({
 // 标记 openai_fast_policy_settings 是否已成功从后端加载，
 // 避免后端 GET 出错或字段缺失时，保存把默认规则覆盖成空数组。
 const openaiFastPolicyLoaded = ref(false);
+
+const gatewayServiceTierForm = reactive<GatewayServiceTierSettings>({
+  openai: { mode: "disabled", service_tier: "priority" },
+  anthropic: { mode: "disabled", service_tier: "auto" },
+});
+const gatewayServiceTierLoaded = ref(false);
 
 const tablePageSizeMin = 5;
 const tablePageSizeMax = 1000;
@@ -11004,6 +11094,18 @@ async function loadSettings() {
       openaiFastPolicyLoaded.value = true;
     }
 
+    if (settings.gateway_service_tier_settings) {
+      gatewayServiceTierForm.openai = {
+        ...gatewayServiceTierForm.openai,
+        ...settings.gateway_service_tier_settings.openai,
+      };
+      gatewayServiceTierForm.anthropic = {
+        ...gatewayServiceTierForm.anthropic,
+        ...settings.gateway_service_tier_settings.anthropic,
+      };
+      gatewayServiceTierLoaded.value = true;
+    }
+
     // Load web search emulation config separately
     await loadWebSearchConfig();
   } catch (error: unknown) {
@@ -11578,6 +11680,13 @@ async function saveSettings() {
       };
     }
 
+    if (gatewayServiceTierLoaded.value) {
+      payload.gateway_service_tier_settings = {
+        openai: { ...gatewayServiceTierForm.openai },
+        anthropic: { ...gatewayServiceTierForm.anthropic },
+      };
+    }
+
     payload.default_platform_quotas = sanitizePlatformQuotasMap(form.default_platform_quotas);
     payload.account_scheduling_thresholds = sanitizeAccountSchedulingThresholdsMap(
       form.account_scheduling_thresholds,
@@ -11588,7 +11697,10 @@ async function saveSettings() {
       adminAPI.settings.updateSettings(payload),
     );
     for (const [key, value] of Object.entries(updated)) {
-      if (key === "openai_fast_policy_settings") continue;
+      if (
+        key === "openai_fast_policy_settings" ||
+        key === "gateway_service_tier_settings"
+      ) continue;
       if (value !== null && value !== undefined) {
         (form as Record<string, unknown>)[key] = value;
       }
@@ -11658,6 +11770,17 @@ async function saveSettings() {
             : [],
         }));
       openaiFastPolicyLoaded.value = true;
+    }
+    if (updated.gateway_service_tier_settings) {
+      gatewayServiceTierForm.openai = {
+        ...gatewayServiceTierForm.openai,
+        ...updated.gateway_service_tier_settings.openai,
+      };
+      gatewayServiceTierForm.anthropic = {
+        ...gatewayServiceTierForm.anthropic,
+        ...updated.gateway_service_tier_settings.anthropic,
+      };
+      gatewayServiceTierLoaded.value = true;
     }
     // Save web search emulation config separately (errors handled internally)
     const wsOk = await saveWebSearchConfig();
@@ -12224,6 +12347,25 @@ const openaiFastPolicyScopeOptions = computed(() => [
     value: "bedrock",
     label: t("admin.settings.openaiFastPolicy.scopeBedrock"),
   },
+]);
+
+const gatewayServiceTierModeOptions = computed(() => [
+  { value: "disabled", label: t("admin.settings.gatewayServiceTier.modeDisabled") },
+  { value: "fill_missing", label: t("admin.settings.gatewayServiceTier.modeFillMissing") },
+  { value: "force", label: t("admin.settings.gatewayServiceTier.modeForce") },
+]);
+
+const gatewayOpenAIServiceTierOptions = computed(() => [
+  { value: "auto", label: t("admin.settings.gatewayServiceTier.openaiAuto") },
+  { value: "default", label: t("admin.settings.gatewayServiceTier.openaiDefault") },
+  { value: "flex", label: t("admin.settings.gatewayServiceTier.openaiFlex") },
+  { value: "priority", label: t("admin.settings.gatewayServiceTier.openaiPriority") },
+  { value: "scale", label: t("admin.settings.gatewayServiceTier.openaiScale") },
+]);
+
+const gatewayAnthropicServiceTierOptions = computed(() => [
+  { value: "auto", label: t("admin.settings.gatewayServiceTier.anthropicAuto") },
+  { value: "standard_only", label: t("admin.settings.gatewayServiceTier.anthropicStandardOnly") },
 ]);
 
 function addOpenAIFastPolicyRule() {
