@@ -389,6 +389,12 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		payload.OpenAIFastPolicySettings = openaiFastPolicySettingsToDTO(fastPolicy)
 	}
 
+	if serviceTierSettings, err := h.settingService.GetGatewayServiceTierSettings(c.Request.Context()); err != nil {
+		slog.Error("gateway_service_tier_settings_get_failed", "error", err)
+	} else if serviceTierSettings != nil {
+		payload.GatewayServiceTierSettings = gatewayServiceTierSettingsToDTO(serviceTierSettings)
+	}
+
 	// Default platform quotas（JSON map）
 	if platformQuotas, err := h.settingService.GetDefaultPlatformQuotas(c.Request.Context()); err != nil {
 		slog.Error("default_platform_quotas_get_failed", "error", err)
@@ -431,6 +437,38 @@ func openaiFastPolicySettingsFromDTO(s *dto.OpenAIFastPolicySettings) *service.O
 		rules[i].ServiceTier = tier
 	}
 	return &service.OpenAIFastPolicySettings{Rules: rules}
+}
+
+func gatewayServiceTierSettingsToDTO(s *service.GatewayServiceTierSettings) *dto.GatewayServiceTierSettings {
+	if s == nil {
+		return nil
+	}
+	return &dto.GatewayServiceTierSettings{
+		OpenAI: dto.GatewayServiceTierRule{
+			Mode:        s.OpenAI.Mode,
+			ServiceTier: s.OpenAI.ServiceTier,
+		},
+		Anthropic: dto.GatewayServiceTierRule{
+			Mode:        s.Anthropic.Mode,
+			ServiceTier: s.Anthropic.ServiceTier,
+		},
+	}
+}
+
+func gatewayServiceTierSettingsFromDTO(s *dto.GatewayServiceTierSettings) *service.GatewayServiceTierSettings {
+	if s == nil {
+		return nil
+	}
+	return &service.GatewayServiceTierSettings{
+		OpenAI: service.GatewayServiceTierRule{
+			Mode:        s.OpenAI.Mode,
+			ServiceTier: s.OpenAI.ServiceTier,
+		},
+		Anthropic: service.GatewayServiceTierRule{
+			Mode:        s.Anthropic.Mode,
+			ServiceTier: s.Anthropic.ServiceTier,
+		},
+	}
 }
 
 func loginAgreementDocumentsToDTO(items []service.LoginAgreementDocument) []dto.LoginAgreementDocument {
