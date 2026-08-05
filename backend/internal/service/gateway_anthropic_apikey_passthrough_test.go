@@ -150,6 +150,11 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardStreamPreservesBodyAnd
 		deferredService:      &DeferredService{},
 		billingCacheService:  nil,
 	}
+	tierRepo := &gatewayServiceTierSettingRepoStub{values: map[string]string{}}
+	svc.settingService = NewSettingService(tierRepo, nil)
+	require.NoError(t, svc.settingService.SetGatewayServiceTierSettings(context.Background(), &GatewayServiceTierSettings{
+		Anthropic: GatewayServiceTierRule{Mode: GatewayServiceTierModeForce, ServiceTier: "standard_only"},
+	}))
 
 	account := &Account{
 		ID:          101,
@@ -175,6 +180,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardStreamPreservesBodyAnd
 	require.True(t, result.Stream)
 
 	require.Equal(t, "claude-3-haiku-20240307", gjson.GetBytes(upstream.lastBody, "model").String(), "透传模式应应用账号级模型映射")
+	require.Equal(t, "standard_only", gjson.GetBytes(upstream.lastBody, "service_tier").String(), "透传模式应应用配置的 Anthropic service_tier")
 
 	require.Equal(t, "upstream-anthropic-key", getHeaderRaw(upstream.lastReq.Header, "x-api-key"))
 	require.Empty(t, getHeaderRaw(upstream.lastReq.Header, "authorization"))
