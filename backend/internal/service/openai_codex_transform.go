@@ -1395,6 +1395,10 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 					// rs_* id replayed under store=false 404s; strip it.
 					continue
 				}
+				if key == "status" {
+					// The OAuth upstream rejects replayed input item status metadata.
+					continue
+				}
 				newItem[key] = value
 			}
 			if summary, ok := newItem["summary"]; !ok || summary == nil {
@@ -1428,6 +1432,9 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 			}
 			newItem := make(map[string]any, len(m))
 			for key, value := range m {
+				if key == "status" {
+					continue
+				}
 				newItem[key] = value
 			}
 			if id, ok := newItem["id"].(string); ok && strings.HasPrefix(id, "call_") {
@@ -1449,6 +1456,11 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 				newItem[key] = value
 			}
 			copied = true
+		}
+
+		if _, hasStatus := m["status"]; hasStatus {
+			ensureCopy()
+			delete(newItem, "status")
 		}
 
 		if isCodexToolCallItemType(typ) {
