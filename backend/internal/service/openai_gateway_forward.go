@@ -633,11 +633,15 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	rawTier := requestView.ServiceTier
+	if effectiveTier, shouldApply := s.configuredOpenAIServiceTier(ctx, account, rawTier); shouldApply {
+		markPatchSet("service_tier", effectiveTier)
+		rawTier = effectiveTier
+	}
 	if openAIGroupForcesFast(ctx, account) {
-		rawTier = OpenAIFastTierPriority
-		if requestView.ServiceTier != OpenAIFastTierPriority {
+		if rawTier != OpenAIFastTierPriority {
 			markPatchSet("service_tier", OpenAIFastTierPriority)
 		}
+		rawTier = OpenAIFastTierPriority
 	}
 	if rawTier != "" {
 		if normTier := normalizedOpenAIServiceTierValue(rawTier); normTier != "" {
