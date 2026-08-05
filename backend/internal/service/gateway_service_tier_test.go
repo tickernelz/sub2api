@@ -98,10 +98,40 @@ func TestDefaultGatewayServiceTierSettingsAreDisabled(t *testing.T) {
 	require.Equal(t, "auto", settings.Anthropic.ServiceTier)
 }
 
-func TestApplyConfiguredOpenAIServiceTierSkipsOAuth(t *testing.T) {
+func TestApplyConfiguredOpenAIServiceTierAppliesToOAuth(t *testing.T) {
 	body := []byte(`{"model":"gpt-5"}`)
-	svc := &OpenAIGatewayService{}
+	repo := &gatewayServiceTierSettingRepoStub{values: map[string]string{
+		SettingKeyGatewayServiceTierSettings: `{"openai":{"mode":"force","service_tier":"priority"}}`,
+	}}
+	svc := &OpenAIGatewayService{settingService: NewSettingService(repo, nil)}
 	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	updated, err := svc.applyConfiguredOpenAIServiceTier(context.TODO(), account, body)
+
+	require.NoError(t, err)
+	require.Equal(t, "priority", extractJSONServiceTier(updated))
+}
+
+func TestConfiguredOpenAIServiceTierAppliesToOAuth(t *testing.T) {
+	repo := &gatewayServiceTierSettingRepoStub{values: map[string]string{
+		SettingKeyGatewayServiceTierSettings: `{"openai":{"mode":"force","service_tier":"priority"}}`,
+	}}
+	svc := &OpenAIGatewayService{settingService: NewSettingService(repo, nil)}
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	tier, shouldApply := svc.configuredOpenAIServiceTier(context.TODO(), account, "")
+
+	require.True(t, shouldApply)
+	require.Equal(t, "priority", tier)
+}
+
+func TestApplyConfiguredOpenAIServiceTierSkipsUnsupportedAccountType(t *testing.T) {
+	body := []byte(`{"model":"gpt-5"}`)
+	repo := &gatewayServiceTierSettingRepoStub{values: map[string]string{
+		SettingKeyGatewayServiceTierSettings: `{"openai":{"mode":"force","service_tier":"priority"}}`,
+	}}
+	svc := &OpenAIGatewayService{settingService: NewSettingService(repo, nil)}
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeSetupToken}
 
 	updated, err := svc.applyConfiguredOpenAIServiceTier(context.TODO(), account, body)
 
