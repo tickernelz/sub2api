@@ -2332,6 +2332,11 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 	if len(body) == 0 {
 		return body, nil
 	}
+	if configuredBody, err := s.applyConfiguredOpenAIServiceTier(ctx, account, body); err != nil {
+		return body, fmt.Errorf("apply configured service_tier: %w", err)
+	} else {
+		body = configuredBody
+	}
 	if forcedTier := openAIGroupForcedServiceTier(ctx, account, model); forcedTier != "" {
 		updated, err := sjson.SetBytes(body, "service_tier", forcedTier)
 		if err != nil {
@@ -2475,6 +2480,11 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 		return frame, nil, nil
 	}
 	responseCreate = true
+	if configuredFrame, err := s.applyConfiguredOpenAIServiceTier(ctx, account, frame); err != nil {
+		return frame, nil, fmt.Errorf("apply configured service_tier in ws frame: %w", err)
+	} else {
+		frame = configuredFrame
+	}
 	if forcedTier := openAIGroupForcedServiceTier(ctx, account, model); forcedTier != "" {
 		updated, err := sjson.SetBytes(frame, "service_tier", forcedTier)
 		if err != nil {
