@@ -1,362 +1,328 @@
-# AGENTS.md — Panduan Maintainer Fork `tickernelz/sub2api`
+# AGENTS.md — Maintainer Guide for the `tickernelz/sub2api` Fork
 
-Repo ini adalah **fork ringan** dari upstream `Wei-Shaw/sub2api`. Tujuan fork: mengikuti upstream sedekat mungkin, dengan **hanya sejumlah kecil kustomisasi yang sengaja di-keep**. Semua fitur fork lama (Kiro/OpenCode/Cursor/Grok-registry/multi-group/dll) **sudah dibuang** — jangan hidupkan kembali kecuali diminta eksplisit.
+This repository is a deliberately small fork of `Wei-Shaw/sub2api`. The default rule is to follow upstream closely and preserve only the fork-specific behavior listed below.
 
-Baca dokumen ini sebelum melakukan sync/merge dengan upstream. Tujuannya: sync berikutnya harus cepat dan bersih, bukan perang konflik.
+Read this file before synchronizing with upstream. The goal is a repeatable, low-conflict replay—not a large manual merge.
 
----
+## 1. Repository contract
 
-## 1. Identitas Repo & Remote
+| Item | Value |
+| --- | --- |
+| Fork remote | `origin` → `git@github.com:tickernelz/sub2api.git` |
+| Upstream remote | `wei-shaw` → `git@github.com:Wei-Shaw/sub2api.git` |
+| Go module path | `github.com/Wei-Shaw/sub2api` — keep the upstream path |
+| Main branch | `main` |
+| Product version | `backend/cmd/server/VERSION` |
 
-| Hal | Nilai |
-|---|---|
-| Remote `origin` | `git@github.com:tickernelz/sub2api.git` (fork kita) |
-| Remote `wei-shaw` | `git@github.com:Wei-Shaw/sub2api.git` (upstream) |
-| Go module path | `github.com/Wei-Shaw/sub2api` (**tetap ikut upstream**, jangan diganti ke `tickernelz`) |
-| Branch utama | `main` |
-| Versi dilacak di | `backend/cmd/server/VERSION` (di-drive oleh git tag, lihat §6) |
+The Go module path intentionally remains `github.com/Wei-Shaw/sub2api`. Any fork commit that introduces `github.com/tickernelz/sub2api` imports must be adapted before it is retained.
 
-> ⚠️ **Module path penting:** karena kita full-rewrite di atas upstream, module path = `Wei-Shaw`. Kalau meng-cherry-pick commit fork lama yang pakai `tickernelz/sub2api`, **perbaiki import path-nya** ke `Wei-Shaw/sub2api` atau build akan gagal.
+Check the upstream remote before a sync:
 
-Pastikan remote upstream ada sebelum sync:
 ```bash
 git remote get-url wei-shaw || git remote add wei-shaw git@github.com:Wei-Shaw/sub2api.git
 git fetch wei-shaw
 ```
 
----
+## 2. Fork keep-set
 
-## 2. Fitur Kustom yang WAJIB di-KEEP
+These behaviors are intentional fork features. Preserve their semantics during upstream updates. Do not treat old commit SHAs as the source of truth; locate the current semantic anchors and re-implement the behavior when upstream has moved or refactored the code.
 
-Ada **tiga fitur produk** yang di-keep, total 6 commit. Selain ini, ikuti upstream apa adanya.
+### A. Keep OpenAI OAuth accounts schedulable after `refresh_token_reused`
 
-> ⚠️ **SHA berubah tiap sync.** SHA aktif setelah sync 2026-08-04 di atas upstream `9fd7e7623`: `595b9e0c1`, `a0124efb2`, `bea034453`, `a48a9ad63`, `c2cb8869e`, dan `d1c82345a`. Setiap reset + cherry-pick menghasilkan SHA baru; cari ulang berdasarkan judul commit dengan `git log --oneline --all --grep=...` (lihat §4).
+When an OpenAI OAuth refresh reports `refresh_token_reused`, do not immediately mark the account failed or unschedule it. The error means that the refresh token was consumed or rotated; it does not by itself prove that the current access token is unusable.
 
-### Fitur A: OpenAI/Codex OAuth jangan auto-disable saat refresh token gagal/reused
+Required behavior:
 
-Akun OpenAI OAuth **tidak boleh** langsung di-`SetError`/unschedule ketika refresh token gagal karena `refresh_token_reused`. Alasannya: `refresh_token_reused` cuma menandakan refresh token sudah dikonsumsi/dirotasi — **bukan** bukti access token saat ini tidak valid. Akun tetap dibiarkan schedulable, dan UI menampilkan warning "reauth required".
+- Keep the account schedulable.
+- Mark the account as requiring re-authentication.
+- Expose the warning in the admin account UI.
+- Preserve upstream privacy and scheduler-state behavior.
+- Keep `openai_requires_reauth` and the `openai_refresh_token_` scheduler-neutral state handling.
 
-Dua commit sumber (fork-only, tidak ada di upstream):
+Replay anchors:
 
-| Commit | Judul | Cakupan |
-|---|---|---|
-| `595b9e0c1` | `fix(openai): keep oauth accounts schedulable on reused refresh token` | Backend soft-handle |
-| `a0124efb2` | `feat(admin): show OpenAI OAuth reauth warning` | Frontend warning UI |
-
-**File yang disentuh (referensi saat re-apply):**
-
-Backend (`595b9e0c1`):
-- `backend/internal/service/openai_refresh_token_state.go` *(file baru — inti logika)*
-- `backend/internal/service/token_refresh_service.go` *(titik keputusan `isNonRetryableRefreshError`)*
+- `backend/internal/service/openai_refresh_token_state.go`
+- `backend/internal/service/token_refresh_service.go`
 - `backend/internal/service/openai_token_provider.go`
 - `backend/internal/service/token_refresher.go`
 - `backend/internal/handler/admin/account_handler.go`
 - `backend/internal/repository/account_repo.go`
 - `backend/internal/service/admin_account.go`
-- `backend/internal/service/token_refresh_service_test.go`
-
-Frontend (`a0124efb2`):
-- `frontend/src/components/admin/account/AccountActionMenu.vue` *(computed `hasOpenAIRefreshTokenReauthRequired`)*
+- `frontend/src/components/admin/account/AccountActionMenu.vue`
 - `frontend/src/views/admin/AccountsView.vue`
-- `frontend/src/types/index.ts`
-- `frontend/src/i18n/locales/en/admin/accounts.ts`, `frontend/src/i18n/locales/zh/admin/accounts.ts`
-- `frontend/src/views/admin/__tests__/AccountsView.openaiReauthWarning.spec.ts` *(fixture wajib mock `getUpstreamBillingProbeSettings`, karena AccountsView memanggilnya saat mount)*
-- `Makefile`
+- OpenAI refresh-state tests and the re-auth warning test
 
-**Titik konflik yang sudah diketahui saat re-apply:**
-1. `token_refresh_service.go` cabang `if isNonRetryableRefreshError(err) {` — upstream pakai `logredact.RedactText(err.Error())`, commit fork pakai `fmt.Sprintf`. **Gabungkan:** pertahankan blok soft-handle (`shouldSoftHandleOpenAIRefreshTokenReused` → `markOpenAIRefreshTokenReused` → `ensureOpenAIPrivacy` → `return err`) **DAN** pakai `logredact.RedactText` dari upstream untuk `errorMsg`.
-2. `AccountActionMenu.vue` — upstream punya `isShadow`/`isOpenAIOAuthParent`/`supportsPrivacy` versi shadow-aware. **Keep versi upstream** + tambahkan computed `hasOpenAIRefreshTokenReauthRequired`; jangan pakai `supportsPrivacy` versi lama dari commit fork.
-3. **`token_refresh_service_test.go` DUPLIKAT (kambuh tiap sync!):** commit fork A nambah field `updateExtraCalls` + method `UpdateExtra` di mock `tokenRefreshAccountRepo`, TAPI upstream juga sudah punya keduanya (field `updateExtraCalls`, `lastExtraUpdates`, method `UpdateExtra`). Cherry-pick → **deklarasi ganda** → `redeclared`/`method already declared`. **Ini TAK kelihatan di `go build`/`go test ./...` polos — cuma muncul di `go test -tags=unit` (perintah CI `make test-unit`).** Ini yang bikin CI v0.1.157 merah. **Fix:** hapus field `updateExtraCalls` duplikat + method `UpdateExtra` versi fork, lalu lipat assignment `r.lastExtraUpdate = updates` (singular, dipakai test fork) ke DALAM method `UpdateExtra` upstream yang bertahan (yang set `lastExtraUpdates` plural). Fix ini sudah di-bake ke commit fitur A sejak sync #2, tapi kalau kambuh lagi ulangi pola ini.
+Known replay hazards:
 
-4. **Adaptasi upstream refresh state (sync 2026-07-16):** upstream memisahkan cache/scheduler sync ke `postRefreshStateSync`. Letakkan `clearOpenAIRefreshTokenReusedMarker(...)` di `postRefreshActions` tepat setelah `s.postRefreshStateSync(ctx, account)` dan sebelum privacy calls; jangan menduplikasi `ensureOpenAIPrivacy`/`ensureAntigravityPrivacy` ke helper state-sync. `OAuthRefreshAPI` juga sekarang mewajibkan hasil reread `IsActive()`, jadi dua fixture fork reused-token (account ID 18/19) harus eksplisit `Status: StatusActive`; jangan melemahkan guard production.
+- Preserve upstream `logredact.RedactText` handling when combining the soft-handle branch.
+- Keep upstream shadow-aware account and privacy logic.
+- If upstream already owns `updateExtraCalls`, `lastExtraUpdates`, or `UpdateExtra`, do not replay duplicate test declarations.
+- After upstream introduced `postRefreshStateSync`, clear the reused-token marker after that sync and before privacy calls.
+- OAuth refresh fixtures that assert active state must explicitly use `StatusActive`.
 
-5. **Adaptasi scheduler-neutral extra (sync 2026-07-25):** upstream sekarang memiliki prefix `upstream_billing_probe` dan `ollama_cloud_usage` di `schedulerNeutralExtraKeyPrefixes`, sedangkan fork menambah `openai_refresh_token_`. Jika conflict, pertahankan **ketiganya**; jangan memilih salah satu. Key exact `openai_requires_reauth` juga tetap harus ada di `schedulerNeutralExtraKeys`.
+### B. Stream stale detection and failover
 
-### Fitur B: Stream stale-detection + auto-failover pada 11 loop SSE aktif
+The fork keeps a shared stream watchdog for active SSE loops. It detects:
 
-Watchdog aliran (stale-stream) yang di-wire ke 11 loop SSE aktif (10 loop historis: OpenAI chat/messages, Anthropic passthrough, Bedrock, Antigravity ×5; ditambah shared Antigravity OpenAI-compat stream). Mendeteksi 3 bentuk stall dan failover ke akun lain **sebelum** ada byte yang dikirim ke client:
-- **TTFT timeout** — upstream connect tapi first event tak pernah datang → failover.
-- **chunk-gap warning** — gap antar-event lunak (log/metrics only, tidak failover).
-- **chunk-gap timeout** — gap antar-event keras → failover.
+- first-token timeout;
+- soft inter-event gap warnings; and
+- hard inter-event gap timeouts that can fail over before output is committed.
 
-Desain inti (JANGAN copy-paste timer per-loop seperti fork lama):
-- **Satu** `StreamWatchdog` (injectable clock utk test deterministik) + `StreamRetrySettings` berlapis (per-platform override > global > default), cache in-process 60s, semantik row-missing vs disabled dibedakan.
-- Gap timer reset di **setiap** upstream event (`OnUpstreamEvent()`) → reasoning model tak salah-vonis stale.
-- Pada 11 loop aktif, failover dijaga `c.Writer.Written()` (via `streamOutputCommitted`): retry hanya bila belum ada output; kalau sudah, fail clean (tak ada output ganda).
-- Komplementer dengan `StreamTimeoutSettings` yang sudah ada (itu governs post-timeout action).
+Required invariants:
 
-Satu commit sumber (fork-only): `bea034453` `feat(gateway): stream stale detection + auto-failover across all providers` (1923 insertions, 22 file). Default enabled (TTFT 60s, gap-warn 10s, gap-timeout 30s).
+- Use the shared `StreamWatchdog` and layered `StreamRetrySettings`; do not copy timer logic into individual loops.
+- Reset the gap timer on every valid upstream event.
+- Retry only before client output is committed.
+- Preserve the existing `StreamTimeoutSettings` behavior.
+- Keep coverage for the 11 active SSE loops.
 
-**File inti (port verbatim — file baru, 0 collision dengan upstream):**
-- `backend/internal/service/stream_stale_watchdog.go` *(watchdog + injectable clock)*
-- `backend/internal/service/stream_retry_settings.go` *(settings + resolver berlapis + Get/Set)*
-- `backend/internal/service/stream_watchdog_integration.go` *(glue: cache, `newStreamWatchdogForPlatform`, `decideStreamStall`, metrics)*
-- `+ stream_stale_watchdog_test.go`, `stream_retry_settings_test.go`
+Replay anchors:
 
-**Admin surface (additive):** `setting_handler_runtime.go` (3 handler: Get/Update StreamRetry + Metrics), `dto/settings.go`, `server/routes/admin.go` (3 route), `domain_constants.go` (`SettingKeyStreamRetrySettings`), frontend `api/admin/settings.ts` + `SettingsView.vue` + i18n `streamRetry` block.
+- `backend/internal/service/stream_stale_watchdog.go`
+- `backend/internal/service/stream_retry_settings.go`
+- `backend/internal/service/stream_watchdog_integration.go`
+- `backend/internal/handler/admin/setting_handler_runtime.go`
+- `backend/internal/handler/dto/settings.go`
+- `backend/internal/server/routes/admin.go`
+- the frontend settings API, view, and translations
 
-> ⚠️ **PITFALL WIRING (pelajaran sync 2026-07):** upstream me-refactor besar gateway — `gateway_service.go` (7294→1289 baris) dipecah jadi `gateway_anthropic_passthrough.go`, `gateway_upstream_response.go`; antigravity dipecah jadi `antigravity_gateway_streaming.go` + `antigravity_gateway_upstream.go`. **10 titik wiring historis pindah file.** Jika cherry-pick mentah gagal atau upstream mengubah loop, **JANGAN merge body lama secara buta** — re-implement wiring ke lokasi loop upstream yang baru: (1) init watchdog setelah setup timer, (2) `staleWatchdog.OnUpstreamEvent()` pada setiap event valid, (3) 3 select-arm (`staleTTFTCh`/`staleGapWarnCh`/`staleGapTimeoutCh`) sebelum keepalive.
->
-> **Adaptasi upstream `2e432173f` (sync 2026-07-28):** upstream `71d7f8688` mengubah `handleClaudeStreamToNonStreaming` menjadi shared `collectClaudeStreamResponse` dengan triple return dan tiga caller, serta menambah loop `handleAntigravityCompatStream` di `antigravity_gateway_compat_stream.go`. Saat replay: pertahankan triple return `(body, result, error)`, tambahkan kembali `*gin.Context` ke collector dan teruskan dari ketiga caller; lalu wire watchdog ke loop compat baru (init setelah keepalive setup, event reset setelah `event.err` check, tiga select-arm sebelum keepalive). `mapAntigravityCompatCollectionError` harus tetap meneruskan `UpstreamFailoverError` tanpa commit response. Setelah re-apply, audit total **11 init, 11 event-reset, dan 33 `decideStreamStall` call**.
+Audit after a replay:
 
-> ⚠️ **PENGECUALIAN native OpenAI `/v1/responses`:** upstream `fc4089f29` memiliki first-semantic-output timeout/failover sendiri dengan attempt-local staging, keepalive-aware commit semantics, dan scanner cleanup. **Jangan** tambahkan generic watchdog TTFT atau memakai `c.Writer.Written()` sebagai retry gate di loop `openai_gateway_response_handling.go`; itu membuat competing timer dan salah menganggap keepalive sebagai output committed. Jika kelak perlu chunk-gap monitoring di path ini, adaptasikan hanya gap warning/hard timeout ke lifecycle staging upstream.
+- 11 watchdog initializations;
+- 11 event resets; and
+- 33 `decideStreamStall` calls.
 
-> ⚠️ **PENGECUALIAN OpenAI Live:** upstream `e6eb23eaa` menambah Live gateway yang bukan loop SSE. `CreateLiveCall` sudah memiliki retry/failover lintas akun (maksimal 4 attempt), sedangkan sideband WebSocket memakai lease refresh, observer reconnect, controller handoff, dan batas durasi sesi sendiri. **Jangan** wire generic SSE watchdog ke `openai_live.go`; lifecycle dan commit semantics-nya berbeda.
+Do not apply the generic SSE watchdog to these paths:
 
-### Fitur C: Netralisasi harmony `<|channel|>` token supaya request tak kena upstream `invalid_prompt` block
+- native OpenAI `/v1/responses`, which has its own first-semantic-output staging and retry lifecycle;
+- OpenAI Live, which has a separate WebSocket/session retry lifecycle.
 
-OpenAI `/v1/responses` upstream punya **request-level hard guard** untuk harmony "hidden analysis channel" header. Ketika request body memuat literal ASCII `<|channel|>` yang **langsung diikuti** `analysis` (header chain-of-thought tersembunyi harmony; toleran spasi/newline), upstream menolak **seluruh request** dengan HTTP 200 stream-internal `response.failed` + `error.code=invalid_prompt` (message `"Request blocked."`). Ini guard anti-injection (mencegah spoofing channel reasoning tersembunyi), **bukan** content-moderation — `content_moderation` lokal mencatat `allowed=true`.
+### C. Harmony channel-token neutralization
 
-Dampak nyata: request sah yang kebetulan memuat literal itu (mis. Hermes me-review file kode/test yang berisi `<|channel|>analysis` sebagai fixture) ikut kena block, lalu client (Hermes) me-retry 10× dengan body identik → pasti gagal terus, buang menit.
+Before sending an OpenAI Responses request upstream, neutralize the literal harmony channel token that can trigger the upstream `invalid_prompt` request guard. Replace the two ASCII pipes inside the exact token with fullwidth pipes. Do not rewrite unrelated harmony tokens or ordinary `analysis` text.
 
-**Perbaikan (fork-only):** sebelum body dikirim ke upstream, ganti dua ASCII pipe `|` (U+007C) di dalam `<|channel|>` jadi fullwidth pipe `｜` (U+FF5C) → `<｜channel｜>`. Terbukti empiris (gpt-5.6-sol, `/v1/responses` stream) varian ini **lolos** upstream, hampir tak terlihat beda oleh model/manusia (fixture text tetap terbaca), dan reversibel visual (bukan delete). Zero-width chars (U+200B dll) **tidak** menetralkan karena upstream strip zero-width sebelum matching. Hanya token `<|channel|>` yang disentuh; harmony token lain (`<|start|>`, `<|message|>`, `<|end|>`) dan `analysis` tidak diutak-atik.
+Required invariants:
 
-Tiga commit sumber (fork-only): `a48a9ad63` (neutralizer + dua builder HTTP), `c2cb8869e` (observability `invalid_prompt` HTTP), dan `d1c82345a` (coverage native WebSocket request + response observability). Cari ulang dengan `git log --oneline --all --grep="harmony"` atau `--grep="invalid_prompt"`. Default **enabled** (`gateway.neutralize_harmony_channel_token=true`); bisa dimatikan tanpa rebuild.
+- Keep the byte fast path and the JSON-aware fallback.
+- Preserve large JSON numbers with `json.Decoder.UseNumber()`.
+- Use copy-on-write behavior for decoded maps; do not mutate caller-owned maps.
+- Keep the default enabled when configuration is absent.
+- Preserve `invalid_prompt` observability without changing response or failover semantics.
 
-**File inti (file baru — 0 collision dengan upstream):**
-- `backend/internal/service/openai_harmony_channel_neutralize.go` *(literal byte fast-path `neutralizeOpenAIHarmonyChannelToken`, guarded JSON-aware fallback `neutralizeOpenAIHarmonyChannelTokenJSON` dengan `UseNumber`, recursive values+keys copy-on-write, serta detektor `detectOpenAIInvalidPrompt`; request tanpa token tetap no-op tanpa replacement allocation)*
-- `+ openai_harmony_channel_neutralize_test.go` *(unit: neutralize glued/spaced/multi/no-op/idempotent/no-mutation + `detectOpenAIInvalidPrompt` flat/nested/case-insensitive/negatif)*
-- `+ openai_harmony_channel_neutralize_forward_test.go` *(integrasi: kedua builder, flag ON/OFF, cfg nil = ON)*
-- `+ openai_harmony_channel_neutralize_ws_test.go` *(native WS request paths: literal + JSON-escaped token, large-integer precision, decoded map values+keys copy-on-write, deterministic safe-key collision, flag ON/OFF, original map tidak termutasi)*
-- `+ openai_ws_invalid_prompt_observability_test.go` *(WS `response.failed`/top-level `error` invalid_prompt → tepat satu ops event; non-match no-op)*
+HTTP replay anchors:
 
-**Titik wiring (2 builder HTTP `/v1/responses` — keduanya WAJIB, path berbeda):**
-- `backend/internal/service/openai_gateway_forward.go` → `buildUpstreamRequest` (jalur rewrite), tepat sebelum `http.NewRequestWithContext(ctx, "POST", targetURL, ...)`.
-- `backend/internal/service/openai_gateway_passthrough.go` → `buildUpstreamRequestOpenAIPassthrough` (jalur passthrough — **builder terpisah**, tidak lewat `buildUpstreamRequest`; ini yang dipakai akun `openai_passthrough`/`codex_responses`).
+- `backend/internal/service/openai_gateway_forward.go` — rewrite builder
+- `backend/internal/service/openai_gateway_passthrough.go` — passthrough builder
 
-**Titik wiring native WebSocket request (commit `d1c82345a`):**
-- `backend/internal/service/openai_gateway_request_body.go` → finalizer `applyOpenAIFastPolicyToWSResponseCreate`; satu choke point ini mencakup WS ingress dan WS v2 passthrough, termasuk first + follow-up `response.create`. Neutralisasi dilakukan setelah policy rewrite, dan dilewati jika frame diblok/error atau config OFF.
-- `backend/internal/service/openai_ws_forwarder_payload.go` → `buildOpenAIWSCreatePayload`; ini mencakup HTTP request yang diteruskan ke upstream melalui WS v2. Gunakan recursive copy-on-write `neutralizeOpenAIHarmonyChannelTokenJSONValue`/`JSONObject` karena payload sudah menjadi decoded map; neutralisasi values **dan keys**, original request map tidak boleh termutasi, dan bila unsafe key berkolisi dengan safe key yang sudah eksplisit maka safe key menang deterministik.
-- Semua raw-body boundaries memakai `neutralizeOpenAIHarmonyChannelTokenJSON`: literal token tetap lewat byte fast-path, tetapi representasi JSON ekuivalen seperti `<\u007cchannel\u007c>` juga harus dinetralkan. Fallback hanya decode jika ada `\u`, memakai `json.Decoder.UseNumber()` agar integer besar tidak berubah saat re-marshal.
+WebSocket replay anchors:
 
-**Layer 2 — observability `invalid_prompt` (additive, bagian dari Fitur C):**
-Saat block masih terjadi (mis. harmony guard upstream berubah ke token lain sehingga netralisasi meleset), block itu tidak boleh "hilang diam-diam" di monitoring. `detectOpenAIInvalidPrompt(payload)` (mengikuti struktur `detectOpenAICyberPolicy`) mendeteksi `error.code`/`response.error.code == "invalid_prompt"` pada event stream `response.failed`, lalu memanggil `recordOpenAIStreamUpstreamError(..., "invalid_prompt", ...)` supaya masuk `ops_error_logs` (kind=`invalid_prompt`). Pada transport HTTP, di-wire di **dua** loop streaming `response.failed`, ditempatkan **setelah** cabang cyber + passthrough-rule + failover (yang semuanya `return`/`Mark` lebih dulu), dijaga flag `cyberMarked` supaya tidak double-record:
-- `openai_gateway_passthrough.go` → `handleStreamingResponsePassthrough` (passthrough=true)
-- `openai_gateway_response_handling.go` → loop `response.failed` jalur rewrite (passthrough=false)
-Sifatnya murni observasi: tidak mengubah perilaku transfer/return/failover yang ada; hanya menambah 1 baris ops event kalau sebelumnya event `invalid_prompt` itu tidak tercatat.
+- `backend/internal/service/openai_gateway_request_body.go`
+- `backend/internal/service/openai_ws_forwarder_payload.go`
+- `backend/internal/service/openai_ws_forwarder_ingress.go`
+- `backend/internal/service/openai_ws_forwarder_v2.go`
+- `backend/internal/service/openai_ws_v2_passthrough_adapter.go`
 
-Pada transport native WS, shared `recordOpenAIWSInvalidPrompt` di-wire tepat di tiga jalur untuk envelope `response.failed` **dan** top-level `error`, tanpa memasukkan OpenAI Live/image loops:
-- `openai_ws_forwarder_ingress.go` (client native WS ingress, passthrough=false)
-- `openai_ws_forwarder_v2.go` (HTTP request → upstream WS v2, passthrough=false)
-- `openai_ws_v2_passthrough_adapter.go` (`BeforeWriteClient` relay callback, passthrough=true)
-Gunakan handshake `x-request-id` sebagai upstream correlation id. Detector exact-code membuat `cyber_policy`/`server_error` tetap no-op; jangan ubah response/failover semantics.
+Keep the `NeutralizeHarmonyChannelToken` configuration field and its default. Audit every current HTTP and WebSocket `response.create` boundary after an upstream transport refactor.
 
-Pola wiring identik di kedua builder HTTP:
-```go
-if s.cfg == nil || s.cfg.Gateway.NeutralizeHarmonyChannelToken {
-    if neutralized, changed := neutralizeOpenAIHarmonyChannelTokenJSON(body); changed {
-        body = neutralized
-        logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Neutralized harmony <|channel|> token ... (account: %s)", account.Name)
-    }
-}
-```
+### D. Provider-aware gateway `service_tier` controls
 
-**Config surface (additive):**
-- `backend/internal/config/config.go`: field `GatewayConfig.NeutralizeHarmonyChannelToken bool` (mapstructure `neutralize_harmony_channel_token`) + `viper.SetDefault("gateway.neutralize_harmony_channel_token", true)`.
+This feature is separate from the existing `openai_fast_policy_settings`. It controls the outbound request field, while the existing fast policy still performs its own filter/block/force processing afterward.
 
-**Titik konflik yang mungkin saat re-apply:**
-1. **Jangan cukup wire satu builder.** Passthrough punya builder sendiri; kalau upstream me-refactor/memindah salah satu builder, pastikan **kedua** titik `http.NewRequestWithContext(... "POST" ...)` untuk `/v1/responses` tetap ter-cover. Audit: `grep -n 'NewRequestWithContext' internal/service/openai_gateway_forward.go internal/service/openai_gateway_passthrough.go`.
-2. **Guard `s.cfg == nil`** wajib dipertahankan supaya test tanpa cfg (dan default) berperilaku ON — konsisten dengan viper default `true`.
-3. **Kalau upstream sudah punya penanganan setara** (mis. upstream menambah sanitizer/neutralizer harmony sendiri, atau upstream tak lagi kena block ini), **fitur ini gugur** — jangan re-apply; verifikasi dulu dengan repro block di §2-C di bawah, lalu hapus Fitur C dari daftar ini.
-4. **Audit semua transport baru.** Setelah upstream menambah native WS, dua builder HTTP saja tidak lagi cukup. Untuk tiap path yang mengirim `response.create`, cari final request boundary dan pastikan config ON/OFF + first/follow-up frames ter-cover. Untuk observability, hitung tepat tiga production call `recordOpenAIWSInvalidPrompt` pada WS paths; OpenAI Live dan image streaming tetap bukan target.
-5. **Adaptasi Codex identity enforcement (sync 2026-08-04):** upstream menambah `DisableCodexIdentityEnforcement` dan mempertahankan `DisableCodexOriginatorNormalization` sebagai alias deprecated, beserta kedua viper default-nya. Cherry-pick neutralizer conflict tepat di blok yang sama. Resolve sebagai union: pertahankan **kedua** field/default upstream dan tambahkan `NeutralizeHarmonyChannelToken` + default `true`; jangan memilih salah satu sisi conflict.
+Scope:
 
-**Repro/verifikasi cepat (opsional, butuh 1 request berbayar ke upstream):** kirim `/v1/responses` dengan `input` memuat `<|channel|>analysis`. Sebelum fix → `invalid_prompt`/`Request blocked`. Sesudah fix → lolos normal. Unit+integration test sudah mengunci byte output = `<｜channel｜>` (fullwidth, UTF-8 `ef bd 9c`), yang identik dengan varian yang terbukti lolos live.
+- OpenAI API-key gateway routes.
+- Anthropic API-key gateway routes.
+- Modes: `disabled`, `fill_missing`, and `force`.
+- Provider-native values only.
 
----
+Accepted values:
 
-## 3. Kebijakan `.github/` — IKUT UPSTREAM, keep hanya divergence minimal
+- OpenAI: `auto`, `default`, `flex`, `priority`, `scale`; `fast` normalizes to `priority`.
+- Anthropic: `auto`, `standard_only`.
 
-**Kebijakan aktif:** `.github/` workflow **ikut versi upstream terbaru**, dengan dua divergence yang di-keep: referensi repo `tickernelz/sub2api` di `cla.yml`, dan `continue-on-error: true` pada step `Update DockerHub description` di `release.yml`. Selebihnya (versi tool, action, audit exception, dan step lain) ikut upstream apa adanya.
+Deliberate exclusions:
 
-> Divergence fork lama seperti pin pnpm/golangci khusus fork dan `audit-exceptions.yml` usang sudah dibuang. Registry image di `release.yml` memakai `${{ github.repository_owner }}` secara dinamis, jadi otomatis resolve ke `tickernelz` tanpa hardcode.
+- OpenAI OAuth and other unsupported account types.
+- Vertex, Bedrock, Antigravity, Gemini, and custom-compatible providers.
+- Anthropic `count_tokens` requests.
+- The existing `openai_fast_policy_settings` behavior and storage key.
 
-| File | Delta fork vs upstream | Alasan |
-|---|---|---|
-| `cla.yml` | 5 baris: `github.repository == 'tickernelz/sub2api'` (2×) + `path-to-document`/link CLA `github.com/tickernelz/sub2api` (3×) | Guard job CLA hanya jalan di repo fork; link ke CLA.md fork. |
-| `release.yml` | 1 baris: `continue-on-error: true` di step `Update DockerHub description` | Step itu bisa `403 Forbidden` (token perms) dan menandai job Release merah walau image sukses publish. Soft-fail supaya publish tetap dianggap sukses. |
-| **semua file `.github` lain** | **TIDAK ADA** — 100% ikut upstream | pnpm/golangci/step ikut upstream terbaru. |
+Required invariants:
 
-**Cara apply `.github` setelah reset ke upstream (prosedur baru):**
-```bash
-# semua workflow SUDAH benar dari reset ke upstream — TIDAK perlu restore dari fork backup.
-# 1. re-apply URL repo tickernelz di cla.yml:
-sed -i 's#Wei-Shaw/sub2api#tickernelz/sub2api#g' .github/workflows/cla.yml
-# 2. re-apply soft-fail di step DockerHub-description release.yml (tambahkan
-#    'continue-on-error: true' tepat di bawah '- name: Update DockerHub description').
-# verifikasi: cuma cla.yml + release.yml yang beda dari upstream (5 baris tickernelz + 1 baris continue-on-error)
-for f in backend-ci.yml security-scan.yml; do
-  diff <(git show wei-shaw/main:.github/workflows/$f) .github/workflows/$f && echo "$f OK (==upstream)"
-done
-diff <(git show wei-shaw/main:.github/workflows/cla.yml) .github/workflows/cla.yml       # hanya 5 baris tickernelz
-diff <(git show wei-shaw/main:.github/workflows/release.yml) .github/workflows/release.yml # hanya 1 baris continue-on-error
-```
-> ⚠️ **JANGAN** `git checkout <fork-backup> -- .github` lagi (cara lama) — itu membawa balik divergence usang. Cukup reset-ke-upstream + sed cla.yml.
+- `disabled` is a true no-op.
+- `fill_missing` preserves a non-empty client value.
+- `force` replaces the client value.
+- Invalid provider values are rejected by backend validation.
+- Settings read failures fail open and preserve the request.
+- The usage record must be derived from the **final outbound body**, not from a pre-policy request struct. Otherwise a forced `priority` request can be billed correctly while the UI incorrectly displays `Standard`.
 
-### Divergensi lain di luar `.github/`
+Setting key and replay anchors:
 
-| File | Delta fork vs upstream | Alasan |
-|---|---|---|
-| `.gitignore` | Rule `AGENTS.md` diganti komentar bahwa file sengaja tracked | Supaya dokumen ini tetap tracked & tidak hilang saat sync. Setelah reset ke upstream, hapus/ganti lagi rule `AGENTS.md`, lalu restore file dari safety branch. |
-| `frontend/package.json` + `frontend/pnpm-lock.yaml` | ~~Dev dependency langsung fork~~ **RESOLVED 2026-07-20** | Upstream sejak `e625ce3b3` sudah mendeklarasikan `@intlify/message-compiler@9.14.5` langsung; masih benar pada `9fd7e7623`. Ikuti upstream exact; jangan re-apply specifier fork `^9.14.5`. |
-| `backend/go.mod` + 4 assertion CI | ~~`go 1.26.5`~~ **RESOLVED 2026-07-09 (sync #2): upstream sudah adopt go1.26.5** (go.mod + CI guard), jadi ini **BUKAN divergence lagi**. Divergence Go sementara di v0.1.159 sudah gugur otomatis setelah reset. | — (historis: dulu di-bump untuk `GO-2026-5856` crypto/tls ECH leak; upstream nyusul). |
+- `gateway_service_tier_settings`
+- `backend/internal/service/gateway_service_tier.go`
+- `backend/internal/service/gateway_service_tier_test.go`
+- `backend/internal/service/openai_gateway_request_body.go`
+- `backend/internal/service/openai_gateway_forward.go`
+- `backend/internal/service/openai_gateway_passthrough.go`
+- `backend/internal/service/openai_gateway_chat_completions.go`
+- `backend/internal/service/openai_gateway_responses_chat_fallback.go`
+- `backend/internal/service/gateway_upstream_request.go`
+- `backend/internal/service/gateway_anthropic_passthrough.go`
+- `backend/internal/service/domain_constants.go`
+- `backend/internal/handler/dto/settings.go`
+- `backend/internal/handler/admin/setting_handler.go`
+- `backend/internal/handler/admin/setting_handler_update.go`
+- `frontend/src/api/admin/settings.ts`
+- `frontend/src/views/admin/SettingsView.vue`
+- the English and Chinese admin settings translations
 
-Upstream `.gitignore` meng-ignore `AGENTS.md` dan `CLAUDE.md` (dianggap file lokal). Karena kita justru mau AGENTS.md ini masuk repo, tiap sync **hapus atau ganti rule `AGENTS.md` dengan komentar** dan pastikan file ini ikut ter-commit:
-```bash
-sed -i '/^AGENTS\.md$/d' .gitignore   # atau edit manual
-git add AGENTS.md .gitignore
-```
+Transport audit:
 
-> ⚠️ **VERIFIKASI PAKAI PERINTAH CI YANG SEBENARNYA — bukan `go test ./...` polos.** CI jalanin `make test-unit` = `go test -tags=unit ./...` dan `make test-integration` = `go test -tags=integration ./...`. `go test ./...` polos MELEWATI file ber-`//go:build unit`, jadi error kompilasi (mis. deklarasi ganda dari auto-merge `_test.go`) LOLOS lokal tapi bikin CI merah `FAIL <pkg> [build failed]`. Ini yang bikin CI v0.1.157 merah (cherry-pick OAuth nambah `updateExtraCalls`/`UpdateExtra` yang upstream juga sudah punya). **Selalu tutup gate backend dengan:** `go test -tags=unit ./...`, `go test -tags=integration ./...`, `govulncheck ./...`, dan golangci-lint versi CI. Jalankan `GOTOOLCHAIN=go1.26.5` kalau toolchain lokal beda.
+1. OpenAI HTTP request-body and patch/request-view paths.
+2. OpenAI passthrough request builder.
+3. OpenAI Chat Completions → Responses compatibility path.
+4. OpenAI WebSocket `response.create` frames.
+5. Anthropic generic request body before provider sanitization or signing.
+6. Usage metadata propagation from each final body into `OpenAIForwardResult`/`UsageLog`.
 
-> ℹ️ Step `Update DockerHub description` pernah kena `403 Forbidden` walau image sudah ter-push. Karena itu fork mempertahankan `continue-on-error: true` hanya pada step tersebut. Tetap verifikasi publish dari log GoReleaser (`artifact pushed image=ghcr.io/tickernelz/sub2api:X.Y.Z digest=sha256:...`).
+The feature is fork-only until upstream provides an equivalent implementation. If upstream moves a function, port the behavior to the new choke point instead of preserving a stale file-local patch.
 
-### Divergensi struktural upstream yang mempengaruhi re-apply fitur (per sync 2026-07)
+## 3. Upstream and workflow divergence
 
-Upstream sering me-refactor/memecah file besar. Yang sudah ketahuan mengubah lokasi hunk fitur di-keep:
+The fork follows upstream `.github/` workflows except for these intentional changes:
 
-| Area | Dulu (fork lama) | Sekarang (upstream) | Dampak re-apply |
-|---|---|---|---|
-| i18n locales | `frontend/src/i18n/locales/en.ts` + `zh.ts` (monolitik) | modular `locales/<lang>/admin/{accounts,settings}.ts` dst. | Cherry-pick hunk i18n → **modify/delete conflict**. Re-home key: reauth → `admin/accounts.ts` blok `openai`; streamRetry → `admin/settings.ts` (sibling `streamTimeout`, sebelum `rectifier`). |
-| admin service | `admin_service.go` monolitik (~4300 baris) | dipecah; `UpdateAccount` → `admin_account.go` | Hunk `applyOpenAIRefreshTokenRecoveredExtra` re-home ke `admin_account.go`. |
-| setting handler | `setting_handler.go` | 3 handler streamRetry → `setting_handler_runtime.go` (setelah `UpdateStreamTimeoutSettings`) | — |
-| gateway | `gateway_service.go` (7294 baris) | dipecah → `gateway_anthropic_passthrough.go`, `gateway_upstream_response.go`; antigravity → `antigravity_gateway_streaming.go` + `antigravity_gateway_upstream.go`, lalu compat baru di `antigravity_gateway_compat*.go` | Wiring watchdog (Fitur B) pindah file dan bertambah satu shared compat loop — lihat PITFALL WIRING di §2. |
+| File | Fork-only difference | Reason |
+| --- | --- | --- |
+| `.github/workflows/cla.yml` | References `tickernelz/sub2api` for the repository guard and fork CLA link | The CLA job and link belong to this fork |
+| `.github/workflows/release.yml` | `continue-on-error: true` on `Update DockerHub description` | Docker Hub can return `403` even when image publication succeeds |
+| All other `.github/` files | No intentional divergence | Follow upstream |
 
-Prinsip umum: kalau cherry-pick fitur kena `modify/delete` atau conflict struktural raksasa (seluruh body file), **ambil versi upstream (`git checkout HEAD -- <file>`) lalu re-apply hunk kecil fitur ke lokasi barunya** — jangan paksa merge body monolitik lama.
+Do not restore an old fork snapshot of `.github/`. Start from the current upstream workflows and re-apply only the two differences above.
 
----
+The upstream `.gitignore` may ignore `AGENTS.md` and `CLAUDE.md`. This repository intentionally tracks `AGENTS.md`; keep that rule removed or replaced with a comment, then stage the file explicitly.
 
-## 4. Strategi Sync dengan Upstream (WAJIB: full-rewrite, bukan merge)
+## 4. Safe upstream synchronization
 
-**Pelajaran mahal:** `git merge wei-shaw/main` menghasilkan puluhan konflik yang salah di-resolve (deklarasi ganda, import ganda, brace tak seimbang, blok fungsi menggantung). **Jangan pakai merge.** Pakai pola full-rewrite + cherry-pick.
+Use a full rewrite from upstream rather than `git merge wei-shaw/main`. Large upstream refactors make broad merges prone to duplicate declarations, stale file bodies, and broken wiring.
 
-### Prosedur baku
+The following procedure is a maintainer runbook; do not execute destructive steps without explicit authorization for the current task.
 
 ```bash
-# 0. Pastikan working tree bersih & fetch upstream
+# 0. Inspect the current state and fetch upstream
 git status
 git fetch wei-shaw
 
-# 1. Backup state sekarang (WAJIB — recovery net)
+# 1. Create a recovery branch before rewriting history
 git branch backup/pre-rewrite-$(date +%Y%m%d-%H%M%S) HEAD
 
-# 2. Reset main ke upstream (full upstream tree)
+# 2. Reset the working branch to the current upstream tree
 git reset --hard wei-shaw/main
 
-# 3. Bersihkan leftover fork-only yang untracked (mis. package yang tak ada di upstream)
-git status --porcelain          # cek dulu
-# rm -rf <path-fork-only-untracked>
+# 3. Check for fork-only leftovers
+git status --porcelain
 
-# 4. Cherry-pick commit fitur yang di-keep (urut; cari SHA terbaru berdasarkan subject)
-git cherry-pick <sha-backend-soft-handle>
-git cherry-pick <sha-frontend-reauth-warning>
-git cherry-pick <sha-stream-watchdog>
-git cherry-pick <sha-harmony-channel-neutralize>
-git cherry-pick <sha-invalid-prompt-observability>
-git cherry-pick <sha-harmony-native-ws>
-#   -> resolve konflik sesuai §2 dan audit wiring watchdog 11/11/33 (Fitur B)
-#      + 3 JSON request boundaries, 2 HTTP response loops, dan 3 WS observability paths (Fitur C)
-#   -> pastikan TIDAK ada import 'tickernelz/sub2api' yang bocor:
-#      git diff --cached | grep tickernelz   # harus kosong
+# 4. Find current feature commits by subject, then replay or re-implement them
+git log --oneline --all --grep="keep oauth accounts schedulable"
+git log --oneline --all --grep="stream stale"
+git log --oneline --all --grep="harmony"
+git log --oneline --all --grep="service tier"
 
-# 5. Re-apply HANYA divergence minimal (§3); jangan restore seluruh .github
-#    - cla.yml: 5 referensi Wei-Shaw/sub2api -> tickernelz/sub2api
-#    - release.yml: continue-on-error pada Update DockerHub description
-#    - restore AGENTS.md dari safety branch dan unignore di .gitignore
-
-# 6. Bump VERSION (§6)
-echo "0.1.xxx" > backend/cmd/server/VERSION
-
-# 7. GATE verifikasi (§5) — WAJIB hijau sebelum push
-
-# 8. Commit sisa (chore) + push
-git add .github .gitignore AGENTS.md backend/cmd/server/VERSION
-git commit -m "chore: adapt fork to upstream and bump VERSION to 0.1.xxx"
-git push --force-with-lease=refs/heads/main:<verified-old-origin-sha> origin HEAD:main
+# 5. Re-apply only the two .github divergences and retain AGENTS.md
+# 6. Update VERSION, run the verification gates, and inspect the complete diff
 ```
 
-> Kalau nanti commit fitur di-squash/ganti SHA di upstream history, cari ulang dengan:
-> `git log --oneline --all --grep="keep oauth accounts schedulable"` dan `--grep="OpenAI OAuth reauth warning"`.
+When a cherry-pick conflicts with a major upstream file split:
 
----
+1. Keep the current upstream file structure.
+2. Re-home the fork behavior at the semantic replay anchor.
+3. Re-apply the relevant tests and invariants.
+4. Search for duplicate declarations and stale imports.
+5. Verify runtime call-site cardinality, not just patch application.
 
-## 5. Gate Verifikasi (WAJIB hijau sebelum push)
+Before staging a replay, verify that no fork module path leaked into the code:
 
-Jalankan dari root repo. **Jangan push kalau ada yang merah.**
+```bash
+git diff --cached | grep 'tickernelz/sub2api'   # expected: no Go import matches
+```
+
+## 5. Verification gates
+
+Run from the repository root. Do not push a synchronization or release commit while a required gate is red or unverified.
 
 ### Backend
+
 ```bash
 cd backend
-unset OPENAI_API_KEY  # CI tidak menyetel ini; kalau local key ada, test comparison akan memanggil OpenAI live
+export OPENAI_API_KEY=
 export PATH="$(go env GOPATH)/bin:$PATH"
-go build ./...          # harus exit 0
-go vet ./...            # harus bersih
-go test -tags=unit ./...        # exact CI unit gate
-go test -tags=integration ./... # exact CI integration gate
-govulncheck ./...               # security gate
-# golangci-lint HARUS versi yang sama dgn CI (v2.9), bukan brew default:
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0
-"$(go env GOPATH)/bin/golangci-lint" run --timeout=30m   # target: "0 issues."
+go build ./...
+go vet ./...
+go test -tags=unit ./...
+go test -tags=integration ./...
+govulncheck ./...
 ```
-> ⚠️ PATH mesin maintainer bisa menunjuk ke golangci-lint versi berbeda (saat sync 2026-07-17 terdeteksi **v2.12.2**). **Jangan pakai binary PATH tanpa cek versi.** Gunakan binary exact v2.9.0 sesuai workflow; bila tidak ingin mengubah binary global, build executable sementara dari module cache/source `github.com/golangci/golangci-lint/v2@v2.9.0` lalu jalankan terhadap repo.
+
+Use the same `golangci-lint` version as CI, currently v2.9.0:
+
+```bash
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.9.0
+"$(go env GOPATH)/bin/golangci-lint" run --timeout=30m
+```
+
+`go test ./...` alone is not the CI unit gate because it skips tests guarded by `//go:build unit`.
 
 ### Frontend
+
 ```bash
 cd frontend
-export CI=true       # non-interaktif (hindari prompt TTY pnpm)
+export CI=true
 ./node_modules/.bin/eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts
 ./node_modules/.bin/vue-tsc --noEmit
 ./node_modules/.bin/vitest run
-./node_modules/.bin/vue-tsc -b && ./node_modules/.bin/vite build
+./node_modules/.bin/vue-tsc -b
+./node_modules/.bin/vite build
 ```
 
-> Mesin ini memakai pnpm 11, sedangkan CI memakai pnpm 9. Wrapper `pnpm run` dapat memicu dep-status frozen-install dan gagal karena konfigurasi `overrides`; pakai binary existing langsung seperti di atas. Install/update dependency hanya jika memang perlu dan jangan commit artifact lock/workspace dari pnpm 11.
+Use the repository's existing frontend toolchain. Avoid upgrading pnpm or rewriting the lockfile just to run verification. If a tool creates `frontend/pnpm-workspace.yaml` or modifies the lockfile as an artifact, remove the artifact and restore the intentional lockfile state before reporting the result.
 
-**Pitfall lockfile:** setelah build, pnpm versi baru bisa memindahkan `overrides` dari `pnpm-lock.yaml` ke `pnpm-workspace.yaml` baru. Itu **artifact tool**, bukan perubahan intensional — buang:
+Also run focused tests for the feature being replayed. For service-tier work, include the gateway service-tier tests and the OpenAI gateway metadata-propagation regression test.
+
+Always finish with:
+
 ```bash
-git checkout frontend/pnpm-lock.yaml
-rm -f frontend/pnpm-workspace.yaml
+git diff --check
+git status --short
 ```
-`backend/internal/web/dist/` adalah artifact build frontend dan **sudah gitignored** — jangan di-commit.
 
----
+A timeout, killed process, or environment-blocked command is not passing evidence. Report it as unverified.
 
-## 6. Versi & Release
+## 6. Versioning and release
 
-- Versi produk ada di `backend/cmd/server/VERSION` (mis. `0.1.155`).
-- Nilai final **di-drive oleh git tag** via `.github/workflows/release.yml` (step `update-version` menulis ulang file dari tag).
-- Rilis dipicu dengan **push tag** `vX.Y.Z`:
-  ```bash
-  echo "0.1.xxx" > backend/cmd/server/VERSION   # commit ini di main
-  git tag -a v0.1.xxx -m "Release v0.1.xxx: ..."
-  git push origin v0.1.xxx
-  ```
-- `release.yml` **hanya build + push image** ke GHCR (`ghcr.io/tickernelz/sub2api`) + Docker Hub (multi-arch amd64/arm64). **Tidak ada deploy/SSH ke server** — aman, tidak me-redeploy production.
-- `backend-ci.yml` trigger `on: push` (branch **dan** tag) → tag rilis juga menjalankan test+lint. Pastikan tag menunjuk commit yang gate-nya sudah hijau.
+- The product version is tracked in `backend/cmd/server/VERSION`.
+- The release workflow derives the final version from the pushed tag.
+- Release tags use `vX.Y.Z`.
+- The release workflow builds and publishes multi-architecture images to GHCR and Docker Hub; it does not SSH into or redeploy production.
+- CI and Security Scan also run for tag pushes. The tag must point to a commit whose required main-branch gates are already green.
 
----
+Example release shape:
 
-## 7. Standar Kerja & Pitfalls
-
-- **Kode produk = ikut upstream.** Kalau ada test/lint upstream yang memang broken di upstream murni (mis. label i18n `透传` vs `passthrough` di `BulkEditAccountModal.spec.ts`), **verifikasi dulu** bahwa `wei-shaw/main` pristine juga gagal (worktree terpisah), baru betulkan test-nya — jangan ubah kode produk untuk menambal test upstream.
-- **Jangan pakai subagent** untuk kerjaan repo ini kalau diminta kerjakan sendiri; pemilik pernah minta eksplisit dikerjakan langsung.
-- **Force push** ke `origin main` diperbolehkan untuk fork ini (sudah dikonfirmasi), tapi **selalu bikin backup branch dulu** dan simpan `origin/main` sebagai recovery.
-- Setelah reset, cek **untracked leftover** fork-only (`git status --porcelain`) — package yang ada di fork tapi tidak di upstream akan tersisa sebagai untracked dan harus dibuang manual.
-- Verifikasi klaim "sukses" dengan bukti nyata: image publish dicek dari log GoReleaser (`artifact pushed ... digest=sha256:...`), bukan asumsi.
-
----
-
-## 8. Ringkasan Struktur Commit yang Diharapkan
-
-Setelah sync bersih, `main` harus terlihat seperti:
+```bash
+echo "0.1.xxx" > backend/cmd/server/VERSION
+git add backend/cmd/server/VERSION
+git commit -m "chore: release v0.1.xxx"
+git tag -a v0.1.xxx -m "Release v0.1.xxx"
+git push origin v0.1.xxx
 ```
-<chore>   chore: adapt fork to upstream and bump VERSION to 0.1.xxx
-<fix>     fix(openai): extend harmony guard to native websocket paths            ← Fitur C native WS
-<feat>    feat(gateway): record invalid_prompt blocks to ops_error_logs           ← Fitur C Layer 2
-<feat>    feat(gateway): neutralize harmony <｜channel｜> token to avoid upstream invalid_prompt block  ← Fitur C
-<feat>    feat(gateway): stream stale detection + auto-failover...                 ← Fitur B (watchdog)
-<feat>    feat(admin): show OpenAI OAuth reauth warning                            ← Fitur A (frontend)
-<fix>     fix(openai): keep oauth accounts schedulable...                          ← Fitur A (backend)
-<upstream HEAD = wei-shaw/main>
-```
-Cuma **6 commit fitur + 1 chore** di atas upstream setelah full-rewrite sync bersih (3 fitur produk: A = OAuth soft-handle, B = stream watchdog, C = harmony neutralization + HTTP/WS observability). Patch release tanpa upstream reset boleh sementara punya chore release tambahan; saat full sync berikutnya, reset ke upstream + replay 6 feature commits lalu buat satu chore terbaru, sehingga chore historis gugur. Selain pola itu, commit ekstra adalah drift yang perlu ditinjau.
+
+Verify published artifacts from workflow output and registry digests. Do not infer publication from a successful local build. A Docker Hub description `403` is non-blocking only for the documented soft-fail step; image publication still needs independent verification.
+
+## 7. Maintainer standards
+
+- Follow upstream for product code unless a behavior is listed in the keep-set.
+- Keep fork features separate from unrelated policies and providers.
+- Prefer small, semantic replays over giant conflict resolutions.
+- Do not add compatibility code for removed historical fork features unless explicitly requested.
+- Do not use a commit SHA as the only documentation of a fork feature.
+- Do not claim a test, build, release, or publication succeeded without fresh command or workflow evidence.
+- Do not commit, push, force-push, change permissions, or modify production as part of routine maintenance unless the user explicitly authorizes that side effect.
+- Keep `FORK_KEEP.md` as a pointer only; `AGENTS.md` is the canonical keep/replay document.
