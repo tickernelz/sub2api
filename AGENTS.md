@@ -187,6 +187,35 @@ Transport audit:
 
 The feature is fork-only until upstream provides an equivalent implementation. If upstream moves a function, port the behavior to the new choke point instead of preserving a stale file-local patch.
 
+### E. OpenAI Responses input metadata compatibility
+
+Some clients and providers attach `status` to input items when replaying a conversation. The OpenAI Responses upstream routes used by this fork do not accept that output-oriented metadata on `input[N]`, and return errors such as `Unknown parameter: 'input[57].status'`.
+
+Required behavior:
+
+- Apply the compatibility sanitizer to OpenAI `/v1/responses` HTTP forwarding for both API-key and OAuth accounts.
+- Remove only the top-level `status` key from each object in the request `input` array.
+- Preserve input order, non-object items, every other item field, IDs, call IDs, and nested `status` values inside content or tool payloads.
+- Keep the sanitizer copy-on-write and single-pass over the input array so large multi-turn requests remain bounded.
+- Keep the OAuth/Codex map-level filter as defense in depth for items created or transformed after raw-body sanitization.
+- Do not apply this behavior to Anthropic, Grok, or other provider routes that may support the field.
+- Preserve the existing invalid replayed-ID sanitization in the same traversal.
+
+Replay anchors:
+
+- `backend/internal/service/openai_responses_item_id.go`
+- `backend/internal/service/openai_gateway_forward.go`
+- `backend/internal/service/openai_codex_transform.go`
+- `backend/internal/service/openai_codex_input_status_test.go`
+- `backend/internal/service/openai_gateway_apikey_item_id_test.go`
+
+Replay hazards:
+
+- Keep the condition provider-scoped to `PlatformOpenAI`; do not broaden it to generic-compatible providers.
+- Delete only `input` item `status`; never delete top-level request fields or nested content metadata.
+- Preserve copy-on-write behavior because callers may reuse decoded input maps.
+- Re-audit both API-key and OAuth paths if upstream changes the Responses request builder or moves Codex normalization.
+
 ## 3. Upstream and workflow divergence
 
 The fork follows upstream `.github/` workflows except for these intentional changes:
