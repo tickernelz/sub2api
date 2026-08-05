@@ -103,7 +103,7 @@ func TestApplyConfiguredOpenAIServiceTierSkipsOAuth(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 
-	updated, err := svc.applyConfiguredOpenAIServiceTier(nil, account, body)
+	updated, err := svc.applyConfiguredOpenAIServiceTier(context.TODO(), account, body)
 
 	require.NoError(t, err)
 	require.Equal(t, string(body), string(updated))
@@ -114,7 +114,7 @@ func TestApplyConfiguredAnthropicServiceTierSkipsServiceAccounts(t *testing.T) {
 	svc := &GatewayService{}
 	account := &Account{Platform: PlatformAnthropic, Type: AccountTypeServiceAccount}
 
-	updated, err := svc.applyConfiguredAnthropicServiceTier(nil, account, body)
+	updated, err := svc.applyConfiguredAnthropicServiceTier(context.TODO(), account, body)
 
 	require.NoError(t, err)
 	require.Equal(t, string(body), string(updated))
