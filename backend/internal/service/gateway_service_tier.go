@@ -153,7 +153,7 @@ func (s *SettingService) SetGatewayServiceTierSettings(ctx context.Context, sett
 }
 
 func (s *OpenAIGatewayService) configuredOpenAIServiceTier(ctx context.Context, account *Account, rawTier string) (string, bool) {
-	if s == nil || s.settingService == nil || account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+	if s == nil || s.settingService == nil || !supportsOpenAIGatewayServiceTier(account) {
 		return rawTier, false
 	}
 	settings, err := s.settingService.GetGatewayServiceTierSettings(ctx)
@@ -164,6 +164,13 @@ func (s *OpenAIGatewayService) configuredOpenAIServiceTier(ctx context.Context, 
 		return rawTier, false
 	}
 	return resolveGatewayServiceTier(settings.OpenAI, rawTier), shouldApplyGatewayServiceTier(settings.OpenAI, rawTier)
+}
+
+func supportsOpenAIGatewayServiceTier(account *Account) bool {
+	if account == nil || account.Platform != PlatformOpenAI {
+		return false
+	}
+	return account.Type == AccountTypeAPIKey || account.Type == AccountTypeOAuth
 }
 
 func resolveGatewayServiceTier(rule GatewayServiceTierRule, rawTier string) string {
@@ -184,7 +191,7 @@ func shouldApplyGatewayServiceTier(rule GatewayServiceTierRule, rawTier string) 
 }
 
 func (s *OpenAIGatewayService) applyConfiguredOpenAIServiceTier(ctx context.Context, account *Account, body []byte) ([]byte, error) {
-	if s == nil || s.settingService == nil || account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+	if s == nil || s.settingService == nil || !supportsOpenAIGatewayServiceTier(account) {
 		return body, nil
 	}
 	settings, err := s.settingService.GetGatewayServiceTierSettings(ctx)
