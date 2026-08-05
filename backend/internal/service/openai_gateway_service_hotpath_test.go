@@ -433,6 +433,58 @@ func TestOpenAIGatewayService_Forward_TextResponsesBillingModelMatchesChatComple
 	require.Equal(t, "gpt-5.5", chatResult.BillingModel)
 }
 
+func TestOpenAIGatewayService_ForwardAsChatCompletions_RecordsForcedServiceTier(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+
+	settingRepo := &gatewayServiceTierSettingRepoStub{values: map[string]string{
+		SettingKeyGatewayServiceTierSettings: `{"openai":{"mode":"force","service_tier":"priority"},"anthropic":{"mode":"disabled","service_tier":"auto"}}`,
+	}}
+
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_forced_service_tier"}},
+			Body: io.NopCloser(strings.NewReader(
+				`data: {"type":"response.completed","response":{"id":"resp_forced_tier","object":"response","model":"gpt-5","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":2,"output_tokens":1,"total_tokens":3}}}` + "\n\n",
+			)),
+		},
+	}
+	service := &OpenAIGatewayService{
+		cfg:            cfg,
+		httpUpstream:   upstream,
+		settingService: NewSettingService(settingRepo, nil),
+	}
+	account := &Account{
+		ID:          6,
+		Name:        "openai-apikey",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://example.com"},
+		Extra:       map[string]any{"use_responses_api": true},
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/chat/completions", nil)
+
+	result, err := service.ForwardAsChatCompletions(
+		context.Background(),
+		c,
+		account,
+		[]byte(`{"model":"gpt-5","stream":false,"messages":[{"role":"user","content":"hello"}]}`),
+		"",
+		"",
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.ServiceTier)
+	require.Equal(t, "priority", *result.ServiceTier)
+	require.Equal(t, "priority", gjson.GetBytes(upstream.lastBody, "service_tier").String())
+}
+
 func TestOpenAIGatewayService_Forward_TextDataImageDoesNotForceMapMarshal(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &httpUpstreamRecorder{
