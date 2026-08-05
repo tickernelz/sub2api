@@ -932,6 +932,10 @@ func TestAPIContracts(t *testing.T) {
 					"openai_fast_policy_settings": {
 						"rules": []
 					},
+					"gateway_service_tier_settings": {
+						"openai": {"mode": "disabled", "service_tier": "auto"},
+						"anthropic": {"mode": "disabled", "service_tier": "auto"}
+					},
 					"custom_menu_items": [],
 					"custom_endpoints": [],
 					"payment_enabled": false,
@@ -1224,6 +1228,10 @@ func TestAPIContracts(t *testing.T) {
 					"openai_codex_version_auto_sync_enabled": true,
 					"openai_fast_policy_settings": {
 						"rules": []
+					},
+					"gateway_service_tier_settings": {
+						"openai": {"mode": "disabled", "service_tier": "auto"},
+						"anthropic": {"mode": "disabled", "service_tier": "auto"}
 					},
 					"payment_enabled": false,
 					"payment_min_amount": 0,

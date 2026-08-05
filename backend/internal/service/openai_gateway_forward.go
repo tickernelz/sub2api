@@ -472,7 +472,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 
-	if rawTier := requestView.ServiceTier; rawTier != "" {
+	rawTier := requestView.ServiceTier
+	if effectiveTier, shouldApply := s.configuredOpenAIServiceTier(ctx, account, rawTier); shouldApply {
+		markPatchSet("service_tier", effectiveTier)
+		rawTier = effectiveTier
+	}
+	if rawTier != "" {
 		if normTier := normalizedOpenAIServiceTierValue(rawTier); normTier != "" {
 			action, errMsg := s.evaluateOpenAIFastPolicy(ctx, account, upstreamModel, normTier)
 			switch action {

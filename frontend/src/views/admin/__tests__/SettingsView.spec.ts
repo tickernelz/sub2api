@@ -1114,6 +1114,48 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(showSuccess).toHaveBeenCalledWith("上游倍率自动探测设置已保存");
   });
 
+  it("loads and saves gateway service-tier settings per provider", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      gateway_service_tier_settings: {
+        openai: { mode: "fill_missing", service_tier: "flex" },
+        anthropic: { mode: "disabled", service_tier: "auto" },
+      },
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const card = wrapper.get('[data-testid="gateway-service-tier-settings"]');
+    expect(card.isVisible()).toBe(true);
+    expect(card.get('[data-testid="gateway-service-tier-openai-mode"]').element).toHaveProperty(
+      "value",
+      "fill_missing",
+    );
+    expect(card.get('[data-testid="gateway-service-tier-openai-value"]').element).toHaveProperty(
+      "value",
+      "flex",
+    );
+
+    await card.get('[data-testid="gateway-service-tier-openai-mode"]').setValue("force");
+    await card.get('[data-testid="gateway-service-tier-openai-value"]').setValue("priority");
+    await card.get('[data-testid="gateway-service-tier-anthropic-mode"]').setValue("fill_missing");
+    await card.get('[data-testid="gateway-service-tier-anthropic-value"]').setValue("standard_only");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gateway_service_tier_settings: {
+          openai: { mode: "force", service_tier: "priority" },
+          anthropic: { mode: "fill_missing", service_tier: "standard_only" },
+        },
+      }),
+    );
+  });
+
   it("loads fail-safe-off Ollama Cloud usage refresh settings and saves an explicit opt-in", async () => {
     const wrapper = mountView();
 
