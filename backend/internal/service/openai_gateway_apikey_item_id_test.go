@@ -35,12 +35,12 @@ func TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidInputItemIDs(t *tes
 		"model":"gpt-5.6-sol",
 		"stream":false,
 		"input":[
-			{"type":"message","id":"item_bad_message","role":"assistant","content":[{"type":"output_text","text":"hello"}]},
-			{"type":"function_call","id":"item_bad_call","call_id":"call_123","name":"exec_command","arguments":"{}"},
-			{"type":"message","id":"msg_valid","role":"user","content":[{"type":"input_text","text":"continue"}]},
-			{"type":"function_call","id":"fc_valid","call_id":"call_456","name":"apply_patch","arguments":"{}"},
-			{"type":"function_call_output","id":"item_output","call_id":"call_123","output":"done"},
-			{"type":"web_search_call","id":"item_unconstrained"}
+			{"type":"message","id":"item_bad_message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hello"}]},
+			{"type":"function_call","id":"item_bad_call","call_id":"call_123","status":"completed","name":"exec_command","arguments":"{}"},
+			{"type":"message","id":"msg_valid","role":"user","status":"completed","content":[{"type":"input_text","text":"continue"}]},
+			{"type":"function_call","id":"fc_valid","call_id":"call_456","status":"completed","name":"apply_patch","arguments":"{}"},
+			{"type":"function_call_output","id":"item_output","call_id":"call_123","status":"completed","output":"done"},
+			{"type":"web_search_call","id":"item_unconstrained","status":"completed"}
 		]
 	}`)
 
@@ -61,6 +61,9 @@ func TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidInputItemIDs(t *tes
 	require.Equal(t, "item_output", gjson.GetBytes(forwarded, "input.4.id").String())
 	require.Equal(t, "call_123", gjson.GetBytes(forwarded, "input.4.call_id").String())
 	require.Equal(t, "item_unconstrained", gjson.GetBytes(forwarded, "input.5.id").String())
+	for i := 0; i < 6; i++ {
+		require.False(t, gjson.GetBytes(forwarded, fmt.Sprintf("input.%d.status", i)).Exists(), "input item status must be stripped for OpenAI upstream")
+	}
 }
 
 // TestOpenAIGatewayService_APIKeyPassthrough_StripsInvalidReasoningItemIDs
@@ -129,7 +132,7 @@ func TestShouldStripOpenAIResponsesInputItemID_Reasoning(t *testing.T) {
 	}
 }
 
-func TestSanitizeOpenAIResponsesInputItemIDs_AllocationGrowthIsLinear(t *testing.T) {
+func TestSanitizeOpenAIResponsesInputItems_AllocationGrowthIsLinear(t *testing.T) {
 	makeBody := func(itemCount int) []byte {
 		items := make([]string, itemCount)
 		for i := range items {
@@ -141,7 +144,7 @@ func TestSanitizeOpenAIResponsesInputItemIDs_AllocationGrowthIsLinear(t *testing
 		runtime.GC()
 		var before, after runtime.MemStats
 		runtime.ReadMemStats(&before)
-		sanitized, changed, err := sanitizeOpenAIResponsesInputItemIDs(body)
+		sanitized, changed, err := sanitizeOpenAIResponsesInputItems(body)
 		runtime.ReadMemStats(&after)
 		require.NoError(t, err)
 		require.True(t, changed)

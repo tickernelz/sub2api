@@ -108,13 +108,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
 	}
 
-	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
-		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
-	}
-	if account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey {
-		sanitizedBody, changed, sanitizeErr := sanitizeOpenAIResponsesInputItemIDs(body)
+	if account.Platform == PlatformOpenAI {
+		sanitizedBody, changed, sanitizeErr := sanitizeOpenAIResponsesInputItems(body)
 		if sanitizeErr != nil {
-			return nil, fmt.Errorf("sanitize OpenAI Responses input item IDs: %w", sanitizeErr)
+			return nil, fmt.Errorf("sanitize OpenAI Responses input items: %w", sanitizeErr)
 		}
 		if changed {
 			body = sanitizedBody
@@ -123,6 +120,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			reqModel, reqStream, promptCacheKey = requestView.Model, requestView.Stream, requestView.PromptCacheKey
 			originalModel = reqModel
 		}
+	}
+
+	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
 
 	compatMessagesBridge := isOpenAICompatMessagesBridgeBody(body)

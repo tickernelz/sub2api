@@ -26,7 +26,12 @@ func shouldStripOpenAIResponsesInputItemID(itemType, id string) bool {
 	return false
 }
 
-func sanitizeOpenAIResponsesInputItemIDs(body []byte) ([]byte, bool, error) {
+// sanitizeOpenAIResponsesInputItems removes request metadata that is valid on
+// Responses output items but unsupported on OpenAI input items. It also strips
+// invalid replayed IDs rather than fabricating IDs that could point at another
+// upstream object. The traversal is intentionally single-pass so large
+// multi-turn inputs do not incur multiple full JSON scans.
+func sanitizeOpenAIResponsesInputItems(body []byte) ([]byte, bool, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
 		return body, false, nil
@@ -41,6 +46,15 @@ func sanitizeOpenAIResponsesInputItemIDs(body []byte) ([]byte, bool, error) {
 		index++
 		itemBody := []byte(item.Raw)
 		if item.IsObject() {
+			if item.Get("status").Exists() {
+				itemBody, sanitizeErr = sjson.DeleteBytes(itemBody, "status")
+				if sanitizeErr != nil {
+					sanitizeErr = fmt.Errorf("delete input.%d.status: %w", currentIndex, sanitizeErr)
+					return false
+				}
+				changed = true
+			}
+
 			itemType := item.Get("type")
 			id := item.Get("id")
 			if itemType.Type == gjson.String && id.Type == gjson.String &&
