@@ -806,6 +806,13 @@ func isOpenAICodexModel(model string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(model)), "codex")
 }
 
+func extractRawChatCompletionsReasoningEffort(account *Account, body []byte, modelCandidates ...string) *string {
+	if account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey {
+		return extractOpenAIChatCompletionsReasoningEffortFromBody(body, modelCandidates...)
+	}
+	return extractOpenAIReasoningEffortFromBody(body, modelCandidates...)
+}
+
 // extractOpenAIChatCompletionsReasoningEffortFromBody preserves max for direct
 // OpenAI-compatible Chat Completions upstreams. Those upstreams can support
 // provider-specific effort levels such as max even when the model is not in the
