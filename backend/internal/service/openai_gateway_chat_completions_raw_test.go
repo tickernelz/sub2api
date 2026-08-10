@@ -185,6 +185,16 @@ func TestForwardAsRawChatCompletions_PreservesDeepSeekMaxEffortMetadata(t *testi
 	require.Equal(t, "max", *result.ReasoningEffort)
 }
 
+func TestExtractRawChatCompletionsReasoningEffortScopesMaxToOpenAIAPIKey(t *testing.T) {
+	body := []byte(`{"reasoning_effort":"max"}`)
+
+	openAI := rawChatCompletionsTestAccount()
+	require.Equal(t, "max", *extractRawChatCompletionsReasoningEffort(openAI, body, "deepseek-v4-flash-0731"))
+
+	grok := &Account{Platform: PlatformGrok, Type: AccountTypeOAuth}
+	require.Equal(t, "xhigh", *extractRawChatCompletionsReasoningEffort(grok, body, "grok-4.3"))
+}
+
 func TestForwardAsRawChatCompletions_NonStreamingCapturesCacheWriteUsage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
