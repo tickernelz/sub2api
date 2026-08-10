@@ -1464,7 +1464,7 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 			slog.Warn("apply_oauth_credentials.clear_grok_reauth_failed",
 				"account_id", accountID,
 				"err", clearErr,
-		)
+			)
 		}
 	}
 
