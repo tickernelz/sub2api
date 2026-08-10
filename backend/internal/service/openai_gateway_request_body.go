@@ -806,6 +806,30 @@ func isOpenAICodexModel(model string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(model)), "codex")
 }
 
+// extractOpenAIChatCompletionsReasoningEffortFromBody preserves max for direct
+// OpenAI-compatible Chat Completions upstreams. Those upstreams can support
+// provider-specific effort levels such as max even when the model is not in the
+// built-in GPT-5.6 catalog; the forwarded request already preserves the value.
+func extractOpenAIChatCompletionsReasoningEffortFromBody(body []byte, modelCandidates ...string) *string {
+	reasoningEffort := strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String())
+	if reasoningEffort == "" {
+		reasoningEffort = strings.TrimSpace(gjson.GetBytes(body, "reasoning_effort").String())
+	}
+	if reasoningEffort != "" {
+		normalized := normalizeOpenAIChatCompletionsReasoningEffort(reasoningEffort)
+		if normalized == "" {
+			return nil
+		}
+		return &normalized
+	}
+
+	value := deriveOpenAIReasoningEffortFromModelCandidates(modelCandidates)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
 // extractOpenAIReasoningEffortFromBody 按优先级传入模型候选（如 upstreamModel,
 // billingModel, originalModel）：显式 effort 的模型归一化（max 保留判定）用第一个
 // 非空候选；body 未携带 effort 时的模型后缀推导依次尝试每个候选——OAuth 的
@@ -1471,6 +1495,15 @@ func extractOpenAIReasoningEffort(reqBody map[string]any, modelCandidates ...str
 		return nil
 	}
 	return &value
+}
+
+func normalizeOpenAIChatCompletionsReasoningEffort(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	value = strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
+	if value == "max" {
+		return "max"
+	}
+	return normalizeOpenAIReasoningEffort(raw)
 }
 
 func normalizeOpenAIReasoningEffort(raw string) string {
