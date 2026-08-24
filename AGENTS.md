@@ -187,34 +187,26 @@ Transport audit:
 
 The feature is fork-only until upstream provides an equivalent implementation. If upstream moves a function, port the behavior to the new choke point instead of preserving a stale file-local patch.
 
-### E. OpenAI Responses input metadata compatibility
+### E. OpenAI Responses input metadata compatibility (SUPERSEDED BY UPSTREAM)
 
-Some clients and providers attach `status` to input items when replaying a conversation. The OpenAI Responses upstream routes used by this fork do not accept that output-oriented metadata on `input[N]`, and return errors such as `Unknown parameter: 'input[57].status'`.
+Upstream adopted a reactive mechanism (`normalizeOpenAIResponsesRejectedFieldRetryBody`) that strips `input[N].status` and other rejected fields only after the upstream returns an explicit rejection, then retries once. This supersedes the fork's earlier proactive status stripping, which conflicted with upstream's retry tests and semantics.
 
-Required behavior:
+Current required behavior:
 
-- Apply the compatibility sanitizer to OpenAI `/v1/responses` HTTP forwarding for both API-key and OAuth accounts.
-- Remove only the top-level `status` key from each object in the request `input` array.
-- Preserve input order, non-object items, every other item field, IDs, call IDs, and nested `status` values inside content or tool payloads.
-- Keep the sanitizer copy-on-write and single-pass over the input array so large multi-turn requests remain bounded.
-- Keep the OAuth/Codex map-level filter as defense in depth for items created or transformed after raw-body sanitization.
-- Do not apply this behavior to Anthropic, Grok, or other provider routes that may support the field.
-- Preserve the existing invalid replayed-ID sanitization in the same traversal.
+- Do NOT re-introduce proactive top-level `status` stripping of `input[]` items; upstream's reactive rejected-field retry owns that behavior.
+- Preserve upstream's invalid replayed-ID sanitization (`sanitizeOpenAIResponsesInputItems`, ID/call_id namespace checks) — the fork keeps this function but must not extend it to strip `status`.
+- The OAuth/Codex map-level filter must NOT strip `status` anymore; upstream handles it reactively.
 
 Replay anchors:
 
 - `backend/internal/service/openai_responses_item_id.go`
 - `backend/internal/service/openai_gateway_forward.go`
-- `backend/internal/service/openai_codex_transform.go`
-- `backend/internal/service/openai_codex_input_status_test.go`
-- `backend/internal/service/openai_gateway_apikey_item_id_test.go`
+- `backend/internal/service/openai_responses_rejected_field_retry.go`
 
 Replay hazards:
 
-- Keep the condition provider-scoped to `PlatformOpenAI`; do not broaden it to generic-compatible providers.
-- Delete only `input` item `status`; never delete top-level request fields or nested content metadata.
-- Preserve copy-on-write behavior because callers may reuse decoded input maps.
-- Re-audit both API-key and OAuth paths if upstream changes the Responses request builder or moves Codex normalization.
+- If upstream changes its rejected-field retry semantics, re-evaluate whether proactive stripping is needed again.
+- Do not replay old fork commits `fix(openai): strip unsupported Responses input status` verbatim; their proactive stripping now breaks upstream tests (`TestOpenAIGatewayService_OAuthRetriesExactRejectedStatus`).
 
 ### F. Preserve `max` reasoning effort for OpenAI API-key Chat Completions
 
