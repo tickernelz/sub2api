@@ -80,19 +80,9 @@ func sanitizeOpenAIResponsesInputItems(body []byte) ([]byte, bool, error) {
 	}
 
 	items := make([]inputItem, 0)
-	statusStripped := false
 	input.ForEach(func(_, item gjson.Result) bool {
 		parsed := inputItem{body: []byte(item.Raw)}
 		if item.IsObject() {
-			if item.Get("status").Exists() {
-				itemBody, err := sjson.DeleteBytes(parsed.body, "status")
-				if err != nil {
-					return false
-				}
-				parsed.body = itemBody
-				statusStripped = true
-			}
-
 			itemType := item.Get("type")
 			id := item.Get("id")
 			trimmedItemType := strings.TrimSpace(itemType.String())
@@ -104,7 +94,7 @@ func sanitizeOpenAIResponsesInputItems(body []byte) ([]byte, bool, error) {
 		items = append(items, parsed)
 		return true
 	})
-	hasSanitization := statusStripped
+	hasSanitization := false
 	for _, item := range items {
 		if item.stripID || item.stripCallID {
 			hasSanitization = true
