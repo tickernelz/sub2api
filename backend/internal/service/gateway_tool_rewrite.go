@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 	"math/rand"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
@@ -350,6 +351,142 @@ func replaceAllBytes(data []byte, from, to string) []byte {
 		return data
 	}
 	return []byte(strings.ReplaceAll(string(data), from, to))
+}
+
+// toolNameStreamRestorer 在 input_json_delta 分片之间还原假名。
+//
+// restoreToolNamesInBytes 按单行 SSE 做替换，因此写在 tool_use 顶层 name 上的假名
+// 总能命中。但嵌套工具名（batch 的 tool_calls[*].tool）位于工具入参里，入参以
+// input_json_delta 分片流式下发，一个假名会被切在两个分片中间，任一分片都不包含
+// 完整假名，替换失效后假名原样到达客户端。
+//
+// 本类型按 content block 维度保留一小段尾巴：凡是可能构成某个假名前缀的后缀都暂不
+// 下发，与下一个分片拼接后再还原。尾巴长度上界是最长假名减一，因此延迟有界。
+// content_block_stop 前必须调用 Flush 取回残留，否则尾巴会被吞掉。
+type toolNameStreamRestorer struct {
+	rw     *ToolNameRewrite
+	carry  map[int]string
+	maxLen int
+}
+
+func newToolNameStreamRestorer(rw *ToolNameRewrite) *toolNameStreamRestorer {
+	maxLen := 0
+	if rw != nil {
+		for fake := range rw.Reverse {
+			if len(fake) > maxLen {
+				maxLen = len(fake)
+			}
+		}
+	}
+	for _, replacement := range staticToolNameRewrites {
+		if len(replacement) > maxLen {
+			maxLen = len(replacement)
+		}
+	}
+	return &toolNameStreamRestorer{rw: rw, carry: make(map[int]string), maxLen: maxLen}
+}
+
+// isPrefixOfAnyFakeName 判断 s 是否是某个假名的真前缀。
+func (r *toolNameStreamRestorer) isPrefixOfAnyFakeName(s string) bool {
+	if r.rw != nil {
+		for fake := range r.rw.Reverse {
+			if len(s) < len(fake) && strings.HasPrefix(fake, s) {
+				return true
+			}
+		}
+	}
+	for _, replacement := range staticToolNameRewrites {
+		if len(s) < len(replacement) && strings.HasPrefix(replacement, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// splitEmittableTail 把已还原文本切成"可下发部分"和"需暂存的尾巴"。
+func (r *toolNameStreamRestorer) splitEmittableTail(s string) (string, string) {
+	limit := r.maxLen - 1
+	if limit > len(s) {
+		limit = len(s)
+	}
+	for n := limit; n > 0; n-- {
+		if r.isPrefixOfAnyFakeName(s[len(s)-n:]) {
+			return s[:len(s)-n], s[len(s)-n:]
+		}
+	}
+	return s, ""
+}
+
+// RestoreFragment 处理单个 input_json_delta 分片，返回应当下发的文本。
+func (r *toolNameStreamRestorer) RestoreFragment(blockIndex int, fragment string) string {
+	combined := r.carry[blockIndex] + fragment
+	restored := string(restoreToolNamesInBytes([]byte(combined), r.rw))
+	emit, tail := r.splitEmittableTail(restored)
+	if tail == "" {
+		delete(r.carry, blockIndex)
+	} else {
+		r.carry[blockIndex] = tail
+	}
+	return emit
+}
+
+// Flush 取回并清空某个 content block 的残留尾巴。
+func (r *toolNameStreamRestorer) Flush(blockIndex int) string {
+	tail := r.carry[blockIndex]
+	delete(r.carry, blockIndex)
+	if tail == "" {
+		return ""
+	}
+	return string(restoreToolNamesInBytes([]byte(tail), r.rw))
+}
+
+// RestoreSSELine 处理一整行 SSE。
+//
+// input_json_delta 行走跨分片还原：把 partial_json 交给 RestoreFragment，用还原后的
+// 文本重写该字段。分片被完全暂存时返回 emit=false，调用方应丢弃该行（其内容会随
+// 后续分片或 content_block_stop 的 flush 下发）。
+//
+// content_block_stop 行先取回残留尾巴，作为一条补充 input_json_delta 事件在 stop
+// 之前下发，保证入参 JSON 完整。其余行按原有单行语义还原。
+func (r *toolNameStreamRestorer) RestoreSSELine(line string) (out string, extraBefore string, emit bool) {
+	const dataPrefix = "data: "
+	if !strings.HasPrefix(line, dataPrefix) {
+		return string(restoreToolNamesInBytes([]byte(line), r.rw)), "", true
+	}
+	payload := line[len(dataPrefix):]
+
+	switch gjson.Get(payload, "type").String() {
+	case "content_block_delta":
+		if gjson.Get(payload, "delta.type").String() != "input_json_delta" {
+			return string(restoreToolNamesInBytes([]byte(line), r.rw)), "", true
+		}
+		idx := int(gjson.Get(payload, "index").Int())
+		restored := r.RestoreFragment(idx, gjson.Get(payload, "delta.partial_json").String())
+		if restored == "" {
+			return "", "", false
+		}
+		next, err := sjson.Set(payload, "delta.partial_json", restored)
+		if err != nil {
+			return string(restoreToolNamesInBytes([]byte(line), r.rw)), "", true
+		}
+		return dataPrefix + next, "", true
+
+	case "content_block_stop":
+		idx := int(gjson.Get(payload, "index").Int())
+		tail := r.Flush(idx)
+		if tail == "" {
+			return string(restoreToolNamesInBytes([]byte(line), r.rw)), "", true
+		}
+		raw := fmt.Sprintf(
+			`{"type":"content_block_delta","index":%d,"delta":{"type":"input_json_delta","partial_json":%s}}`,
+			idx, strconv.Quote(tail),
+		)
+		return string(restoreToolNamesInBytes([]byte(line), r.rw)),
+			"event: content_block_delta\n" + dataPrefix + raw,
+			true
+	}
+
+	return string(restoreToolNamesInBytes([]byte(line), r.rw)), "", true
 }
 
 // toolNameRewriteFromContext 从 gin.Context 取出请求阶段保存的工具名映射。
