@@ -295,3 +295,137 @@ func TestBuildDynamicToolMap_FakeNameShape(t *testing.T) {
 		require.True(t, strings.Contains(fake, head), "fake %q should contain head3 %q of %q", fake, head, name)
 	}
 }
+
+func TestRestoreToolNamesInBytes_CannotRestoreNameSplitAcrossFragments(t *testing.T) {
+	rw := &ToolNameRewrite{
+		Forward:        map[string]string{"bash": "extract_bas03"},
+		Reverse:        map[string]string{"extract_bas03": "bash"},
+		ReverseOrdered: [][2]string{{"extract_bas03", "bash"}},
+	}
+
+	whole := []byte(`{"tool":"extract_bas03"}`)
+	require.Equal(t, `{"tool":"bash"}`, string(restoreToolNamesInBytes(whole, rw)),
+		"a fake name contained in one fragment is restored")
+
+	split := string(restoreToolNamesInBytes([]byte(`{"tool":"extra`), rw)) +
+		string(restoreToolNamesInBytes([]byte(`ct_bas03"}`), rw))
+	require.Contains(t, split, "extract_bas03",
+		"this single-fragment helper cannot span fragments; toolNameStreamRestorer exists for that")
+}
+
+func newTestRestorer() *toolNameStreamRestorer {
+	return newToolNameStreamRestorer(&ToolNameRewrite{
+		Forward:        map[string]string{"bash": "extract_bas03"},
+		Reverse:        map[string]string{"extract_bas03": "bash"},
+		ReverseOrdered: [][2]string{{"extract_bas03", "bash"}},
+	})
+}
+
+func TestToolNameStreamRestorer_RestoresNameSplitAcrossFragments(t *testing.T) {
+	r := newTestRestorer()
+	got := ""
+	for _, fragment := range []string{`{"tool":"extra`, `ct_bas03"}`} {
+		got += r.RestoreFragment(0, fragment)
+	}
+	got += r.Flush(0)
+	require.Equal(t, `{"tool":"bash"}`, got)
+}
+
+func TestToolNameStreamRestorer_RestoresNameSplitAtEveryOffset(t *testing.T) {
+	const full = `{"tool":"extract_bas03","x":1}`
+	for cut := 1; cut < len(full); cut++ {
+		r := newTestRestorer()
+		got := r.RestoreFragment(0, full[:cut])
+		got += r.RestoreFragment(0, full[cut:])
+		got += r.Flush(0)
+		require.Equal(t, `{"tool":"bash","x":1}`, got, "split at offset %d", cut)
+	}
+}
+
+func TestToolNameStreamRestorer_KeepsBlocksIndependent(t *testing.T) {
+	r := newTestRestorer()
+	first := r.RestoreFragment(0, `{"tool":"extra`)
+	require.Equal(t, `{"tool":"`, first, "only the possible fake-name prefix is withheld")
+
+	require.Equal(t, `{"a":"b"}`, r.RestoreFragment(1, `{"a":"b"}`),
+		"another block must not consume block 0's carry")
+
+	rest := r.RestoreFragment(0, `ct_bas03"}`) + r.Flush(0)
+	require.Equal(t, `{"tool":"bash"}`, first+rest,
+		"block 0 must still reassemble across the interleaved block")
+}
+
+func TestToolNameStreamRestorer_DoesNotWithholdOrdinaryText(t *testing.T) {
+	r := newTestRestorer()
+	require.Equal(t, `{"path":"/tmp/a"}`, r.RestoreFragment(0, `{"path":"/tmp/a"}`),
+		"text that cannot begin a fake name must pass through immediately")
+	require.Equal(t, "", r.Flush(0), "nothing should be withheld")
+}
+
+func TestToolNameStreamRestorer_FlushReturnsUnmatchedTail(t *testing.T) {
+	r := newTestRestorer()
+	require.Equal(t, "", r.RestoreFragment(0, `extr`), "a possible fake-name prefix is withheld")
+	require.Equal(t, `extr`, r.Flush(0), "an unmatched tail must not be swallowed")
+}
+
+func TestToolNameStreamRestorer_NilMappingStillRestoresStaticPrefix(t *testing.T) {
+	r := newToolNameStreamRestorer(nil)
+	got := r.RestoreFragment(0, `{"id":"cc_s`)
+	got += r.RestoreFragment(0, `es_xyz"}`)
+	got += r.Flush(0)
+	require.Equal(t, `{"id":"session_xyz"}`, got)
+}
+
+func TestRestoreSSELine_ReassemblesNestedNameAcrossDeltaLines(t *testing.T) {
+	r := newTestRestorer()
+	lines := []string{
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"tool\":\"extra"}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"ct_bas03\"}"}}`,
+		`data: {"type":"content_block_stop","index":0}`,
+	}
+
+	assembled := ""
+	wire := ""
+	for _, line := range lines {
+		out, extra, emit := r.RestoreSSELine(line)
+		if extra != "" {
+			wire += extra
+			for _, l := range strings.Split(extra, "\n") {
+				assembled += gjson.Get(strings.TrimPrefix(l, "data: "), "delta.partial_json").String()
+			}
+		}
+		if !emit {
+			continue
+		}
+		wire += out
+		assembled += gjson.Get(strings.TrimPrefix(out, "data: "), "delta.partial_json").String()
+	}
+
+	require.NotContains(t, wire, "extract_bas03",
+		"no fake name may reach the client on the wire")
+	require.Equal(t, `{"tool":"bash"}`, assembled,
+		"the reassembled tool arguments must name the real tool")
+}
+
+func TestRestoreSSELine_LeavesNonToolLinesIntact(t *testing.T) {
+	r := newTestRestorer()
+	for _, line := range []string{
+		`event: content_block_delta`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}`,
+		`data: {"type":"message_stop"}`,
+		``,
+	} {
+		out, extra, emit := r.RestoreSSELine(line)
+		require.True(t, emit, "line %q must be emitted", line)
+		require.Empty(t, extra, "line %q must not produce a synthetic event", line)
+		require.Equal(t, line, out, "line %q must pass through unchanged", line)
+	}
+}
+
+func TestRestoreSSELine_RestoresTopLevelToolUseName(t *testing.T) {
+	r := newTestRestorer()
+	line := `data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","name":"extract_bas03"}}`
+	out, _, emit := r.RestoreSSELine(line)
+	require.True(t, emit)
+	require.Equal(t, "bash", gjson.Get(strings.TrimPrefix(out, "data: "), "content_block.name").String())
+}
