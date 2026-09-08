@@ -567,6 +567,9 @@ type GatewayServiceTierRule struct {
 type GatewayServiceTierSettings struct {
 	OpenAI    GatewayServiceTierRule `json:"openai"`
 	Anthropic GatewayServiceTierRule `json:"anthropic"`
+	// AnthropicSpeed carries the Anthropic `speed` request-field rule. Its
+	// ServiceTier field holds a speed value ("fast" / "standard").
+	AnthropicSpeed GatewayServiceTierRule `json:"anthropic_speed"`
 }
 
 // EmailTemplateEventOption 描述可编辑的通知邮件事件。

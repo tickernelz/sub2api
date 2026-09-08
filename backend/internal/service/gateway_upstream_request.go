@@ -94,6 +94,11 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	} else {
 		body = configuredBody
 	}
+	if speedBody, err := s.applyConfiguredAnthropicSpeed(ctx, account, body, modelID); err != nil {
+		return nil, nil, fmt.Errorf("apply configured Anthropic speed: %w", err)
+	} else {
+		body = speedBody
+	}
 
 	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
 	//

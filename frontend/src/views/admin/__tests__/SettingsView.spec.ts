@@ -1419,6 +1419,7 @@ describe("admin SettingsView payment visible method controls", () => {
       gateway_service_tier_settings: {
         openai: { mode: "fill_missing", service_tier: "flex" },
         anthropic: { mode: "disabled", service_tier: "auto" },
+        anthropic_speed: { mode: "fill_missing", service_tier: "standard" },
       },
     });
 
@@ -1437,20 +1438,64 @@ describe("admin SettingsView payment visible method controls", () => {
       "value",
       "flex",
     );
+    expect(
+      card.get('[data-testid="gateway-service-tier-anthropic-speed-mode"]').element,
+    ).toHaveProperty("value", "fill_missing");
+    expect(
+      card.get('[data-testid="gateway-service-tier-anthropic-speed-value"]').element,
+    ).toHaveProperty("value", "standard");
 
     await card.get('[data-testid="gateway-service-tier-openai-mode"]').setValue("force");
-    await card.get('[data-testid="gateway-service-tier-openai-value"]').setValue("priority");
+    await card.get('[data-testid="gateway-service-tier-openai-value"]').setValue("ultrafast");
     await card.get('[data-testid="gateway-service-tier-anthropic-mode"]').setValue("fill_missing");
     await card.get('[data-testid="gateway-service-tier-anthropic-value"]').setValue("standard_only");
+    await card.get('[data-testid="gateway-service-tier-anthropic-speed-mode"]').setValue("force");
+    await card.get('[data-testid="gateway-service-tier-anthropic-speed-value"]').setValue("fast");
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
 
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         gateway_service_tier_settings: {
-          openai: { mode: "force", service_tier: "priority" },
+          openai: { mode: "force", service_tier: "ultrafast" },
           anthropic: { mode: "fill_missing", service_tier: "standard_only" },
+          anthropic_speed: { mode: "force", service_tier: "fast" },
         },
+      }),
+    );
+  });
+
+  it("renders the anthropic speed control when the backend omits anthropic_speed", async () => {
+    // Older backends predate the anthropic_speed rule and omit it entirely.
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      gateway_service_tier_settings: {
+        openai: { mode: "fill_missing", service_tier: "flex" },
+        anthropic: { mode: "disabled", service_tier: "auto" },
+      },
+    });
+
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const card = wrapper.get('[data-testid="gateway-service-tier-settings"]');
+    expect(
+      card.get('[data-testid="gateway-service-tier-anthropic-speed-mode"]').element,
+    ).toHaveProperty("value", "disabled");
+    expect(
+      card.get('[data-testid="gateway-service-tier-anthropic-speed-value"]').element,
+    ).toHaveProperty("value", "standard");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gateway_service_tier_settings: expect.objectContaining({
+          anthropic_speed: { mode: "disabled", service_tier: "standard" },
+        }),
       }),
     );
   });

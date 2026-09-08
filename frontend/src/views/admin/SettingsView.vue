@@ -1675,9 +1675,42 @@
                     </div>
                   </div>
                 </div>
+
+                <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+                  <h3 class="font-medium text-gray-900 dark:text-white">
+                    {{ t("admin.settings.gatewayServiceTier.anthropicSpeed") }}
+                  </h3>
+                  <div class="mt-3 space-y-3">
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t("admin.settings.gatewayServiceTier.mode") }}
+                      </label>
+                      <Select
+                        data-testid="gateway-service-tier-anthropic-speed-mode"
+                        :modelValue="gatewayServiceTierForm.anthropic_speed.mode"
+                        @update:modelValue="gatewayServiceTierForm.anthropic_speed.mode = $event as GatewayServiceTierSettings['anthropic_speed']['mode']"
+                        :options="gatewayServiceTierModeOptions"
+                      />
+                    </div>
+                    <div>
+                      <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t("admin.settings.gatewayServiceTier.speedValue") }}
+                      </label>
+                      <Select
+                        data-testid="gateway-service-tier-anthropic-speed-value"
+                        :modelValue="gatewayServiceTierForm.anthropic_speed.service_tier"
+                        @update:modelValue="gatewayServiceTierForm.anthropic_speed.service_tier = String($event)"
+                        :options="gatewayAnthropicSpeedOptions"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
               <p class="text-xs text-gray-400 dark:text-gray-500">
                 {{ t("admin.settings.gatewayServiceTier.warning") }}
+              </p>
+              <p class="text-xs text-gray-400 dark:text-gray-500">
+                {{ t("admin.settings.gatewayServiceTier.speedWarning") }}
               </p>
             </div>
           </div>
@@ -9391,6 +9424,7 @@ const openaiFastPolicyLoaded = ref(false);
 const gatewayServiceTierForm = reactive<GatewayServiceTierSettings>({
   openai: { mode: "disabled", service_tier: "priority" },
   anthropic: { mode: "disabled", service_tier: "auto" },
+  anthropic_speed: { mode: "disabled", service_tier: "standard" },
 });
 const gatewayServiceTierLoaded = ref(false);
 
@@ -11294,6 +11328,11 @@ async function loadSettings() {
         ...gatewayServiceTierForm.anthropic,
         ...settings.gateway_service_tier_settings.anthropic,
       };
+      // Older backends omit anthropic_speed entirely; keep the local defaults then.
+      gatewayServiceTierForm.anthropic_speed = {
+        ...gatewayServiceTierForm.anthropic_speed,
+        ...settings.gateway_service_tier_settings.anthropic_speed,
+      };
       gatewayServiceTierLoaded.value = true;
     }
 
@@ -11910,6 +11949,7 @@ async function saveSettings() {
       payload.gateway_service_tier_settings = {
         openai: { ...gatewayServiceTierForm.openai },
         anthropic: { ...gatewayServiceTierForm.anthropic },
+        anthropic_speed: { ...gatewayServiceTierForm.anthropic_speed },
       };
     }
 
@@ -12008,6 +12048,11 @@ async function saveSettings() {
       gatewayServiceTierForm.anthropic = {
         ...gatewayServiceTierForm.anthropic,
         ...updated.gateway_service_tier_settings.anthropic,
+      };
+      // Older backends omit anthropic_speed entirely; keep the local defaults then.
+      gatewayServiceTierForm.anthropic_speed = {
+        ...gatewayServiceTierForm.anthropic_speed,
+        ...updated.gateway_service_tier_settings.anthropic_speed,
       };
       gatewayServiceTierLoaded.value = true;
     }
@@ -12605,11 +12650,17 @@ const gatewayOpenAIServiceTierOptions = computed(() => [
   { value: "flex", label: t("admin.settings.gatewayServiceTier.openaiFlex") },
   { value: "priority", label: t("admin.settings.gatewayServiceTier.openaiPriority") },
   { value: "scale", label: t("admin.settings.gatewayServiceTier.openaiScale") },
+  { value: "ultrafast", label: t("admin.settings.gatewayServiceTier.openaiUltrafast") },
 ]);
 
 const gatewayAnthropicServiceTierOptions = computed(() => [
   { value: "auto", label: t("admin.settings.gatewayServiceTier.anthropicAuto") },
   { value: "standard_only", label: t("admin.settings.gatewayServiceTier.anthropicStandardOnly") },
+]);
+
+const gatewayAnthropicSpeedOptions = computed(() => [
+  { value: "fast", label: t("admin.settings.gatewayServiceTier.speedFast") },
+  { value: "standard", label: t("admin.settings.gatewayServiceTier.speedStandard") },
 ]);
 
 function addOpenAIFastPolicyRule() {
