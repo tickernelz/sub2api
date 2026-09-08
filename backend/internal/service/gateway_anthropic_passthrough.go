@@ -90,6 +90,11 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	} else {
 		input.Body = configuredBody
 	}
+	if speedBody, err := s.applyConfiguredAnthropicSpeed(ctx, account, input.Body, input.RequestModel); err != nil {
+		return nil, fmt.Errorf("apply configured Anthropic speed: %w", err)
+	} else {
+		input.Body = speedBody
+	}
 	if input.Parsed != nil {
 		// 透传分支也会改写实际 wire body，成功 usage hash 依赖这里同步当前 body。
 		if err := input.Parsed.ReplaceBody(input.Body); err != nil {
