@@ -1145,8 +1145,10 @@ export default {
         description: '配置按 provider 区分的 outbound service_tier 默认值。默认关闭，仅作用于已支持的 API Key 网关路径。',
         openai: 'OpenAI',
         anthropic: 'Anthropic',
+        anthropicSpeed: 'Anthropic Speed（Fast 模式）',
         mode: '模式',
         value: 'Service tier',
+        speedValue: 'Speed',
         modeDisabled: '关闭',
         modeFillMissing: '仅在缺失时补充',
         modeForce: '强制覆盖',
@@ -1155,9 +1157,13 @@ export default {
         openaiFlex: 'flex',
         openaiPriority: 'priority',
         openaiScale: 'scale',
+        openaiUltrafast: 'ultrafast',
         anthropicAuto: 'auto',
         anthropicStandardOnly: 'standard_only',
-        warning: '强制模式会覆盖客户端传入的值。OAuth、Vertex、Bedrock 及其他未支持的账号路径会保持原样，不注入字段。'
+        speedFast: 'fast',
+        speedStandard: 'standard',
+        warning: '强制模式会覆盖客户端传入的值。OAuth、Vertex、Bedrock 及其他未支持的账号路径会保持原样，不注入字段。',
+        speedWarning: 'Anthropic 的 Fast 模式使用独立的 speed 请求字段，因为 service_tier 仅接受 auto 与 standard_only，无法表达该模式。Fast 模式按 2 倍计费，且仅 Claude Opus 5 与 Opus 4.8 支持，Bedrock 上不可用。即使在强制模式下，不满足条件的请求也只会保持原样而不会报错，因此不受支持的模型或 Bedrock 账号会被静默跳过。'
       },
       wechatConnect: {
         title: '微信登录',

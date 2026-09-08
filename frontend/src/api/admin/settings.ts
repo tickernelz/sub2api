@@ -1528,6 +1528,15 @@ export interface GatewayServiceTierRule {
 export interface GatewayServiceTierSettings {
   openai: GatewayServiceTierRule;
   anthropic: GatewayServiceTierRule;
+  /**
+   * Anthropic Fast mode (`speed` request field).
+   *
+   * Anthropic's `service_tier` field only accepts "auto" | "standard_only" and cannot
+   * express Fast mode, so Fast mode is driven by the separate `speed` request field.
+   * The rule reuses {@link GatewayServiceTierRule}, so the value lives in `service_tier`,
+   * but it carries an Anthropic speed value ("fast" | "standard") rather than a tier.
+   */
+  anthropic_speed: GatewayServiceTierRule;
 }
 
 // ==================== Beta Policy Settings ====================

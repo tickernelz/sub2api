@@ -1151,8 +1151,10 @@ export default {
         description: 'Configure provider-aware service_tier defaults for outbound API requests. Settings are disabled by default and only apply to supported API-key gateway routes.',
         openai: 'OpenAI',
         anthropic: 'Anthropic',
+        anthropicSpeed: 'Anthropic Speed (Fast mode)',
         mode: 'Mode',
         value: 'Service tier',
+        speedValue: 'Speed',
         modeDisabled: 'Disabled',
         modeFillMissing: 'Fill only when missing',
         modeForce: 'Force override',
@@ -1161,9 +1163,13 @@ export default {
         openaiFlex: 'flex',
         openaiPriority: 'priority',
         openaiScale: 'scale',
+        openaiUltrafast: 'ultrafast',
         anthropicAuto: 'auto',
         anthropicStandardOnly: 'standard_only',
-        warning: 'Force mode replaces a client-provided value. OAuth, Vertex, Bedrock, and other unsupported account routes are intentionally left unchanged.'
+        speedFast: 'fast',
+        speedStandard: 'standard',
+        warning: 'Force mode replaces a client-provided value. OAuth, Vertex, Bedrock, and other unsupported account routes are intentionally left unchanged.',
+        speedWarning: 'Anthropic Fast mode uses the separate "speed" request field, because service_tier only accepts auto and standard_only and cannot express it. Fast mode is billed at 2x, and only Claude Opus 5 and Opus 4.8 support it; it is not available on Bedrock. Even in Force mode, requests that do not qualify are left unchanged rather than failing, so an unsupported model or a Bedrock account is silently skipped.'
       },
       wechatConnect: {
         title: 'WeChat Connect',
