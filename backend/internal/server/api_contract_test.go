@@ -961,7 +961,8 @@ func TestAPIContracts(t *testing.T) {
 					},
 					"gateway_service_tier_settings": {
 						"openai": {"mode": "disabled", "service_tier": "auto"},
-						"anthropic": {"mode": "disabled", "service_tier": "auto"}
+						"anthropic": {"mode": "disabled", "service_tier": "auto"},
+						"anthropic_speed": {"mode": "disabled", "service_tier": "standard"}
 					},
 					"custom_menu_items": [],
 					"custom_endpoints": [],
@@ -1289,7 +1290,8 @@ func TestAPIContracts(t *testing.T) {
 					},
 					"gateway_service_tier_settings": {
 						"openai": {"mode": "disabled", "service_tier": "auto"},
-						"anthropic": {"mode": "disabled", "service_tier": "auto"}
+						"anthropic": {"mode": "disabled", "service_tier": "auto"},
+						"anthropic_speed": {"mode": "disabled", "service_tier": "standard"}
 					},
 					"payment_enabled": false,
 					"payment_min_amount": 0,
