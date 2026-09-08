@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestApplyGatewayServiceTierRule_DisabledLeavesBodyUnchanged(t *testing.T) {
@@ -209,4 +211,162 @@ func (r *gatewayServiceTierSettingRepoStub) Delete(_ context.Context, key string
 
 func gatewayServiceTierValue(body []byte) string {
 	return extractJSONServiceTier(body)
+}
+
+// --- Change A: widened OpenAI service_tier value list ---
+
+func TestOpenAIGatewayServiceTierAcceptsUltrafast(t *testing.T) {
+	settings := &GatewayServiceTierSettings{
+		OpenAI: GatewayServiceTierRule{Mode: GatewayServiceTierModeForce, ServiceTier: "ultrafast"},
+	}
+	require.NoError(t, ValidateGatewayServiceTierSettings(settings))
+	require.Equal(t, "ultrafast", settings.OpenAI.ServiceTier)
+
+	updated, changed, err := applyGatewayServiceTierRule(
+		[]byte(`{"model":"gpt-5"}`),
+		GatewayServiceTierRule{Mode: GatewayServiceTierModeForce, ServiceTier: "ultrafast"},
+		openAIGatewayServiceTierValues,
+	)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "ultrafast", gatewayServiceTierValue(updated))
+}
+
+func TestOpenAIGatewayServiceTierFastStillNormalizesToPriority(t *testing.T) {
+	settings := &GatewayServiceTierSettings{
+		OpenAI: GatewayServiceTierRule{Mode: GatewayServiceTierModeForce, ServiceTier: "fast"},
+	}
+	require.NoError(t, ValidateGatewayServiceTierSettings(settings))
+	require.Equal(t, "priority", settings.OpenAI.ServiceTier)
+
+	// applyGatewayServiceTierRule passes openAI=false, so "fast" must be accepted verbatim.
+	updated, changed, err := applyGatewayServiceTierRule(
+		[]byte(`{"model":"gpt-5"}`),
+		GatewayServiceTierRule{Mode: GatewayServiceTierModeForce, ServiceTier: "fast"},
+		openAIGatewayServiceTierValues,
+	)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "fast", gatewayServiceTierValue(updated))
+}
+
+func TestOpenAIGatewayServiceTierRejectsInvalidValue(t *testing.T) {
+	settings := &GatewayServiceTierSettings{
+		OpenAI: GatewayServiceTierRule{Mode: GatewayServiceTierModeForce, ServiceTier: "turbo"},
+	}
+	require.EqualError(t, ValidateGatewayServiceTierSettings(settings), `openai: invalid service_tier "turbo"`)
+}
+
+// --- Change B: Anthropic speed control ---
+
+func TestDefaultAnthropicSpeedRuleIsDisabled(t *testing.T) {
+	settings := DefaultGatewayServiceTierSettings()
+	require.Equal(t, GatewayServiceTierModeDisabled, settings.AnthropicSpeed.Mode)
+}
+
+func TestValidateAnthropicSpeedRejectsInvalidValue(t *testing.T) {
+	settings := DefaultGatewayServiceTierSettings()
+	settings.AnthropicSpeed = GatewayServiceTierRule{Mode: GatewayServiceTierModeForce, ServiceTier: "priority"}
+	require.EqualError(t, ValidateGatewayServiceTierSettings(settings), `anthropic_speed: invalid service_tier "priority"`)
+
+	valid := DefaultGatewayServiceTierSettings()
+	valid.AnthropicSpeed = GatewayServiceTierRule{Mode: GatewayServiceTierModeForce, ServiceTier: "fast"}
+	require.NoError(t, ValidateGatewayServiceTierSettings(valid))
+}
+
+func newAnthropicSpeedService(t *testing.T, mode, speed string) *GatewayService {
+	t.Helper()
+	repo := &gatewayServiceTierSettingRepoStub{values: map[string]string{
+		SettingKeyGatewayServiceTierSettings: `{"anthropic_speed":{"mode":"` + mode + `","service_tier":"` + speed + `"}}`,
+	}}
+	return &GatewayService{settingService: NewSettingService(repo, nil)}
+}
+
+func anthropicSpeedValue(body []byte) string {
+	return strings.TrimSpace(gjson.GetBytes(body, "speed").String())
+}
+
+func TestApplyConfiguredAnthropicSpeed_DisabledIsNoOp(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-5"}`)
+	svc := newAnthropicSpeedService(t, GatewayServiceTierModeDisabled, "fast")
+	account := &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	updated, err := svc.applyConfiguredAnthropicSpeed(context.TODO(), account, body, "claude-opus-5")
+	require.NoError(t, err)
+	require.Equal(t, string(body), string(updated))
+}
+
+func TestApplyConfiguredAnthropicSpeed_FillMissingPreservesClientSpeed(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-5","speed":"standard"}`)
+	svc := newAnthropicSpeedService(t, GatewayServiceTierModeFillMissing, "fast")
+	account := &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	updated, err := svc.applyConfiguredAnthropicSpeed(context.TODO(), account, body, "claude-opus-5")
+	require.NoError(t, err)
+	require.Equal(t, "standard", anthropicSpeedValue(updated))
+}
+
+func TestApplyConfiguredAnthropicSpeed_FillMissingSetsSpeed(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-5"}`)
+	svc := newAnthropicSpeedService(t, GatewayServiceTierModeFillMissing, "fast")
+	account := &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	updated, err := svc.applyConfiguredAnthropicSpeed(context.TODO(), account, body, "claude-opus-5")
+	require.NoError(t, err)
+	require.Equal(t, "fast", anthropicSpeedValue(updated))
+}
+
+func TestApplyConfiguredAnthropicSpeed_ForceOverwritesSpeed(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","speed":"standard"}`)
+	svc := newAnthropicSpeedService(t, GatewayServiceTierModeForce, "fast")
+	account := &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	updated, err := svc.applyConfiguredAnthropicSpeed(context.TODO(), account, body, "claude-opus-4-8")
+	require.NoError(t, err)
+	require.Equal(t, "fast", anthropicSpeedValue(updated))
+}
+
+func TestApplyConfiguredAnthropicSpeed_FastSkippedForUnsupportedModel(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-5"}`)
+	svc := newAnthropicSpeedService(t, GatewayServiceTierModeForce, "fast")
+	account := &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	updated, err := svc.applyConfiguredAnthropicSpeed(context.TODO(), account, body, "claude-sonnet-4-5")
+	require.NoError(t, err)
+	require.Equal(t, string(body), string(updated))
+}
+
+func TestApplyConfiguredAnthropicSpeed_FastSkippedForBedrockAccount(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-5"}`)
+	svc := newAnthropicSpeedService(t, GatewayServiceTierModeForce, "fast")
+	account := &Account{Platform: PlatformAnthropic, Type: AccountTypeBedrock}
+
+	updated, err := svc.applyConfiguredAnthropicSpeed(context.TODO(), account, body, "claude-opus-5")
+	require.NoError(t, err)
+	require.Equal(t, string(body), string(updated))
+
+	// And the gate itself must refuse fast for a Bedrock account directly.
+	require.False(t, anthropicSpeedAllowsFast(account, "claude-opus-5"))
+	require.True(t, anthropicSpeedAllowsFast(&Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}, "claude-opus-5"))
+	require.False(t, anthropicSpeedAllowsFast(&Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}, "claude-sonnet-4-5"))
+}
+
+func TestApplyConfiguredAnthropicSpeed_StandardAppliedRegardlessOfModel(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-5"}`)
+	svc := newAnthropicSpeedService(t, GatewayServiceTierModeForce, "standard")
+	account := &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}
+
+	updated, err := svc.applyConfiguredAnthropicSpeed(context.TODO(), account, body, "claude-sonnet-4-5")
+	require.NoError(t, err)
+	require.Equal(t, "standard", anthropicSpeedValue(updated))
+}
+
+func TestApplyConfiguredAnthropicSpeed_SkipsNonAPIKeyAccounts(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-5"}`)
+	svc := newAnthropicSpeedService(t, GatewayServiceTierModeForce, "fast")
+	account := &Account{Platform: PlatformAnthropic, Type: AccountTypeServiceAccount}
+
+	updated, err := svc.applyConfiguredAnthropicSpeed(context.TODO(), account, body, "claude-opus-5")
+	require.NoError(t, err)
+	require.Equal(t, string(body), string(updated))
 }
