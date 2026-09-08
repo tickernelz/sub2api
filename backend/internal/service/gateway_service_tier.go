@@ -31,20 +31,37 @@ type GatewayServiceTierRule struct {
 type GatewayServiceTierSettings struct {
 	OpenAI    GatewayServiceTierRule `json:"openai"`
 	Anthropic GatewayServiceTierRule `json:"anthropic"`
+	// AnthropicSpeed controls the SEPARATE top-level Anthropic `speed` request
+	// field, which is what actually selects Anthropic Fast mode. Anthropic's
+	// `service_tier` only accepts auto/standard_only, so fast mode cannot be
+	// expressed through the Anthropic rule above.
+	//
+	// NOTE: this rule reuses GatewayServiceTierRule for shape/UI consistency;
+	// its ServiceTier field carries a SPEED value ("fast" / "standard"), not a
+	// service tier.
+	AnthropicSpeed GatewayServiceTierRule `json:"anthropic_speed"`
 }
 
 var openAIGatewayServiceTierValues = map[string]struct{}{
-	"auto": {}, "default": {}, "flex": {}, "priority": {}, "scale": {},
+	"auto": {}, "default": {}, "fast": {}, "flex": {}, "priority": {}, "scale": {}, "ultrafast": {},
 }
 
 var anthropicGatewayServiceTierValues = map[string]struct{}{
 	"auto": {}, "standard_only": {},
 }
 
+// anthropicGatewaySpeedValues are the accepted values of the Anthropic `speed`
+// request field.
+var anthropicGatewaySpeedValues = map[string]struct{}{
+	"fast": {}, "standard": {},
+}
+
 func DefaultGatewayServiceTierSettings() *GatewayServiceTierSettings {
 	return &GatewayServiceTierSettings{
 		OpenAI:    GatewayServiceTierRule{Mode: GatewayServiceTierModeDisabled, ServiceTier: "auto"},
 		Anthropic: GatewayServiceTierRule{Mode: GatewayServiceTierModeDisabled, ServiceTier: "auto"},
+		// Disabled by default: fast mode is billed at 2x.
+		AnthropicSpeed: GatewayServiceTierRule{Mode: GatewayServiceTierModeDisabled, ServiceTier: "standard"},
 	}
 }
 
@@ -55,7 +72,10 @@ func ValidateGatewayServiceTierSettings(settings *GatewayServiceTierSettings) er
 	if err := normalizeAndValidateGatewayServiceTierRule("openai", &settings.OpenAI, openAIGatewayServiceTierValues, true); err != nil {
 		return err
 	}
-	return normalizeAndValidateGatewayServiceTierRule("anthropic", &settings.Anthropic, anthropicGatewayServiceTierValues, false)
+	if err := normalizeAndValidateGatewayServiceTierRule("anthropic", &settings.Anthropic, anthropicGatewayServiceTierValues, false); err != nil {
+		return err
+	}
+	return normalizeAndValidateGatewayServiceTierRule("anthropic_speed", &settings.AnthropicSpeed, anthropicGatewaySpeedValues, false)
 }
 
 func normalizeAndValidateGatewayServiceTierRule(
@@ -217,5 +237,61 @@ func (s *GatewayService) applyConfiguredAnthropicServiceTier(ctx context.Context
 		return body, nil
 	}
 	updated, _, err := applyGatewayServiceTierRule(body, settings.Anthropic, anthropicGatewayServiceTierValues)
+	return updated, err
+}
+
+// anthropicSpeedAllowsFast is the hard safety gate for forcing Anthropic Fast
+// mode. Fast mode is billed at 2x and unsupported models/platforms hard-error
+// upstream, so we only ever send speed=fast where it genuinely exists.
+func anthropicSpeedAllowsFast(account *Account, model string) bool {
+	if account == nil || account.IsBedrock() {
+		return false
+	}
+	return modelSupportsAnthropicFastMode(model)
+}
+
+// applyGatewayAnthropicSpeedRule mirrors applyGatewayServiceTierRule but writes
+// the top-level `speed` field, and silently skips (no error) when the resolved
+// speed is "fast" on an account/model that does not support fast mode.
+func applyGatewayAnthropicSpeedRule(body []byte, rule GatewayServiceTierRule, account *Account, model string) ([]byte, bool, error) {
+	if err := normalizeAndValidateGatewayServiceTierRule("anthropic_speed", &rule, anthropicGatewaySpeedValues, false); err != nil {
+		return body, false, err
+	}
+	if rule.Mode == GatewayServiceTierModeDisabled {
+		return body, false, nil
+	}
+
+	existing := gjson.GetBytes(body, "speed")
+	hasExisting := existing.Exists() && existing.Type != gjson.Null && strings.TrimSpace(existing.String()) != ""
+	if rule.Mode == GatewayServiceTierModeFillMissing && hasExisting {
+		return body, false, nil
+	}
+
+	// Safety gate: never force fast where the upstream cannot honor it.
+	if rule.ServiceTier == "fast" && !anthropicSpeedAllowsFast(account, model) {
+		return body, false, nil
+	}
+
+	updated, err := sjson.SetBytes(body, "speed", rule.ServiceTier)
+	if err != nil {
+		return body, false, fmt.Errorf("set speed: %w", err)
+	}
+	return updated, true, nil
+}
+
+// applyConfiguredAnthropicSpeed applies the configured Anthropic speed rule to
+// Anthropic API-key gateway requests. Settings failures fail open.
+func (s *GatewayService) applyConfiguredAnthropicSpeed(ctx context.Context, account *Account, body []byte, model string) ([]byte, error) {
+	if s == nil || s.settingService == nil || account == nil || account.Platform != PlatformAnthropic || account.Type != AccountTypeAPIKey {
+		return body, nil
+	}
+	settings, err := s.settingService.GetGatewayServiceTierSettings(ctx)
+	if err != nil || settings == nil {
+		if err != nil {
+			slog.Warn("gateway service tier settings unavailable; preserving Anthropic request", "error", err)
+		}
+		return body, nil
+	}
+	updated, _, err := applyGatewayAnthropicSpeedRule(body, settings.AnthropicSpeed, account, model)
 	return updated, err
 }
