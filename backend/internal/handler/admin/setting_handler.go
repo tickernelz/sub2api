@@ -470,6 +470,10 @@ func gatewayServiceTierSettingsToDTO(s *service.GatewayServiceTierSettings) *dto
 			Mode:        s.Anthropic.Mode,
 			ServiceTier: s.Anthropic.ServiceTier,
 		},
+		AnthropicSpeed: dto.GatewayServiceTierRule{
+			Mode:        s.AnthropicSpeed.Mode,
+			ServiceTier: s.AnthropicSpeed.ServiceTier,
+		},
 	}
 }
 
@@ -485,6 +489,10 @@ func gatewayServiceTierSettingsFromDTO(s *dto.GatewayServiceTierSettings) *servi
 		Anthropic: service.GatewayServiceTierRule{
 			Mode:        s.Anthropic.Mode,
 			ServiceTier: s.Anthropic.ServiceTier,
+		},
+		AnthropicSpeed: service.GatewayServiceTierRule{
+			Mode:        s.AnthropicSpeed.Mode,
+			ServiceTier: s.AnthropicSpeed.ServiceTier,
 		},
 	}
 }
