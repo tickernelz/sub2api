@@ -190,21 +190,27 @@ describe('admin AccountsView OpenAI OAuth reauth warning', () => {
   })
 
   it('shows the reauth reason at the top of the account action menu', () => {
+    // Upstream df64b5f36 replaced the `position: {top,left}` prop with
+    // `anchorRect: DOMRect` and gates rendering on `show && anchorRect`, and the
+    // menu body is teleported to document.body — so assert against the body text
+    // rather than the wrapper, matching upstream's own AccountActionMenu specs.
     const wrapper = mount(AccountActionMenu, {
       props: {
         show: true,
         account: reauthRequiredAccount,
-        position: { top: 10, left: 10 }
+        anchorRect: new DOMRect(100, 100, 24, 24)
       },
+      attachTo: document.body,
       global: {
         stubs: {
-          Teleport: true,
           Icon: true
         }
       }
     })
 
-    expect(wrapper.text()).toContain('admin.accounts.openai.refreshTokenReauthRequired')
-    expect(wrapper.text()).toContain('admin.accounts.openai.refreshTokenReauthActionHint')
+    const bodyText = document.body.textContent ?? ''
+    expect(bodyText).toContain('admin.accounts.openai.refreshTokenReauthRequired')
+    expect(bodyText).toContain('admin.accounts.openai.refreshTokenReauthActionHint')
+    wrapper.unmount()
   })
 })
