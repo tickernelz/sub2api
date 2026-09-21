@@ -294,6 +294,7 @@ jobs:
 
       # Update DockerHub description
       - name: Update DockerHub description
+        continue-on-error: true
         if: ${{ env.DRY_RUN != 'true' && env.SIMPLE_RELEASE != 'true' && env.DOCKERHUB_USERNAME != '' }}
         uses: peter-evans/dockerhub-description@v5
         env:
