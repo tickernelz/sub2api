@@ -194,17 +194,19 @@ describe('admin AccountsView OpenAI OAuth reauth warning', () => {
       props: {
         show: true,
         account: reauthRequiredAccount,
-        position: { top: 10, left: 10 }
+        anchorRect: new DOMRect(100, 100, 24, 24)
       },
+      attachTo: document.body,
       global: {
         stubs: {
-          Teleport: true,
           Icon: true
         }
       }
     })
 
-    expect(wrapper.text()).toContain('admin.accounts.openai.refreshTokenReauthRequired')
-    expect(wrapper.text()).toContain('admin.accounts.openai.refreshTokenReauthActionHint')
+    const bodyText = document.body.textContent ?? ''
+    expect(bodyText).toContain('admin.accounts.openai.refreshTokenReauthRequired')
+    expect(bodyText).toContain('admin.accounts.openai.refreshTokenReauthActionHint')
+    wrapper.unmount()
   })
 })
