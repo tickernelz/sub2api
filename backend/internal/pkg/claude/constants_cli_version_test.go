@@ -14,6 +14,7 @@ import (
 //	claude_code_version_too_old
 //	"Claude Code <ver> does not support this model; version 2.1.251 or newer is required."
 const fable51MinCLIVersion = "2.1.251"
+const opus55MinCLIVersion = "2.1.280"
 
 // TestCLICurrentVersionMatchesDefaultUserAgent 锁定"常量与 UA 同源"这条约束。
 // 两者不一致会被 Anthropic 判为第三方客户端，且只改一处是历史上的常见疏漏，
@@ -43,6 +44,14 @@ func TestCLICurrentVersionSatisfiesFable51Gate(t *testing.T) {
 	require.GreaterOrEqual(t, compareSemver(t, CLICurrentVersion, fable51MinCLIVersion), 0,
 		"CLICurrentVersion %s is below the claude-fable-5-1 gate %s",
 		CLICurrentVersion, fable51MinCLIVersion)
+}
+
+func TestCLICurrentVersionSatisfiesOpus55Gate(t *testing.T) {
+	t.Parallel()
+
+	require.GreaterOrEqual(t, compareSemver(t, CLICurrentVersion, opus55MinCLIVersion), 0,
+		"CLICurrentVersion %s is below the claude-opus-5-5 gate %s",
+		CLICurrentVersion, opus55MinCLIVersion)
 }
 
 // compareSemver 比较两个三段 semver，返回 -1 / 0 / 1。
