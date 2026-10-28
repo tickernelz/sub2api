@@ -30,9 +30,30 @@ Usage is camelCase (`inputTokens`, `outputTokens`, `cacheReadInputTokens`, `cach
 
 `perch.Handler` serves `POST /v1/chat/completions` and `GET /v1/models` from a `CredentialSource`. Mount it behind the platform router once the platform is registered; `Client.Health` is the account health check (`/api/perchai/account` -> plan, entitlements, allowed models).
 
+## Model selection
+
+Perch does not take an OpenAI model name: the captured CLI keeps `preferredModelId` null and picks a model with `roostModelChoice` (`standard`, `standardMax`, `pro`, `proMax`; default `standardMax`) or `manualModelOptionId`, a catalogue id such as `wandb-kimi-k2-6`. `chat.go` maps tier aliases (`standard`, `standard_max`, `Standard 1M`, `pro`, `PRO_MAX`, ...), sends any other id as a manual pin with `strictManual: true`, and falls back to `standardMax` when the request names no model. Roost reroutes server-side, so the model that answers is taken from `done.model`; non-streaming responses report it as `model` and echo it in `x-perch-upstream-model` when it differs from the request. Attribution (`userId`, `workspaceId`, `runId`, `lane`, `source`) is filled from `/api/perchai/account` and cached for ten minutes.
+
+## Error mapping
+
+| Upstream | Client status | Retried |
+| --- | --- | --- |
+| `not_authenticated` | 401 | once, after a session refresh |
+| `perch_surface_required` | 403 | never |
+| `usage_limit_reached`, `turn_rate_limited`, `limitKind.roost_*` | 429 with `Retry-After` from `limit.resetAt` | never |
+| `context_overflow` | 400 | never |
+| `plan_required` | 402 | never |
+| `model_blocked` | 403 | never |
+| `provider_not_configured` | 400 | never |
+| `stream_interrupted`, transport failures, upstream 5xx | 502 | once for 408/425/5xx |
+
+A stream that closes without a `done` event is reported as `stream_interrupted` and never closed with `[DONE]`. A failed turn-ticket mint refreshes the session and mints again instead of calling the model proxy without a ticket.
+
 ## Access restriction
 
 Perch plans grant hosted models for the official surfaces only. Calling the model proxy from a third-party gateway is rejected with HTTP 403 `perch_surface_required`: "Your plan includes Perch-hosted models for use in Perch AI Web, Desktop, and CLI only. Direct API access is not included. Repeated direct-access attempts may result in account suspension." Do not ship this provider to end users without written access from Perch; keep the adapter for research use until then.
+
+Evidence gathered on 2026-10-28/29 (notes: `~/re/perchai/notes/p5-reconciliation.md`): the refusal persists with a fresh turn ticket, real attribution and the documented headers, while the official CLI gets 200 on the same account. Removing ticket-presence and attribution as causes leaves client identity (delta mode, browser-style headers, the CLI turn-context body, TLS/HTTP fingerprint) as the only difference, and closing that gap means impersonating the official client. Do not attempt it.
 
 ## Tests
 

@@ -207,6 +207,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, stream *ModelCallStream,
 	}
 
 	if settled == nil {
+		apiErr := &APIError{Status: http.StatusBadGateway, Code: CodeStreamInterrupted, Message: "perch stream ended without a done event"}
+		if payload, err := json.Marshal(map[string]any{"error": errorEnvelope(apiErr)}); err == nil {
+			fmt.Fprintf(w, "data: %s\n\n", payload)
+		}
 		return
 	}
 	if !settled.OK {

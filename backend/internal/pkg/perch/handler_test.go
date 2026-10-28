@@ -194,6 +194,24 @@ func TestHandlerRejectsNonPostChat(t *testing.T) {
 	}
 }
 
+func TestHandlerStreamsErrorWhenDoneNeverArrives(t *testing.T) {
+	streamBody := []byte("data: {\"type\":\"answer_delta\",\"text\":\"partial\"}\n\n")
+	server := newPerchTestServer(t, perchTestOptions{StreamBody: streamBody})
+	handler := newTestHandler(server)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(chatRequestBody(t, true))))
+	handler.ServeHTTP(recorder, request)
+
+	body := recorder.Body.String()
+	if !strings.Contains(body, "stream_interrupted") {
+		t.Fatalf("stream body = %s", body)
+	}
+	if strings.Contains(body, "[DONE]") {
+		t.Fatalf("interrupted stream must not close with [DONE]: %s", body)
+	}
+}
+
 func TestHandlerSetsRetryAfterFromLimitReset(t *testing.T) {
 	resetAt := time.Now().Add(90 * time.Second).UTC().Format(time.RFC3339)
 	errorBody := []byte(`{"ok":false,"error":"usage limit reached","errorCode":"usage_limit_reached","limit":{"limitKind":"usage_limit","plan":"pilot","resetAt":"` + resetAt + `"}}`)

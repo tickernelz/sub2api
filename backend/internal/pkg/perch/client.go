@@ -353,7 +353,7 @@ func CollectOutcome(stream *ModelCallStream) (*Outcome, error) {
 		}
 	}
 	if outcome == nil {
-		return nil, &APIError{Status: http.StatusBadGateway, Code: CodeAPIError, Message: "perch stream ended without a done event"}
+		return nil, &APIError{Status: http.StatusBadGateway, Code: CodeStreamInterrupted, Message: "perch stream ended without a done event"}
 	}
 	if !outcome.OK {
 		code := outcome.ErrorCode

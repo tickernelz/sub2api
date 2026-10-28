@@ -210,6 +210,25 @@ func TestModelCallRefreshesWhenTicketMintIsRejected(t *testing.T) {
 	}
 }
 
+func TestCollectOutcomeRejectsStreamWithoutDone(t *testing.T) {
+	streamBody := []byte("data: {\"type\":\"answer_delta\",\"text\":\"partial\"}\n\n")
+	server := newPerchTestServer(t, perchTestOptions{StreamBody: streamBody})
+	session := NewSession(testCredentials(server.URL), WithHTTPClient(server.Client()))
+	client := NewClient(session)
+
+	_, err := client.CallModel(context.Background(), ModelCallRequest{})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want *APIError", err)
+	}
+	if apiErr.Code != CodeStreamInterrupted {
+		t.Fatalf("code = %q, want %q", apiErr.Code, CodeStreamInterrupted)
+	}
+	if got := apiErr.HTTPStatus(); got != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", got)
+	}
+}
+
 func TestCollectOutcomeResetsAfterStreamRestart(t *testing.T) {
 	streamBody := []byte("data: {\"type\":\"answer_delta\",\"text\":\"abc\"}\n\n" +
 		"data: {\"type\":\"stream_restart\",\"reason\":\"same_model_resend\"}\n\n" +
