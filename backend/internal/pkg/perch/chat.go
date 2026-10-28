@@ -20,6 +20,14 @@ type CallOptions struct {
 }
 
 // BuildModelCallRequest converts an OpenAI Chat Completions request into a Perch model call.
+const (
+	RoostStandard    = "standard"
+	RoostStandardMax = "standardMax"
+	RoostPro         = "pro"
+	RoostProMax      = "proMax"
+	DefaultRoostTier = RoostStandardMax
+)
+
 func BuildModelCallRequest(req *apicompat.ChatCompletionsRequest, opts CallOptions) (ModelCallRequest, error) {
 	if req == nil {
 		return ModelCallRequest{}, fmt.Errorf("perch: chat request is required")
@@ -51,11 +59,6 @@ func BuildModelCallRequest(req *apicompat.ChatCompletionsRequest, opts CallOptio
 		maxTokens = req.MaxCompletionTokens
 	}
 
-	modelID := strings.TrimSpace(opts.PreferredModelID)
-	if modelID == "" {
-		modelID = strings.TrimSpace(req.Model)
-	}
-
 	call := ModelCallRequest{
 		Request: ChatRequest{
 			Messages:    messages,
@@ -64,17 +67,61 @@ func BuildModelCallRequest(req *apicompat.ChatCompletionsRequest, opts CallOptio
 			MaxTokens:   maxTokens,
 			ToolChoice:  req.ToolChoice,
 		},
-		RunID:            strings.TrimSpace(opts.RunID),
-		Lane:             firstNonEmpty(strings.TrimSpace(opts.Lane), DefaultLane),
-		PreferredModelID: modelID,
-		AvoidModelIDs:    opts.AvoidModelIDs,
-		Attribution:      opts.Attribution,
-		ClientSurface:    firstNonEmpty(strings.TrimSpace(opts.ClientSurface), ClientSurfaceCLI),
+		RunID:         strings.TrimSpace(opts.RunID),
+		Lane:          firstNonEmpty(strings.TrimSpace(opts.Lane), DefaultLane),
+		AvoidModelIDs: opts.AvoidModelIDs,
+		Attribution:   opts.Attribution,
+		ClientSurface: firstNonEmpty(strings.TrimSpace(opts.ClientSurface), ClientSurfaceCLI),
 	}
 	if call.AvoidModelIDs == nil {
 		call.AvoidModelIDs = []string{}
 	}
+	applyModelSelection(&call, strings.TrimSpace(opts.PreferredModelID), strings.TrimSpace(req.Model))
 	return call, nil
+}
+
+func applyModelSelection(call *ModelCallRequest, preferred, requested string) {
+	if call == nil {
+		return
+	}
+	if preferred != "" {
+		call.PreferredModelID = preferred
+		return
+	}
+	if tier, ok := roostTierFor(requested); ok {
+		call.RoostModelChoice = tier
+		return
+	}
+	if requested != "" {
+		call.ManualModelOptionID = requested
+		call.StrictManual = true
+		return
+	}
+	call.RoostModelChoice = DefaultRoostTier
+}
+
+func roostTierFor(model string) (string, bool) {
+	normalized := strings.Map(func(r rune) rune {
+		switch r {
+		case '-', '_', ' ':
+			return -1
+		}
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, model)
+	switch normalized {
+	case "standard":
+		return RoostStandard, true
+	case "standardmax", "standard1m":
+		return RoostStandardMax, true
+	case "pro":
+		return RoostPro, true
+	case "promax", "pro1m":
+		return RoostProMax, true
+	}
+	return "", false
 }
 
 // UsageToChat converts Perch token accounting into OpenAI usage.

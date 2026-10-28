@@ -38,8 +38,11 @@ func TestBuildModelCallRequestCarriesConversationAndOptions(t *testing.T) {
 	if call.RunID != "run-1" || call.Lane != LaneChat || call.ClientSurface != ClientSurfaceCLI {
 		t.Fatalf("call envelope = %#v", call)
 	}
-	if call.PreferredModelID != "wandb-kimi-k2-6" {
-		t.Fatalf("preferredModelId = %q", call.PreferredModelID)
+	if call.ManualModelOptionID != "wandb-kimi-k2-6" || !call.StrictManual {
+		t.Fatalf("manualModelOptionId = %q strictManual = %v", call.ManualModelOptionID, call.StrictManual)
+	}
+	if call.RoostModelChoice != "" || call.PreferredModelID != "" {
+		t.Fatalf("tier = %q preferred = %q", call.RoostModelChoice, call.PreferredModelID)
 	}
 	if call.Attribution == nil || call.Attribution.UserID != "user-1" {
 		t.Fatalf("attribution = %#v", call.Attribution)
@@ -68,6 +71,64 @@ func TestBuildModelCallRequestCarriesConversationAndOptions(t *testing.T) {
 	}
 	if strings.Contains(string(encoded), "max_tokens") {
 		t.Fatalf("call must use Perch camelCase maxTokens: %s", encoded)
+	}
+}
+
+func TestBuildModelCallRequestMapsTierAliases(t *testing.T) {
+	cases := map[string]string{
+		"standard":     RoostStandard,
+		"standard_max": RoostStandardMax,
+		"Standard 1M":  RoostStandardMax,
+		"pro":          RoostPro,
+		"PRO_MAX":      RoostProMax,
+	}
+	for model, want := range cases {
+		req := testChatRequest()
+		req.Model = model
+		call, err := BuildModelCallRequest(req, CallOptions{})
+		if err != nil {
+			t.Fatalf("BuildModelCallRequest(%q): %v", model, err)
+		}
+		if call.RoostModelChoice != want {
+			t.Fatalf("model %q tier = %q, want %q", model, call.RoostModelChoice, want)
+		}
+		if call.ManualModelOptionID != "" || call.StrictManual {
+			t.Fatalf("model %q pinned manually: %q strict=%v", model, call.ManualModelOptionID, call.StrictManual)
+		}
+	}
+}
+
+func TestBuildModelCallRequestPinsUnknownModelManually(t *testing.T) {
+	req := testChatRequest()
+	req.Model = "deepseek/deepseek-v4.1-flash"
+	call, err := BuildModelCallRequest(req, CallOptions{})
+	if err != nil {
+		t.Fatalf("BuildModelCallRequest: %v", err)
+	}
+	if call.ManualModelOptionID != "deepseek/deepseek-v4.1-flash" || !call.StrictManual {
+		t.Fatalf("manualModelOptionId = %q strictManual = %v", call.ManualModelOptionID, call.StrictManual)
+	}
+	if call.RoostModelChoice != "" {
+		t.Fatalf("tier = %q, want empty", call.RoostModelChoice)
+	}
+	encoded, err := json.Marshal(call)
+	if err != nil {
+		t.Fatalf("encode call: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"manualModelOptionId":"deepseek/deepseek-v4.1-flash"`) || !strings.Contains(string(encoded), `"strictManual":true`) {
+		t.Fatalf("encoded call = %s", encoded)
+	}
+}
+
+func TestBuildModelCallRequestDefaultsToStandardMax(t *testing.T) {
+	req := testChatRequest()
+	req.Model = ""
+	call, err := BuildModelCallRequest(req, CallOptions{})
+	if err != nil {
+		t.Fatalf("BuildModelCallRequest: %v", err)
+	}
+	if call.RoostModelChoice != DefaultRoostTier {
+		t.Fatalf("tier = %q, want %q", call.RoostModelChoice, DefaultRoostTier)
 	}
 }
 

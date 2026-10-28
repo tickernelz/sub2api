@@ -27,14 +27,16 @@ const (
 
 // ModelCallRequest is the wire body for POST /api/perch-terminal/model-call.
 type ModelCallRequest struct {
-	Request          ChatRequest  `json:"request"`
-	RunID            string       `json:"runId"`
-	Lane             string       `json:"lane"`
-	StrictManual     bool         `json:"strictManual"`
-	PreferredModelID string       `json:"preferredModelId,omitempty"`
-	AvoidModelIDs    []string     `json:"avoidModelIds"`
-	Attribution      *Attribution `json:"attribution,omitempty"`
-	ClientSurface    string       `json:"clientSurface,omitempty"`
+	Request             ChatRequest  `json:"request"`
+	RunID               string       `json:"runId"`
+	Lane                string       `json:"lane"`
+	StrictManual        bool         `json:"strictManual"`
+	PreferredModelID    string       `json:"preferredModelId,omitempty"`
+	RoostModelChoice    string       `json:"roostModelChoice,omitempty"`
+	ManualModelOptionID string       `json:"manualModelOptionId,omitempty"`
+	AvoidModelIDs       []string     `json:"avoidModelIds"`
+	Attribution         *Attribution `json:"attribution,omitempty"`
+	ClientSurface       string       `json:"clientSurface,omitempty"`
 }
 
 // ChatRequest carries the conversation the Perch router should answer.
