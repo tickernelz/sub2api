@@ -20,6 +20,23 @@ func fixture(t *testing.T, name string) []byte {
 	return raw
 }
 
+func freshExpiry(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return raw
+	}
+	if _, ok := payload["expires_at"]; !ok {
+		return raw
+	}
+	payload["expires_at"] = time.Now().Add(time.Hour).Unix()
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return raw
+	}
+	return encoded
+}
+
 func writeFixtureJSON(t *testing.T, w http.ResponseWriter, status int, raw []byte) {
 	t.Helper()
 	w.Header().Set("content-type", "application/json")
@@ -42,14 +59,15 @@ func decodeBody(t *testing.T, r *http.Request, out any) {
 
 type perchTestServer struct {
 	*httptest.Server
-	configHits   int
-	ticketHits   int
-	modelHits    int
-	refreshHits  int
-	accountHits  int
-	lastModelReq ModelCallRequest
-	lastTicket   map[string]string
-	lastHeaders  http.Header
+	configHits        int
+	ticketHits        int
+	modelHits         int
+	refreshHits       int
+	accountHits       int
+	lastModelReq      ModelCallRequest
+	lastTicket        map[string]string
+	lastTicketHeaders http.Header
+	lastHeaders       http.Header
 }
 
 type perchTestOptions struct {
@@ -107,7 +125,7 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 		if r.Header.Get("apikey") == "" {
 			t.Errorf("refresh request missing apikey header")
 		}
-		writeFixtureJSON(t, w, refreshStatus, refreshBody)
+		writeFixtureJSON(t, w, refreshStatus, freshExpiry(t, refreshBody))
 	})
 	mux.HandleFunc("/api/perch-terminal/turn-ticket", func(w http.ResponseWriter, r *http.Request) {
 		ts.ticketHits++
@@ -118,6 +136,7 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 		body := map[string]string{}
 		decodeBody(t, r, &body)
 		ts.lastTicket = body
+		ts.lastTicketHeaders = r.Header.Clone()
 		payload, err := json.Marshal(map[string]any{
 			"ok":        true,
 			"ticket":    "ticket-value",

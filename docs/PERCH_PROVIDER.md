@@ -49,6 +49,25 @@ Perch does not take an OpenAI model name: the captured CLI keeps `preferredModel
 
 A stream that closes without a `done` event is reported as `stream_interrupted` and never closed with `[DONE]`. A failed turn-ticket mint refreshes the session and mints again instead of calling the model proxy without a ticket.
 
+## Client identity
+
+Perch only serves hosted models to its own surfaces, so the adapter presents the same client identity the official CLI does, the way the codex and claude providers already do for their upstreams:
+
+| Piece | Value |
+| --- | --- |
+| `User-Agent` | `perchai-cli/<version>`; `PERCH_CLI_VERSION` overrides it, strict semver only |
+| `x-perch-locale` | `en` |
+| `x-perch-call-delta` | `1` on model calls only |
+| `accept-language`, `sec-fetch-mode` | `*`, `cors` |
+| `Accept-Encoding` | `br, gzip, deflate` on model calls, decoded by `encoding.go` |
+| turn context | a `<perch_turn_context>` user message with today's date, inserted after any system messages |
+
+`identity.go` resolves the version once per process, so the header cannot change between requests. All outbound Perch calls go through one header applier; the turn ticket request deliberately omits delta mode.
+
+## Session ownership
+
+Do not point this provider at the session file the CLI is using. Supabase refresh tokens rotate, and a second client refreshing the same token can revoke the token family: after the adapter refreshed `~/.perch/cli-auth-session.json` once more, both the adapter and the official CLI started answering `401 not_authenticated` / `Not authorized` on that session. Import a snapshot of the session at account creation (copy the file, then let the adapter own the copy) and keep the CLI session separate.
+
 ## Access restriction
 
 Perch plans grant hosted models for the official surfaces only. Calling the model proxy from a third-party gateway is rejected with HTTP 403 `perch_surface_required`: "Your plan includes Perch-hosted models for use in Perch AI Web, Desktop, and CLI only. Direct API access is not included. Repeated direct-access attempts may result in account suspension." Do not ship this provider to end users without written access from Perch; keep the adapter for research use until then.

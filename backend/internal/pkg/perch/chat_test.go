@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 )
@@ -50,8 +51,15 @@ func TestBuildModelCallRequestCarriesConversationAndOptions(t *testing.T) {
 	if call.AvoidModelIDs == nil {
 		t.Fatalf("avoidModelIds must serialize as []")
 	}
-	if len(call.Request.Messages) != 2 || len(call.Request.Tools) != 1 {
+	if len(call.Request.Messages) != 3 || len(call.Request.Tools) != 1 {
 		t.Fatalf("messages=%d tools=%d", len(call.Request.Messages), len(call.Request.Tools))
+	}
+	if got := messageRoles(t, call.Request.Messages); got[0] != "system" || got[1] != "user" || got[2] != "user" {
+		t.Fatalf("roles = %v, want system,user,user", got)
+	}
+	context := messageText(t, call.Request.Messages[1])
+	if !strings.Contains(context, "<perch_turn_context>") || !strings.Contains(context, time.Now().Format("2006-01-02")) {
+		t.Fatalf("turn context = %q", context)
 	}
 	if call.Request.MaxTokens == nil || *call.Request.MaxTokens != 32000 {
 		t.Fatalf("maxTokens = %v", call.Request.MaxTokens)
@@ -72,6 +80,46 @@ func TestBuildModelCallRequestCarriesConversationAndOptions(t *testing.T) {
 	if strings.Contains(string(encoded), "max_tokens") {
 		t.Fatalf("call must use Perch camelCase maxTokens: %s", encoded)
 	}
+}
+
+func messageRoles(t *testing.T, messages []json.RawMessage) []string {
+	t.Helper()
+	roles := make([]string, 0, len(messages))
+	for _, raw := range messages {
+		var probe struct {
+			Role string `json:"role"`
+		}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			t.Fatalf("decode message role: %v", err)
+		}
+		roles = append(roles, probe.Role)
+	}
+	return roles
+}
+
+func messageText(t *testing.T, raw json.RawMessage) string {
+	t.Helper()
+	var probe struct {
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		t.Fatalf("decode message content: %v", err)
+	}
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(probe.Content, &parts); err == nil && len(parts) > 0 {
+		var builder strings.Builder
+		for _, part := range parts {
+			_, _ = builder.WriteString(part.Text)
+		}
+		return builder.String()
+	}
+	var plain string
+	if err := json.Unmarshal(probe.Content, &plain); err != nil {
+		t.Fatalf("decode message text: %v", err)
+	}
+	return plain
 }
 
 func TestBuildModelCallRequestMapsTierAliases(t *testing.T) {

@@ -54,8 +54,8 @@ func TestAccessTokenRefreshesInsideSkewAndPersists(t *testing.T) {
 	if got.RefreshToken != "refresh-after-rotate" {
 		t.Fatalf("refresh token = %q, want rotated value", got.RefreshToken)
 	}
-	if got.ExpiresAt != 1793212800 {
-		t.Fatalf("expires_at = %d, want 1793212800", got.ExpiresAt)
+	if remaining := time.Until(time.Unix(got.ExpiresAt, 0)); remaining < 50*time.Minute || remaining > 70*time.Minute {
+		t.Fatalf("expires_at = %d, want about an hour from now", got.ExpiresAt)
 	}
 	if persisted.Load() == nil || persisted.Load().AccessToken != "access-after-refresh" {
 		t.Fatalf("persist hook did not receive refreshed credentials")

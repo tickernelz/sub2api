@@ -13,12 +13,11 @@ import (
 )
 
 const (
-	modelCallPath         = "/api/perch-terminal/model-call"
-	turnTicketPath        = "/api/perch-terminal/turn-ticket"
-	accountPath           = "/api/perchai/account"
-	ProtocolClientVersion = "2.4.120"
-	ticketRenewSkew       = 30 * time.Second
-	accountTTL            = 10 * time.Minute
+	modelCallPath   = "/api/perch-terminal/model-call"
+	turnTicketPath  = "/api/perch-terminal/turn-ticket"
+	accountPath     = "/api/perchai/account"
+	ticketRenewSkew = 30 * time.Second
+	accountTTL      = 10 * time.Minute
 )
 
 // Client speaks the authenticated Perch terminal API on behalf of one session.
@@ -269,8 +268,8 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 		httpReq.Header.Set("content-type", "application/json")
 		httpReq.Header.Set("accept", "text/event-stream")
 		httpReq.Header.Set("authorization", "Bearer "+token)
-		httpReq.Header.Set("user-agent", "perchai-cli/"+ProtocolClientVersion)
-		httpReq.Header.Set("x-perch-locale", "en")
+		applyIdentityHeaders(httpReq, true)
+		httpReq.Header.Set("accept-encoding", "br, gzip, deflate")
 		httpReq.Header.Set("x-perch-turn-ticket", ticket.Ticket)
 
 		resp, err := c.http.Do(httpReq)
@@ -278,6 +277,12 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 			return nil, fmt.Errorf("perch: model call: %w", err)
 		}
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			decoded, err := decodeResponseBody(resp)
+			if err != nil {
+				_ = resp.Body.Close()
+				return nil, fmt.Errorf("perch: decode model call body: %w", err)
+			}
+			resp.Body = decoded
 			return resp, nil
 		}
 
@@ -489,8 +494,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 		req.Header.Set("content-type", "application/json")
 	}
 	req.Header.Set("authorization", "Bearer "+token)
-	req.Header.Set("user-agent", "perchai-cli/"+ProtocolClientVersion)
-	req.Header.Set("x-perch-locale", "en")
+	applyIdentityHeaders(req, false)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
