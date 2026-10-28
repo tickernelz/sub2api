@@ -97,7 +97,7 @@ func LoadCredentialsFile(path string) (Credentials, error) {
 	if err := json.Unmarshal(raw, &file); err != nil {
 		return Credentials{}, fmt.Errorf("perch: parse session file: %w", err)
 	}
-	creds := file.Credentials.normalized()
+	creds := file.normalized()
 	if err := creds.Validate(); err != nil {
 		return Credentials{}, err
 	}

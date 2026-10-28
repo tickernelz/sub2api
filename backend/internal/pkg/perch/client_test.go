@@ -63,7 +63,7 @@ func TestOpenModelCallSendsProtocolHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenModelCall: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if got := server.lastHeaders.Get("authorization"); got != "Bearer access-token" {
 		t.Fatalf("authorization = %q", got)
@@ -96,7 +96,7 @@ func TestModelCallRefreshesOnUnauthorized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenModelCall after refresh: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if server.modelHits != 2 {
 		t.Fatalf("model hits = %d, want 2", server.modelHits)
@@ -194,7 +194,7 @@ func TestModelCallRefreshesWhenTicketMintIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenModelCall after ticket refresh: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	if server.ticketHits != 2 {
 		t.Fatalf("ticket hits = %d, want 2", server.ticketHits)

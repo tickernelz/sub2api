@@ -160,24 +160,33 @@ func (c *Client) TurnTicket(ctx context.Context, surface, profile string) (Ticke
 
 	body := map[string]string{"surface": surface, "profile": profile}
 	var payload struct {
-		Ticket
-		OK    bool   `json:"ok"`
-		Error string `json:"error"`
+		Ticket    string `json:"ticket"`
+		TicketID  string `json:"ticketId"`
+		RunID     string `json:"runId"`
+		Profile   string `json:"profile"`
+		ExpiresAt string `json:"expiresAt"`
+		Enforced  bool   `json:"enforced"`
 	}
 	if err := c.doJSON(ctx, http.MethodPost, turnTicketPath, body, &payload); err != nil {
 		return Ticket{}, err
 	}
-	if strings.TrimSpace(payload.Ticket.Ticket) == "" {
+	if strings.TrimSpace(payload.Ticket) == "" {
 		return Ticket{}, &APIError{Status: http.StatusBadGateway, Code: CodeAPIError, Message: "turn ticket response carried no ticket"}
 	}
 	expires := c.now().Add(5 * time.Minute)
-	if strings.TrimSpace(payload.Ticket.ExpiresAt) != "" {
-		if parsed, err := time.Parse(time.RFC3339, payload.Ticket.ExpiresAt); err == nil {
+	if strings.TrimSpace(payload.ExpiresAt) != "" {
+		if parsed, err := time.Parse(time.RFC3339, payload.ExpiresAt); err == nil {
 			expires = parsed
 		}
 	}
-	ticket := payload.Ticket
-	ticket.ExpiresAt = expires.UTC().Format(time.RFC3339)
+	ticket := Ticket{
+		Ticket:    payload.Ticket,
+		TicketID:  payload.TicketID,
+		RunID:     payload.RunID,
+		Profile:   payload.Profile,
+		Enforced:  payload.Enforced,
+		ExpiresAt: expires.UTC().Format(time.RFC3339),
+	}
 
 	c.mu.Lock()
 	c.tickets[key] = ticketEntry{ticket: ticket, fetchedAt: c.now(), expiresAt: expires}
@@ -273,7 +282,7 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 		}
 
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if readErr != nil {
 			return nil, fmt.Errorf("perch: read model call error: %w", readErr)
 		}
@@ -312,7 +321,7 @@ func (c *Client) CallModel(ctx context.Context, req ModelCallRequest) (*Outcome,
 	if err != nil {
 		return nil, err
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	return CollectOutcome(stream)
 }
 
@@ -332,9 +341,9 @@ func CollectOutcome(stream *ModelCallStream) (*Outcome, error) {
 		}
 		switch event.Type {
 		case EventAnswerDelta:
-			text.WriteString(body.Text)
+			_, _ = text.WriteString(body.Text)
 		case EventReasoningDelta:
-			reasoning.WriteString(body.Text)
+			_, _ = reasoning.WriteString(body.Text)
 		case EventToolCallDelta, EventToolUseEnd:
 			toolCalls = mergeToolCalls(toolCalls, body.ToolCalls)
 		case EventStreamRestart:
@@ -487,7 +496,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 	if err != nil {
 		return fmt.Errorf("perch: %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return fmt.Errorf("perch: read %s: %w", path, err)

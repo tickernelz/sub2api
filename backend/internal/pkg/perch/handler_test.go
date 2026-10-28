@@ -72,7 +72,7 @@ func TestHandlerStreamsOpenAIChunks(t *testing.T) {
 		}
 		for _, choice := range chunk.Choices {
 			if choice.Delta.Content != nil {
-				text.WriteString(*choice.Delta.Content)
+				_, _ = text.WriteString(*choice.Delta.Content)
 			}
 		}
 		if chunk.Usage != nil {

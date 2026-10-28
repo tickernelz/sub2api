@@ -14,7 +14,7 @@ func TestModelCallSendsAttributionFromAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenModelCall: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	attribution := server.lastModelReq.Attribution
 	if attribution == nil {
@@ -40,7 +40,7 @@ func TestModelCallSendsAttributionFromAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second OpenModelCall: %v", err)
 	}
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 	if server.accountHits != 1 {
 		t.Fatalf("account lookups after second call = %d, want cached 1", server.accountHits)
 	}
@@ -55,7 +55,7 @@ func TestModelCallSkipsAttributionWhenAccountFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenModelCall must still run without attribution: %v", err)
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	if server.lastModelReq.Attribution != nil {
 		t.Fatalf("attribution must stay empty when the account lookup yields nothing: %#v", server.lastModelReq.Attribution)
 	}

@@ -132,7 +132,7 @@ func (h *Handler) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	responseID := "chatcmpl-" + strings.TrimPrefix(call.RunID, "tkt-cli-")
 	includeUsage := req.StreamOptions != nil && req.StreamOptions.IncludeUsage
@@ -240,7 +240,7 @@ func (h *Handler) client(ctx context.Context) (*Client, error) {
 	}
 
 	key := firstNonEmpty(creds.AppURL, DefaultAppURL) + "|" + firstNonEmpty(creds.UserID, creds.Email, creds.AccessToken)
-	var doer Doer = h.http
+	doer := h.http
 	now := h.now
 
 	h.mu.Lock()

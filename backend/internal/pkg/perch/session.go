@@ -197,7 +197,7 @@ func (s *Session) exchangeRefreshToken(ctx context.Context, creds Credentials) (
 	if err != nil {
 		return Credentials{}, fmt.Errorf("perch: refresh session: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return Credentials{}, fmt.Errorf("perch: read refresh response: %w", err)
@@ -275,7 +275,7 @@ func (s *Session) authConfigFor(ctx context.Context, appURL string) (AuthConfig,
 	if err != nil {
 		return AuthConfig{}, fmt.Errorf("perch: fetch auth config: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return AuthConfig{}, fmt.Errorf("perch: read auth config: %w", err)
