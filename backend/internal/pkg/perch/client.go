@@ -18,6 +18,7 @@ const (
 	accountPath           = "/api/perchai/account"
 	ProtocolClientVersion = "2.4.120"
 	ticketRenewSkew       = 30 * time.Second
+	accountTTL            = 10 * time.Minute
 )
 
 // Client speaks the authenticated Perch terminal API on behalf of one session.
@@ -28,6 +29,10 @@ type Client struct {
 
 	mu      sync.Mutex
 	tickets map[string]ticketEntry
+
+	account   AccountInfo
+	accountAt time.Time
+	accountOK bool
 }
 
 type ticketEntry struct {
@@ -234,6 +239,9 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 		if strings.TrimSpace(req.RunID) == "" {
 			req.RunID = firstNonEmpty(ticket.RunID, NewRunID(c.now()))
 		}
+		if req.Attribution == nil {
+			req.Attribution = c.attribution(ctx, req.RunID, req.Lane)
+		}
 		if req.Attribution != nil && strings.TrimSpace(req.Attribution.RunID) == "" {
 			req.Attribution.RunID = req.RunID
 		}
@@ -404,6 +412,41 @@ func mergeToolCalls(existing []ToolCall, incoming []ToolCall) []ToolCall {
 		}
 	}
 	return existing
+}
+
+func (c *Client) attribution(ctx context.Context, runID, lane string) *Attribution {
+	info, ok := c.cachedAccount(ctx)
+	if !ok {
+		return nil
+	}
+	if strings.TrimSpace(info.UserID) == "" && strings.TrimSpace(info.WorkspaceID) == "" {
+		return nil
+	}
+	return &Attribution{
+		UserID:    info.UserID,
+		Workspace: info.WorkspaceID,
+		RunID:     runID,
+		Lane:      lane,
+		Source:    ClientSurfaceCLI,
+	}
+}
+
+func (c *Client) cachedAccount(ctx context.Context) (AccountInfo, bool) {
+	c.mu.Lock()
+	info, fetchedAt := c.account, c.accountAt
+	ok := c.accountOK
+	c.mu.Unlock()
+	if ok && c.now().Sub(fetchedAt) < accountTTL {
+		return info, true
+	}
+	fresh, err := c.Account(ctx)
+	if err != nil {
+		return AccountInfo{}, false
+	}
+	c.mu.Lock()
+	c.account, c.accountAt, c.accountOK = fresh, c.now(), true
+	c.mu.Unlock()
+	return fresh, true
 }
 
 // NewRunID mints a Perch-shaped run id.

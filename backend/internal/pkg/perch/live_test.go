@@ -53,6 +53,17 @@ func TestLivePerchModelCall(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
+	account, accountErr := client.Account(ctx)
+	t.Logf("account lookup: err=%v userId=%q workspaceId=%q", accountErr, account.UserID, account.WorkspaceID)
+	if accountErr != nil {
+		t.Fatalf("account lookup: %v", accountErr)
+	}
+	attribution := client.attribution(ctx, "run-live-probe", LaneChat)
+	if attribution == nil {
+		t.Fatalf("adapter would send no attribution")
+	}
+	t.Logf("attribution that the model call carries: userId=%q workspaceId=%q source=%q", attribution.UserID, attribution.Workspace, attribution.Source)
+
 	request := chatRequestForLiveTest()
 	call, err := BuildModelCallRequest(&request, CallOptions{})
 	if err != nil {
