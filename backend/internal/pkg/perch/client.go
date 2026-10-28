@@ -218,8 +218,18 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 	for {
 		attempt++
 		ticket, err := c.TurnTicket(ctx, ClientSurfaceCLI, DefaultProfile)
-		if err != nil && !IsAuthError(err) {
-			return nil, err
+		if err != nil {
+			if !IsAuthError(err) {
+				return nil, err
+			}
+			if _, refreshErr := c.session.Refresh(ctx); refreshErr != nil {
+				return nil, refreshErr
+			}
+			c.invalidateTicket(ClientSurfaceCLI, DefaultProfile)
+			if attempt >= 2 {
+				return nil, err
+			}
+			continue
 		}
 		if strings.TrimSpace(req.RunID) == "" {
 			req.RunID = firstNonEmpty(ticket.RunID, NewRunID(c.now()))
@@ -244,9 +254,7 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 		httpReq.Header.Set("authorization", "Bearer "+token)
 		httpReq.Header.Set("user-agent", "perchai-cli/"+ProtocolClientVersion)
 		httpReq.Header.Set("x-perch-locale", "en")
-		if ticket.Ticket != "" {
-			httpReq.Header.Set("x-perch-turn-ticket", ticket.Ticket)
-		}
+		httpReq.Header.Set("x-perch-turn-ticket", ticket.Ticket)
 
 		resp, err := c.http.Do(httpReq)
 		if err != nil {
@@ -278,6 +286,10 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 
 func retryableModelCall(err *APIError) bool {
 	if err == nil {
+		return false
+	}
+	switch err.Code {
+	case CodeSurfaceRequired, CodeContextOverflow, CodeUsageLimitReached, CodeTurnRateLimited, CodeModelBlocked, CodePlanRequired:
 		return false
 	}
 	if IsAuthError(err) {
@@ -317,6 +329,11 @@ func CollectOutcome(stream *ModelCallStream) (*Outcome, error) {
 			reasoning.WriteString(body.Text)
 		case EventToolCallDelta, EventToolUseEnd:
 			toolCalls = mergeToolCalls(toolCalls, body.ToolCalls)
+		case EventStreamRestart:
+			text.Reset()
+			reasoning.Reset()
+			toolCalls = toolCalls[:0]
+			outcome = nil
 		case EventDone:
 			outcome = outcomeFromDone(body)
 		case EventError:
@@ -453,10 +470,10 @@ func ErrorStatus(code string) int {
 		return http.StatusTooManyRequests
 	case CodePlanRequired:
 		return http.StatusPaymentRequired
-	case CodeModelBlocked:
+	case CodeModelBlocked, CodeSurfaceRequired:
 		return http.StatusForbidden
-	case CodeProviderNotConfigured:
-		return http.StatusBadGateway
+	case CodeContextOverflow, CodeProviderNotConfigured:
+		return http.StatusBadRequest
 	}
 	return http.StatusBadGateway
 }

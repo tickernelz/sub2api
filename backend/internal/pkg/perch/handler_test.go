@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 )
@@ -109,7 +111,7 @@ func TestHandlerNonStreamResponseCarriesUsage(t *testing.T) {
 	if response.Object != "chat.completion" {
 		t.Fatalf("object = %q", response.Object)
 	}
-	if response.Model != "wandb-kimi-k2-6" {
+	if response.Model != "deepseek/deepseek-v4.1-flash" {
 		t.Fatalf("model = %q", response.Model)
 	}
 	if len(response.Choices) != 1 || string(response.Choices[0].Message.Content) != `"pong"` {
@@ -189,5 +191,31 @@ func TestHandlerRejectsNonPostChat(t *testing.T) {
 
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", recorder.Code)
+	}
+}
+
+func TestHandlerSetsRetryAfterFromLimitReset(t *testing.T) {
+	resetAt := time.Now().Add(90 * time.Second).UTC().Format(time.RFC3339)
+	errorBody := []byte(`{"ok":false,"error":"usage limit reached","errorCode":"usage_limit_reached","limit":{"limitKind":"usage_limit","plan":"pilot","resetAt":"` + resetAt + `"}}`)
+	server := newPerchTestServer(t, perchTestOptions{ModelStatus: http.StatusTooManyRequests, ModelErrorBody: errorBody})
+	handler := newTestHandler(server)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(chatRequestBody(t, false))))
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	raw := recorder.Header().Get("retry-after")
+	seconds, err := strconv.Atoi(raw)
+	if err != nil {
+		t.Fatalf("retry-after = %q", raw)
+	}
+	if seconds < 60 || seconds > 91 {
+		t.Fatalf("retry-after = %d, want about 90", seconds)
+	}
+	if server.modelHits != 1 {
+		t.Fatalf("model hits = %d, want 1", server.modelHits)
 	}
 }

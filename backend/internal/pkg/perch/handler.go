@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -146,10 +147,14 @@ func (h *Handler) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if outcome.Model != "" && outcome.Model != req.Model {
-		w.Header().Set("x-perch-upstream-model", outcome.Model)
+	model := req.Model
+	if outcome.Model != "" {
+		model = outcome.Model
 	}
-	writeJSON(w, http.StatusOK, ToChatResponse(outcome, req.Model, responseID, h.now().Unix()))
+	if model != req.Model {
+		w.Header().Set("x-perch-upstream-model", model)
+	}
+	writeJSON(w, http.StatusOK, ToChatResponse(outcome, model, responseID, h.now().Unix()))
 }
 
 func (h *Handler) streamResponse(w http.ResponseWriter, stream *ModelCallStream, model, responseID string, includeUsage bool) {
@@ -183,6 +188,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, stream *ModelCallStream,
 		}
 		if event.Type == EventDone {
 			settled = outcomeFromDone(body)
+			continue
+		}
+		if event.Type == EventStreamRestart {
+			emitter.ResetToolCalls()
 			continue
 		}
 		if event.Type == EventError {
@@ -262,7 +271,34 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func writeError(w http.ResponseWriter, err error) {
 	apiErr := asAPIError(err)
-	writeJSON(w, apiErr.HTTPStatus(), map[string]any{"error": errorEnvelope(apiErr)})
+	status := apiErr.HTTPStatus()
+	if status == http.StatusTooManyRequests {
+		if seconds, ok := retryAfterSeconds(apiErr, time.Now()); ok {
+			w.Header().Set("retry-after", strconv.Itoa(seconds))
+		}
+	}
+	writeJSON(w, status, map[string]any{"error": errorEnvelope(apiErr)})
+}
+
+func retryAfterSeconds(err *APIError, now time.Time) (int, bool) {
+	if err.Limit.Empty() {
+		return 0, false
+	}
+	var limit struct {
+		ResetAt string `json:"resetAt"`
+	}
+	if json.Unmarshal(err.Limit.Raw, &limit) != nil || strings.TrimSpace(limit.ResetAt) == "" {
+		return 0, false
+	}
+	reset, parseErr := time.Parse(time.RFC3339, limit.ResetAt)
+	if parseErr != nil {
+		return 0, false
+	}
+	seconds := int(reset.Sub(now).Seconds())
+	if seconds < 1 {
+		seconds = 1
+	}
+	return seconds, true
 }
 
 func asAPIError(err error) *APIError {

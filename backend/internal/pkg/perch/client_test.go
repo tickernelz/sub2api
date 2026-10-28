@@ -152,3 +152,78 @@ func TestCollectOutcomeFromCapturedStream(t *testing.T) {
 		t.Fatalf("prompt tokens = %d, want 26672", outcome.Usage.PromptTokens())
 	}
 }
+
+func TestModelCallSurfaceGateIsNotRetried(t *testing.T) {
+	flagReason := []byte(`{"ok":false,"error":"Your plan includes Perch-hosted models for use in Perch AI Web, Desktop, and CLI only.","errorCode":"perch_surface_required","limit":{"limitKind":"perch_surface_required","plan":"pilot","resetAt":null}}`)
+	server := newPerchTestServer(t, perchTestOptions{ModelStatus: http.StatusForbidden, ModelErrorBody: flagReason})
+	creds := testCredentials(server.URL)
+	creds.ExpiresAt = time.Now().Add(time.Hour).Unix()
+	session := NewSession(creds, WithHTTPClient(server.Client()))
+	client := NewClient(session)
+
+	_, err := client.OpenModelCall(context.Background(), ModelCallRequest{})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want *APIError", err)
+	}
+	if apiErr.Code != CodeSurfaceRequired {
+		t.Fatalf("code = %q, want %q", apiErr.Code, CodeSurfaceRequired)
+	}
+	if got := apiErr.OpenAIType(); got != "permission_error" {
+		t.Fatalf("openai type = %q", got)
+	}
+	if got := ErrorStatus(apiErr.Code); got != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", got)
+	}
+	if server.modelHits != 1 {
+		t.Fatalf("model hits = %d, want 1", server.modelHits)
+	}
+	if server.refreshHits != 0 {
+		t.Fatalf("refresh hits = %d, want 0", server.refreshHits)
+	}
+}
+
+func TestModelCallRefreshesWhenTicketMintIsRejected(t *testing.T) {
+	server := newPerchTestServer(t, perchTestOptions{FirstTicketFails: true})
+	creds := testCredentials(server.URL)
+	creds.ExpiresAt = time.Now().Add(time.Hour).Unix()
+	session := NewSession(creds, WithHTTPClient(server.Client()))
+	client := NewClient(session)
+
+	stream, err := client.OpenModelCall(context.Background(), ModelCallRequest{})
+	if err != nil {
+		t.Fatalf("OpenModelCall after ticket refresh: %v", err)
+	}
+	defer stream.Close()
+
+	if server.ticketHits != 2 {
+		t.Fatalf("ticket hits = %d, want 2", server.ticketHits)
+	}
+	if server.refreshHits != 1 {
+		t.Fatalf("refresh hits = %d, want 1", server.refreshHits)
+	}
+	if server.modelHits != 1 {
+		t.Fatalf("model hits = %d, want 1", server.modelHits)
+	}
+	if got := server.lastHeaders.Get("x-perch-turn-ticket"); got == "" {
+		t.Fatalf("model call reached Perch without a turn ticket")
+	}
+}
+
+func TestCollectOutcomeResetsAfterStreamRestart(t *testing.T) {
+	streamBody := []byte("data: {\"type\":\"answer_delta\",\"text\":\"abc\"}\n\n" +
+		"data: {\"type\":\"stream_restart\",\"reason\":\"same_model_resend\"}\n\n" +
+		"data: {\"type\":\"answer_delta\",\"text\":\"x\"}\n\n" +
+		"data: {\"type\":\"done\",\"ok\":true,\"text\":\"\",\"finishReason\":\"stop\",\"model\":\"deepseek/deepseek-v4.1-flash\",\"usage\":{\"inputTokens\":3,\"outputTokens\":1}}\n\n")
+	server := newPerchTestServer(t, perchTestOptions{StreamBody: streamBody})
+	session := NewSession(testCredentials(server.URL), WithHTTPClient(server.Client()))
+	client := NewClient(session)
+
+	outcome, err := client.CallModel(context.Background(), ModelCallRequest{})
+	if err != nil {
+		t.Fatalf("CallModel: %v", err)
+	}
+	if outcome.Text != "x" {
+		t.Fatalf("text = %q, want x", outcome.Text)
+	}
+}

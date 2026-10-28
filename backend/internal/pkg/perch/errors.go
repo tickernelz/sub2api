@@ -17,6 +17,9 @@ const (
 	CodePromoOverflow         = "promo_overflow_decision"
 	CodeAPIError              = "api_error"
 	CodeProviderNotConfigured = "provider_not_configured"
+	CodeSurfaceRequired       = "perch_surface_required"
+	CodeContextOverflow       = "context_overflow"
+	CodeStreamInterrupted     = "stream_interrupted"
 )
 
 // Limit is the quota detail Perch attaches to a limit error, passed through untouched.
@@ -102,6 +105,12 @@ func (e *APIError) OpenAIType() string {
 		return "rate_limit_error"
 	case CodeModelBlocked:
 		return "invalid_request_error"
+	case CodeSurfaceRequired:
+		return "permission_error"
+	case CodeContextOverflow:
+		return "invalid_request_error"
+	case CodeStreamInterrupted:
+		return "server_error"
 	}
 	switch e.HTTPStatus() {
 	case http.StatusUnauthorized:

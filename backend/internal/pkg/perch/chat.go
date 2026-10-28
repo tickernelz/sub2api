@@ -189,6 +189,10 @@ func NewChunkEmitter(model, responseID string, created int64) *ChunkEmitter {
 	}
 }
 
+func (e *ChunkEmitter) ResetToolCalls() {
+	e.emitted = make(map[string]struct{})
+}
+
 // Chunks converts one upstream event into zero or more client chunks.
 func (e *ChunkEmitter) Chunks(event Event, body *eventBody) []apicompat.ChatCompletionsChunk {
 	switch event.Type {

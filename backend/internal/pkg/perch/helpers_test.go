@@ -53,13 +53,14 @@ type perchTestServer struct {
 }
 
 type perchTestOptions struct {
-	StreamBody      []byte
-	ModelStatus     int
-	ModelErrorBody  []byte
-	AccountBody     []byte
-	RefreshBody     []byte
-	RefreshStatus   int
-	FirstModelFails bool
+	StreamBody       []byte
+	ModelStatus      int
+	ModelErrorBody   []byte
+	AccountBody      []byte
+	RefreshBody      []byte
+	RefreshStatus    int
+	FirstModelFails  bool
+	FirstTicketFails bool
 }
 
 func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
@@ -110,6 +111,10 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 	})
 	mux.HandleFunc("/api/perch-terminal/turn-ticket", func(w http.ResponseWriter, r *http.Request) {
 		ts.ticketHits++
+		if opts.FirstTicketFails && ts.ticketHits == 1 {
+			writeFixtureJSON(t, w, http.StatusUnauthorized, []byte(`{"ok":false,"error":"not_authenticated","errorCode":"not_authenticated"}`))
+			return
+		}
 		body := map[string]string{}
 		decodeBody(t, r, &body)
 		ts.lastTicket = body
