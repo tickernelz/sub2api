@@ -20,10 +20,10 @@ func TestModelCallSendsAttributionFromAccount(t *testing.T) {
 	if attribution == nil {
 		t.Fatalf("model call must carry attribution")
 	}
-	if attribution.UserID != "971cd79c-e9c6-4ceb-b775-923f4110e295" {
+	if attribution.UserID != "11111111-1111-4111-8111-111111111111" {
 		t.Fatalf("attribution userId = %q", attribution.UserID)
 	}
-	if attribution.Workspace != "c47c7c5a-910e-4d32-b363-0f4bde58a5bc" {
+	if attribution.Workspace != "33333333-3333-4333-8333-333333333333" {
 		t.Fatalf("attribution workspaceId = %q", attribution.Workspace)
 	}
 	if attribution.Source != ClientSurfaceCLI || attribution.Lane != LaneChat {

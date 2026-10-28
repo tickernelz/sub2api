@@ -121,7 +121,7 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 		payload, err := json.Marshal(map[string]any{
 			"ok":        true,
 			"ticket":    "ticket-value",
-			"ticketId":  "ef3cfc2a-ac24-472e-93fe-12a6e0463912",
+			"ticketId":  "44444444-4444-4444-8444-444444444444",
 			"runId":     "tkt-cli-1793207619077-1li5qu4h",
 			"surface":   "cli",
 			"profile":   "standard",
@@ -171,7 +171,7 @@ func testCredentials(appURL string) Credentials {
 		AccessToken:  "access-token",
 		RefreshToken: "refresh-token",
 		ExpiresAt:    0,
-		UserID:       "971cd79c-e9c6-4ceb-b775-923f4110e295",
+		UserID:       "11111111-1111-4111-8111-111111111111",
 		Email:        "sample@example.com",
 	}
 }
