@@ -1,0 +1,11 @@
+{
+  "access_token": "access-after-refresh",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "expires_at": 1793212800,
+  "refresh_token": "refresh-after-rotate",
+  "user": {
+    "id": "971cd79c-e9c6-4ceb-b775-923f4110e295",
+    "email": "sample@example.com"
+  }
+}

@@ -1,0 +1,462 @@
+package perch
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	modelCallPath         = "/api/perch-terminal/model-call"
+	turnTicketPath        = "/api/perch-terminal/turn-ticket"
+	accountPath           = "/api/perchai/account"
+	ProtocolClientVersion = "2.4.120"
+	ticketRenewSkew       = 30 * time.Second
+)
+
+// Client speaks the authenticated Perch terminal API on behalf of one session.
+type Client struct {
+	session *Session
+	http    Doer
+	now     func() time.Time
+
+	mu      sync.Mutex
+	tickets map[string]ticketEntry
+}
+
+type ticketEntry struct {
+	ticket    Ticket
+	fetchedAt time.Time
+	expiresAt time.Time
+}
+
+type ClientOption func(*Client)
+
+func WithClientHTTP(doer Doer) ClientOption {
+	return func(c *Client) {
+		if doer != nil {
+			c.http = doer
+		}
+	}
+}
+
+func WithClientClock(now func() time.Time) ClientOption {
+	return func(c *Client) {
+		if now != nil {
+			c.now = now
+		}
+	}
+}
+
+func NewClient(session *Session, opts ...ClientOption) *Client {
+	c := &Client{
+		session: session,
+		http:    &http.Client{Timeout: 0},
+		now:     time.Now,
+		tickets: make(map[string]ticketEntry),
+	}
+	if session != nil {
+		c.http = session.http
+		c.now = session.now
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+// Session exposes the credential holder behind the client.
+func (c *Client) Session() *Session {
+	return c.session
+}
+
+// ModelCallStream is an open streaming model call.
+type ModelCallStream struct {
+	Response *http.Response
+	Events   *SSEStream
+	Request  ModelCallRequest
+}
+
+// Close releases the upstream body.
+func (s *ModelCallStream) Close() error {
+	if s == nil || s.Response == nil || s.Response.Body == nil {
+		return nil
+	}
+	return s.Response.Body.Close()
+}
+
+// Next decodes the next event; the returned body is nil at end of stream.
+func (s *ModelCallStream) Next() (Event, *eventBody, error) {
+	for {
+		payload, err := s.Events.Next()
+		if err != nil {
+			return Event{}, nil, err
+		}
+		event, body, err := decodeEvent(payload)
+		if err != nil {
+			continue
+		}
+		return event, body, nil
+	}
+}
+
+// Account fetches the authenticated account projection with plan and entitlements.
+func (c *Client) Account(ctx context.Context) (AccountInfo, error) {
+	var payload struct {
+		OK      bool `json:"ok"`
+		Profile struct {
+			ID    string `json:"id"`
+			Email string `json:"email"`
+			Name  string `json:"name"`
+		} `json:"profile"`
+		Session struct {
+			UserID       string        `json:"userId"`
+			OrgID        string        `json:"orgId"`
+			WorkspaceID  string        `json:"workspaceId"`
+			PlanCode     string        `json:"planCode"`
+			PlanName     string        `json:"planName"`
+			Entitlements []Entitlement `json:"entitlements"`
+		} `json:"session"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, accountPath, nil, &payload); err != nil {
+		return AccountInfo{}, err
+	}
+	return AccountInfo{
+		Email:        payload.Profile.Email,
+		Name:         payload.Profile.Name,
+		UserID:       payload.Session.UserID,
+		WorkspaceID:  payload.Session.WorkspaceID,
+		OrgID:        payload.Session.OrgID,
+		PlanCode:     payload.Session.PlanCode,
+		PlanName:     payload.Session.PlanName,
+		Entitlements: payload.Session.Entitlements,
+	}, nil
+}
+
+// TurnTicket returns a cached ticket for the profile, minting a new one when stale.
+func (c *Client) TurnTicket(ctx context.Context, surface, profile string) (Ticket, error) {
+	if strings.TrimSpace(profile) == "" {
+		profile = DefaultProfile
+	}
+	key := surface + "|" + profile
+
+	c.mu.Lock()
+	entry, ok := c.tickets[key]
+	c.mu.Unlock()
+	if ok && c.now().Add(ticketRenewSkew).Before(entry.expiresAt) {
+		return entry.ticket, nil
+	}
+
+	body := map[string]string{"surface": surface, "profile": profile}
+	var payload struct {
+		Ticket
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := c.doJSON(ctx, http.MethodPost, turnTicketPath, body, &payload); err != nil {
+		return Ticket{}, err
+	}
+	if strings.TrimSpace(payload.Ticket.Ticket) == "" {
+		return Ticket{}, &APIError{Status: http.StatusBadGateway, Code: CodeAPIError, Message: "turn ticket response carried no ticket"}
+	}
+	expires := c.now().Add(5 * time.Minute)
+	if strings.TrimSpace(payload.Ticket.ExpiresAt) != "" {
+		if parsed, err := time.Parse(time.RFC3339, payload.Ticket.ExpiresAt); err == nil {
+			expires = parsed
+		}
+	}
+	ticket := payload.Ticket
+	ticket.ExpiresAt = expires.UTC().Format(time.RFC3339)
+
+	c.mu.Lock()
+	c.tickets[key] = ticketEntry{ticket: ticket, fetchedAt: c.now(), expiresAt: expires}
+	c.mu.Unlock()
+	return ticket, nil
+}
+
+func (c *Client) invalidateTicket(surface, profile string) {
+	if strings.TrimSpace(profile) == "" {
+		profile = DefaultProfile
+	}
+	c.mu.Lock()
+	delete(c.tickets, surface+"|"+profile)
+	c.mu.Unlock()
+}
+
+// OpenModelCall starts a streaming model call and returns the open SSE stream.
+func (c *Client) OpenModelCall(ctx context.Context, req ModelCallRequest) (*ModelCallStream, error) {
+	if strings.TrimSpace(req.Lane) == "" {
+		req.Lane = DefaultLane
+	}
+	if strings.TrimSpace(req.ClientSurface) == "" {
+		req.ClientSurface = ClientSurfaceCLI
+	}
+	if req.AvoidModelIDs == nil {
+		req.AvoidModelIDs = []string{}
+	}
+
+	resp, err := c.postModelCall(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+	return &ModelCallStream{Response: resp, Events: NewSSEStream(resp.Body), Request: req}, nil
+}
+
+func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*http.Response, error) {
+	endpoint, err := joinURL(c.session.AppURL(), modelCallPath)
+	if err != nil {
+		return nil, err
+	}
+
+	attempt := 0
+	for {
+		attempt++
+		ticket, err := c.TurnTicket(ctx, ClientSurfaceCLI, DefaultProfile)
+		if err != nil && !IsAuthError(err) {
+			return nil, err
+		}
+		if strings.TrimSpace(req.RunID) == "" {
+			req.RunID = firstNonEmpty(ticket.RunID, NewRunID(c.now()))
+		}
+		if req.Attribution != nil && strings.TrimSpace(req.Attribution.RunID) == "" {
+			req.Attribution.RunID = req.RunID
+		}
+		payload, err := json.Marshal(*req)
+		if err != nil {
+			return nil, fmt.Errorf("perch: encode model call: %w", err)
+		}
+		token, err := c.session.AccessToken(ctx)
+		if err != nil {
+			return nil, err
+		}
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+		if err != nil {
+			return nil, fmt.Errorf("perch: build model call: %w", err)
+		}
+		httpReq.Header.Set("content-type", "application/json")
+		httpReq.Header.Set("accept", "text/event-stream")
+		httpReq.Header.Set("authorization", "Bearer "+token)
+		httpReq.Header.Set("user-agent", "perchai-cli/"+ProtocolClientVersion)
+		httpReq.Header.Set("x-perch-locale", "en")
+		if ticket.Ticket != "" {
+			httpReq.Header.Set("x-perch-turn-ticket", ticket.Ticket)
+		}
+
+		resp, err := c.http.Do(httpReq)
+		if err != nil {
+			return nil, fmt.Errorf("perch: model call: %w", err)
+		}
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return resp, nil
+		}
+
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("perch: read model call error: %w", readErr)
+		}
+		apiErr := NewAPIError(resp.StatusCode, body)
+		if attempt >= 2 || !retryableModelCall(apiErr) {
+			return nil, apiErr
+		}
+		if IsAuthError(apiErr) {
+			if _, err := c.session.Refresh(ctx); err != nil {
+				return nil, err
+			}
+			c.invalidateTicket(ClientSurfaceCLI, DefaultProfile)
+			continue
+		}
+		c.invalidateTicket(ClientSurfaceCLI, DefaultProfile)
+	}
+}
+
+func retryableModelCall(err *APIError) bool {
+	if err == nil {
+		return false
+	}
+	if IsAuthError(err) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Message), "ticket")
+}
+
+// CallModel runs a model call to completion and returns the settled outcome.
+func (c *Client) CallModel(ctx context.Context, req ModelCallRequest) (*Outcome, error) {
+	stream, err := c.OpenModelCall(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+	return CollectOutcome(stream)
+}
+
+// CollectOutcome drains a stream to its done event.
+func CollectOutcome(stream *ModelCallStream) (*Outcome, error) {
+	var text strings.Builder
+	var reasoning strings.Builder
+	toolCalls := make([]ToolCall, 0, 4)
+	var outcome *Outcome
+	for {
+		event, body, err := stream.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("perch: read stream: %w", err)
+		}
+		switch event.Type {
+		case EventAnswerDelta:
+			text.WriteString(body.Text)
+		case EventReasoningDelta:
+			reasoning.WriteString(body.Text)
+		case EventToolCallDelta, EventToolUseEnd:
+			toolCalls = mergeToolCalls(toolCalls, body.ToolCalls)
+		case EventDone:
+			outcome = outcomeFromDone(body)
+		case EventError:
+			code := strings.TrimSpace(body.ErrorCode)
+			if code == "" {
+				code = CodeAPIError
+			}
+			return nil, &APIError{Status: http.StatusBadGateway, Code: code, Message: strings.TrimSpace(body.Message)}
+		}
+	}
+	if outcome == nil {
+		return nil, &APIError{Status: http.StatusBadGateway, Code: CodeAPIError, Message: "perch stream ended without a done event"}
+	}
+	if !outcome.OK {
+		code := outcome.ErrorCode
+		if code == "" {
+			code = CodeAPIError
+		}
+		return outcome, &APIError{Status: ErrorStatus(code), Code: code, Message: outcome.Error, Limit: outcome.Limit}
+	}
+	if outcome.Text == "" && text.Len() > 0 {
+		outcome.Text = text.String()
+	}
+	if len(outcome.ToolCalls) == 0 && len(toolCalls) > 0 {
+		outcome.ToolCalls = toolCalls
+	}
+	if outcome.Reasoning == "" && reasoning.Len() > 0 {
+		outcome.Reasoning = reasoning.String()
+	}
+	return outcome, nil
+}
+
+func outcomeFromDone(body *eventBody) *Outcome {
+	ok := true
+	if body.Ok != nil {
+		ok = *body.Ok
+	}
+	return &Outcome{
+		OK:           ok,
+		Text:         body.Text,
+		Content:      body.Content,
+		ToolCalls:    mergeToolCalls(nil, body.ToolCalls),
+		FinishReason: body.FinishReason,
+		Provider:     body.Provider,
+		Model:        body.Model,
+		DurationMs:   body.DurationMs,
+		ContextFill:  body.ContextFill,
+		ContextInput: body.ContextInput,
+		Usage:        body.Usage,
+		Error:        body.Error,
+		ErrorCode:    body.ErrorCode,
+		Limit:        body.Limit,
+	}
+}
+
+func mergeToolCalls(existing []ToolCall, incoming []ToolCall) []ToolCall {
+	for _, call := range incoming {
+		replaced := false
+		for i := range existing {
+			if existing[i].ID == call.ID && call.ID != "" {
+				existing[i] = call
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			existing = append(existing, call)
+		}
+	}
+	return existing
+}
+
+// NewRunID mints a Perch-shaped run id.
+func NewRunID(now time.Time) string {
+	return fmt.Sprintf("tkt-cli-%d-%d", now.UnixMilli(), now.UnixNano()%1_000_000)
+}
+
+func (c *Client) doJSON(ctx context.Context, method, path string, body any, out any) error {
+	endpoint, err := joinURL(c.session.AppURL(), path)
+	if err != nil {
+		return err
+	}
+	var reader io.Reader
+	if body != nil {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("perch: encode %s: %w", path, err)
+		}
+		reader = bytes.NewReader(payload)
+	}
+	token, err := c.session.AccessToken(ctx)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, reader)
+	if err != nil {
+		return fmt.Errorf("perch: build %s: %w", path, err)
+	}
+	req.Header.Set("accept", "application/json")
+	if body != nil {
+		req.Header.Set("content-type", "application/json")
+	}
+	req.Header.Set("authorization", "Bearer "+token)
+	req.Header.Set("user-agent", "perchai-cli/"+ProtocolClientVersion)
+	req.Header.Set("x-perch-locale", "en")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("perch: %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return fmt.Errorf("perch: read %s: %w", path, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return NewAPIError(resp.StatusCode, payload)
+	}
+	if out == nil {
+		return nil
+	}
+	if err := json.Unmarshal(payload, out); err != nil {
+		return fmt.Errorf("perch: decode %s: %w", path, err)
+	}
+	return nil
+}
+
+// ErrorStatus maps a Perch error code to the client-facing status.
+func ErrorStatus(code string) int {
+	switch code {
+	case CodeNotAuthenticated:
+		return http.StatusUnauthorized
+	case CodeTurnRateLimited, CodeUsageLimitReached:
+		return http.StatusTooManyRequests
+	case CodePlanRequired:
+		return http.StatusPaymentRequired
+	case CodeModelBlocked:
+		return http.StatusForbidden
+	case CodeProviderNotConfigured:
+		return http.StatusBadGateway
+	}
+	return http.StatusBadGateway
+}

@@ -1,0 +1,6 @@
+data: {"type":"reasoning_delta","text":"checking the tool" }
+
+data: {"type":"tool_call_delta","toolCalls":[{"id":"call_1","name":"noop","arguments":{"a":1}}]}
+
+data: {"type":"done","ok":true,"text":"","content":[],"toolCalls":[{"id":"call_1","name":"noop","arguments":{"a":1}}],"finishReason":"tool_calls","provider":"perch","model":"deepseek/deepseek-v4.1-flash","durationMs":900,"usage":{"inputTokens":10,"outputTokens":2,"cacheCreationInputTokens":0,"cacheReadInputTokens":0,"totalTokens":12}}
+

@@ -1,0 +1,38 @@
+{
+  "ok": true,
+  "profile": {
+    "id": "971cd79c-e9c6-4ceb-b775-923f4110e295",
+    "email": "sample@example.com",
+    "name": "Sample User"
+  },
+  "session": {
+    "userId": "971cd79c-e9c6-4ceb-b775-923f4110e295",
+    "orgId": "503ebc4c-2906-44e0-86fe-38244281dee0",
+    "workspaceId": "c47c7c5a-910e-4d32-b363-0f4bde58a5bc",
+    "planCode": "pilot",
+    "planName": "Pilot",
+    "tierSelectionRequired": false,
+    "entitlements": [
+      {
+        "key": "limits.allowed_models",
+        "value_json": {
+          "models": [
+            "*"
+          ]
+        }
+      },
+      {
+        "key": "limits.max_context_tokens",
+        "value_json": {
+          "limit": 200000
+        }
+      },
+      {
+        "key": "models.manual_select",
+        "value_json": {
+          "enabled": true
+        }
+      }
+    ]
+  }
+}
