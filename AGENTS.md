@@ -300,11 +300,10 @@ The fork follows upstream `.github/` workflows except for these intentional chan
 
 | File | Fork-only difference | Reason |
 | --- | --- | --- |
-| `.github/workflows/cla.yml` | References `tickernelz/sub2api` for the repository guard and fork CLA link | The CLA job and link belong to this fork |
 | `.github/workflows/release.yml` | `continue-on-error: true` on `Update DockerHub description` | Docker Hub can return `403` even when image publication succeeds |
-| All other `.github/` files | No intentional divergence | Follow upstream |
+| All other `.github/` files | No intentional divergence; `cla.yml` is deleted, see below | Follow upstream |
 
-Do not restore an old fork snapshot of `.github/`. Start from the current upstream workflows and re-apply only the two differences above.
+Do not restore an old fork snapshot of `.github/`. Start from the current upstream workflows and re-apply only the one difference above. The fork runs no CLA workflow: `.github/workflows/cla.yml` is deleted here on purpose, and every upstream reset brings it back, so section 4 deletes it again.
 
 ### Fork carry-overs that live OUTSIDE the replayed keep-set
 
@@ -312,6 +311,7 @@ A `git reset --hard wei-shaw/main` plus a keep-set replay restores only what the
 
 | Path | Why it is carried | Restore with |
 | --- | --- | --- |
+| `.github/workflows/cla.yml` | Deleted on purpose. Upstream still ships it, so a reset reinstates it; the upstream guard (`github.repository == 'Wei-Shaw/sub2api'`) makes it inert in the fork, yet it still queues a skipped `CLA Assistant` run on every PR | `git rm .github/workflows/cla.yml` |
 | `AGENTS.md` | Fork-only doc, untracked and `.gitignore`d after the reset | `git checkout main -- AGENTS.md` then `git add -f AGENTS.md` |
 | `frontend/src/views/admin/__tests__/AccountsView.openaiReauthWarning.spec.ts` | Adapted to upstream `df64b5f36`'s `anchorRect` prop contract in a housekeeping commit, so the replay reinstates the stale `position:` version and the CI-critical spec fails | `git checkout main -- <path>` |
 
@@ -354,8 +354,10 @@ git log --oneline --all --grep="stream stale"
 git log --oneline --all --grep="harmony"
 git log --oneline --all --grep="service tier"
 
-# 5. Re-apply only the two .github divergences, then re-add the fork docs.
-#     AGENTS.md is untracked again after step 2 and is ignored, so it needs -f.
+# 5. Re-apply the one .github divergence, delete the upstream CLA workflow,
+#     then re-add the fork docs. AGENTS.md is untracked again after step 2 and
+#     is ignored, so it needs -f.
+#     git rm .github/workflows/cla.yml
 #     git add -f AGENTS.md && git add FORK_KEEP.md
 # 6. Update VERSION, run the verification gates, and inspect the complete diff
 ```
@@ -368,7 +370,7 @@ When a cherry-pick conflicts with a major upstream file split:
 4. Search for duplicate declarations and stale imports.
 5. Verify runtime call-site cardinality, not just patch application.
 
-Before staging a replay, verify that no fork module path leaked into the code. Scope the check to Go sources and module files: `.github/workflows/cla.yml` and `AGENTS.md` contain the fork name on purpose, so an unscoped grep reports expected matches and gives no signal.
+Before staging a replay, verify that no fork module path leaked into the code. Scope the check to Go sources and module files: `AGENTS.md` contains the fork name on purpose, so an unscoped grep reports an expected match and gives no signal.
 
 ```bash
 git diff --cached -- '*.go' backend/go.mod backend/go.sum | grep 'tickernelz/sub2api'   # expected: no output
