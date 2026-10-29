@@ -36,7 +36,7 @@ func StreamChat(stream *ModelCallStream, model, responseID string, created int64
 			continue
 		case EventError:
 			code := firstNonEmpty(body.ErrorCode, CodeAPIError)
-			return nil, &APIError{Status: 502, Code: code, Message: firstNonEmpty(body.Message, "perch stream error"), Limit: body.Limit}
+			return nil, &APIError{Status: ErrorStatus(code), Code: code, Message: firstNonEmpty(body.Message, "perch stream error"), Limit: body.Limit}
 		}
 		for _, chunk := range emitter.Chunks(event, body) {
 			if err := send(chunk); err != nil {
@@ -50,7 +50,7 @@ func StreamChat(stream *ModelCallStream, model, responseID string, created int64
 	}
 	if !settled.OK {
 		code := firstNonEmpty(settled.ErrorCode, CodeAPIError)
-		return nil, &APIError{Status: 502, Code: code, Message: settled.Error, Limit: settled.Limit}
+		return nil, &APIError{Status: ErrorStatus(code), Code: code, Message: settled.Error, Limit: settled.Limit}
 	}
 	for _, chunk := range emitter.Final(settled, includeUsage) {
 		if err := send(chunk); err != nil {

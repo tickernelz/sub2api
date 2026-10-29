@@ -490,7 +490,7 @@ func CollectOutcome(stream *ModelCallStream) (*Outcome, error) {
 			if code == "" {
 				code = CodeAPIError
 			}
-			return nil, &APIError{Status: http.StatusBadGateway, Code: code, Message: strings.TrimSpace(body.Message)}
+			return nil, &APIError{Status: ErrorStatus(code), Code: code, Message: strings.TrimSpace(body.Message)}
 		}
 	}
 	if outcome == nil {

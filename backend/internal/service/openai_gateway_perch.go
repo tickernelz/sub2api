@@ -16,6 +16,12 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+const (
+	perchCodeInvalidRequest      = "invalid_request"
+	perchCodeUnsupportedProtocol = "unsupported_protocol"
+	perchCodeInvalidGrant        = "invalid_grant"
+)
+
 var perchClientFactory = func(creds perch.Credentials, store perch.CredentialStore) *perch.Client {
 	return perch.NewGatewayClient(creds, store)
 }
@@ -183,14 +189,33 @@ func perchUsage(u *perch.Usage) OpenAIUsage {
 	}
 }
 
-func perchAccountScopedFailure(status int, code string) bool {
-	switch status {
-	case http.StatusUnauthorized, http.StatusTooManyRequests:
+func perchAccountScopedFailure(code string, status int) bool {
+	switch code {
+	case perch.CodeContextOverflow, perchCodeInvalidRequest, perch.CodePlanRequired, perch.CodeModelBlocked, perch.CodeProviderNotConfigured, perchCodeUnsupportedProtocol:
+		return false
+	case perch.CodeSurfaceRequired, perchCodeInvalidGrant, perch.CodeNotAuthenticated:
 		return true
-	case http.StatusForbidden:
-		return code == "perch_surface_required"
 	}
-	return status >= 500
+	switch {
+	case status == http.StatusUnauthorized, status == http.StatusTooManyRequests, status >= 500:
+		return true
+	}
+	return false
+}
+
+func perchClientStatus(code string, status int) int {
+	switch code {
+	case perch.CodeContextOverflow, perchCodeInvalidRequest, perch.CodeProviderNotConfigured, perchCodeUnsupportedProtocol:
+		return http.StatusBadRequest
+	case perch.CodePlanRequired:
+		return http.StatusPaymentRequired
+	case perch.CodeModelBlocked:
+		return http.StatusForbidden
+	}
+	if status >= 400 && status <= 599 {
+		return status
+	}
+	return http.StatusBadRequest
 }
 
 func (s *OpenAIGatewayService) perchUpstreamError(c *gin.Context, err error) error {
@@ -209,11 +234,11 @@ func (s *OpenAIGatewayService) perchUpstreamError(c *gin.Context, err error) err
 			message = apiErr.Message
 		}
 	}
-	if perchAccountScopedFailure(status, code) {
+	if perchAccountScopedFailure(code, status) {
 		return perchFailoverError(err)
 	}
 	if c != nil && c.Writer != nil && !c.Writer.Written() {
-		writeChatCompletionsError(c, status, code, message)
+		writeChatCompletionsError(c, perchClientStatus(code, status), code, message)
 	}
 	return err
 }

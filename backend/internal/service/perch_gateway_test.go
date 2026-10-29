@@ -163,29 +163,36 @@ func TestForwardPerchChatCompletionsFailsOverOnUpstreamRefusal(t *testing.T) {
 }
 
 func TestForwardPerchChatCompletionsKeepsRequestErrors(t *testing.T) {
-	server := newPerchGatewayServer(t, "pong", http.StatusBadRequest, "context_overflow")
-	withPerchTestFactory(t, server.Server)
-	account := newPerchAccountForTest(server.Server)
-	service := &OpenAIGatewayService{}
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%v", stream), func(t *testing.T) {
+			server := newPerchGatewayServer(t, "pong", http.StatusBadRequest, "context_overflow")
+			withPerchTestFactory(t, server.Server)
+			account := newPerchAccountForTest(server.Server)
+			service := &OpenAIGatewayService{}
 
-	body := `{"model":"perch-standard","messages":[{"role":"user","content":"ping"}]}`
-	c, recorder := newPerchGinContext(t, body)
-	result, err := service.forwardPerchChatCompletions(c.Request.Context(), c, account, []byte(body), "")
-	if result != nil {
-		t.Fatalf("result = %+v, want nil", result)
-	}
-	var failover *UpstreamFailoverError
-	if errors.As(err, &failover) {
-		t.Fatalf("request-scoped error became a failover: %+v", failover)
-	}
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", recorder.Code)
-	}
-	if !strings.Contains(recorder.Body.String(), "context_overflow") {
-		t.Fatalf("body = %s, want the perch code", recorder.Body.String())
-	}
-	if server.modelCalls != 1 {
-		t.Fatalf("model calls = %d, want exactly 1", server.modelCalls)
+			body := `{"model":"perch-standard","messages":[{"role":"user","content":"ping"}]}`
+			if stream {
+				body = `{"model":"perch-standard","stream":true,"messages":[{"role":"user","content":"ping"}]}`
+			}
+			c, recorder := newPerchGinContext(t, body)
+			result, err := service.forwardPerchChatCompletions(c.Request.Context(), c, account, []byte(body), "")
+			if result != nil {
+				t.Fatalf("result = %+v, want nil", result)
+			}
+			var failover *UpstreamFailoverError
+			if errors.As(err, &failover) {
+				t.Fatalf("request-scoped error became a failover: %+v", failover)
+			}
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", recorder.Code)
+			}
+			if !strings.Contains(recorder.Body.String(), "context_overflow") {
+				t.Fatalf("body = %s, want the perch code", recorder.Body.String())
+			}
+			if server.modelCalls != 1 {
+				t.Fatalf("model calls = %d, want exactly 1", server.modelCalls)
+			}
+		})
 	}
 }
 
@@ -204,6 +211,65 @@ func TestForwardPerchChatCompletionsStreamFailsOverBeforeOutput(t *testing.T) {
 	}
 	if recorder.Body.Len() != 0 {
 		t.Fatalf("client already received %q before failover", recorder.Body.String())
+	}
+}
+
+func newPerchSSEErrorServer(t *testing.T, code string, viaDone bool) *perchFakeServer {
+	t.Helper()
+	fake := &perchFakeServer{}
+	fake.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/perch-terminal/turn-ticket":
+			w.Header().Set("content-type", "application/json")
+			fmt.Fprintf(w, `{"ok":true,"ticket":"tkt","ticketId":"tid","runId":"tkt-cli-test","profile":"standard","expiresAt":%q}`, time.Now().Add(time.Hour).UTC().Format(time.RFC3339))
+		case "/api/perch-terminal/model-call":
+			fake.modelCalls++
+			w.Header().Set("content-type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			if viaDone {
+				fmt.Fprintf(w, "data: {\"type\":\"done\",\"ok\":false,\"error\":%s,\"errorCode\":%q}\n\n", quoteJSON(code), code)
+			} else {
+				fmt.Fprintf(w, "data: {\"type\":\"error\",\"message\":%s,\"errorCode\":%q}\n\n", quoteJSON(code), code)
+			}
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(fake.Close)
+	return fake
+}
+
+func TestForwardPerchChatCompletionsKeepsStreamedRequestErrors(t *testing.T) {
+	for _, viaDone := range []bool{false, true} {
+		for _, stream := range []bool{false, true} {
+			name := fmt.Sprintf("done=%v/stream=%v", viaDone, stream)
+			t.Run(name, func(t *testing.T) {
+				server := newPerchSSEErrorServer(t, "context_overflow", viaDone)
+				withPerchTestFactory(t, server.Server)
+				account := newPerchAccountForTest(server.Server)
+				service := &OpenAIGatewayService{}
+
+				body := `{"model":"perch-standard","messages":[{"role":"user","content":"ping"}]}`
+				if stream {
+					body = `{"model":"perch-standard","stream":true,"messages":[{"role":"user","content":"ping"}]}`
+				}
+				c, recorder := newPerchGinContext(t, body)
+				_, err := service.forwardPerchChatCompletions(c.Request.Context(), c, account, []byte(body), "")
+				var failover *UpstreamFailoverError
+				if errors.As(err, &failover) {
+					t.Fatalf("request-scoped stream error became a failover: %+v", failover)
+				}
+				if recorder.Code != http.StatusBadRequest {
+					t.Fatalf("status = %d, want 400", recorder.Code)
+				}
+				if server.modelCalls != 1 {
+					t.Fatalf("model calls = %d, want exactly 1", server.modelCalls)
+				}
+			})
+		}
 	}
 }
 
