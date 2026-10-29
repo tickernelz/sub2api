@@ -160,12 +160,12 @@ func normalizePerchReason(code string) string {
 	lastUnderscore := false
 	for _, r := range upper {
 		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-			out.WriteRune(r)
+			_, _ = out.WriteRune(r)
 			lastUnderscore = false
 			continue
 		}
 		if out.Len() > 0 && !lastUnderscore {
-			out.WriteByte('_')
+			_ = out.WriteByte('_')
 			lastUnderscore = true
 		}
 	}
