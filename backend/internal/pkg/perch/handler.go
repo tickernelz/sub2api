@@ -269,9 +269,9 @@ func (h *Handler) client(ctx context.Context) (*Client, func(), error) {
 	case doer != nil:
 		streamHTTP = streamingClient(doer)
 	case h.wire:
-		dial := StandardDialer()
-		controlHTTP = NewWireDoer(dial, controlPlaneTimeout, responseHeaderTimeout)
-		streamHTTP = NewWireDoer(dial, 0, responseHeaderTimeout)
+		dialer := FingerprintDialer(nil)
+		controlHTTP = NewWireDoer(dialer.DialTLSContext, controlPlaneTimeout, responseHeaderTimeout)
+		streamHTTP = NewWireDoer(dialer.DialTLSContext, 0, responseHeaderTimeout)
 	}
 	if controlHTTP != nil {
 		opts = append(opts, WithHTTPClient(controlHTTP))
