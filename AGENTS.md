@@ -301,7 +301,7 @@ The fork follows upstream `.github/` workflows except for these intentional chan
 | File | Fork-only difference | Reason |
 | --- | --- | --- |
 | `.github/workflows/release.yml` | `continue-on-error: true` on `Update DockerHub description` | Docker Hub can return `403` even when image publication succeeds |
-| All other `.github/` files | No intentional divergence | Follow upstream |
+| All other `.github/` files | No intentional divergence; `cla.yml` is deleted, see below | Follow upstream |
 
 Do not restore an old fork snapshot of `.github/`. Start from the current upstream workflows and re-apply only the one difference above. The fork runs no CLA workflow: `.github/workflows/cla.yml` is deleted here on purpose, and every upstream reset brings it back, so section 4 deletes it again.
 
