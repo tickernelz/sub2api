@@ -1,0 +1,4 @@
+data: {"type":"answer_delta","text":"pong"}
+
+data: {"type":"done","ok":true,"text":"pong","content":[{"type":"text","text":"pong"}],"toolCalls":[],"finishReason":"stop","provider":"perch","model":"deepseek/deepseek-v4.1-flash","durationMs":1087,"contextFillTokens":26676,"contextInputTokens":26676,"usage":{"inputTokens":176,"outputTokens":4,"cacheCreationInputTokens":0,"cacheReadInputTokens":26496,"totalTokens":26676}}
+

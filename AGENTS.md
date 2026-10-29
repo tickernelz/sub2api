@@ -294,6 +294,39 @@ go test -tags=unit ./internal/service/ -run 'ToolName|RestoreSSELine|RestoreTool
 
 Observed: 20 tests, all passing. Run the full `go test -tags=unit ./...` gate from section 5 before shipping; the focused run above is a feature check, not the CI gate.
 
+### H. Perch provider platform (Perch AI over its own model-call protocol)
+
+The fork ships a Perch provider: accounts authenticate with a Perch Supabase session and requests are translated to Perch's own `model-call` SSE protocol. It is not an OpenAI-compatible upstream; the package owns the wire format, the client fingerprint the vendor expects, and the translation back to `chat.completion.chunk`.
+
+Required behavior:
+
+- `domain.PlatformPerch` (`perch`) stays in `domain.platformList` with `PlatformGatewayOpenAI`, and `service.PlatformPerch` mirrors it. That row is the only thing that makes perch accounts selectable: removing it silently drops the platform from the gateway, the admin lists and the quota lists while the package still compiles.
+- `forwardAsChatCompletions` routes perch accounts to `forwardPerchChatCompletions` before any Codex, protocol or Grok handling.
+- Perch usage (`inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheReadInputTokens`) must reach `OpenAIForwardResult`; `prompt_tokens` is the sum of the three input counters, never `inputTokens` alone.
+- Refreshed sessions are written back to the account row through `persistAccountCredentials`; a rotated refresh token must never live only in memory.
+- Every OpenAI-gateway entry that Perch cannot serve (`/v1/responses`, `/v1/messages`, embeddings, images, input_tokens and count_tokens, alpha search) must fail closed with 400 `unsupported_protocol` before touching the Perch upstream; a perch account reaching one of them silently answered HTTP 200 with an empty body before the guard.
+- Account-scoped Perch refusals (401, 429, 5xx, transport, 403 `perch_surface_required`) must become `*UpstreamFailoverError` with the upstream status, and SSE headers must stay unwritten until the first chunk, so they fail over instead of sticking to the same account. Request-scoped refusals (400 `context_overflow` or `invalid_request`, `plan_required`, `model_blocked`) are the opposite: write them to the client with their own status and never fail over, or every account burns a ticket and the client receives 502 instead of 400.
+- Usage must be asserted on the billed buckets (`openAIUsageBilledBuckets`: input minus cache read/write), not on Perch's summed `inputTokens`.
+- The wire fixtures stay CRLF (`.gitattributes` `-text`) because the tests compare raw bytes.
+
+Replay anchors:
+
+- `backend/internal/pkg/perch/` — handler, client, `wire.go`, `fingerprint.go`, chat translation, `testdata/wire/*.http`
+- `backend/internal/service/openai_gateway_perch.go`
+- `backend/internal/service/openai_gateway_chat_completions.go` — the `PlatformPerch` branch
+- `backend/internal/service/openai_gateway_forward.go` — the Responses guard
+- `backend/internal/domain/constants.go`, `backend/internal/domain/platforms.go`
+- `backend/internal/service/domain_constants.go`
+- `docs/PERCH_PROVIDER.md`, the `.gitignore` allowlist row, and the `.gitattributes` CRLF rule
+- `backend/go.mod` — `golang.org/x/sys` direct, already in the module graph
+
+Known replay hazards:
+
+- Perch refuses direct API access (`403 perch_surface_required`) for plan-gated accounts. The adapter mirrors the official CLI's client identity and TLS profile; a live probe against a real account is an owner decision, not a test.
+- The wire layer writes HTTP/1.1 itself because `net/http` always sorts headers. If upstream refactors transports, keep the byte fixtures and their CRLF attribute, or the round-trip tests pass in a warm worktree and fail in CI.
+- Idle connection reuse needs the TLS wrapper unwrapped with `NetConn` before the peek; a bare `*net.TCPConn` assertion silently disables reuse (five requests, five handshakes).
+- Perch refresh tokens rotate within one family: the adapter must own a copy of the session, never the CLI's live file.
+
 ## 3. Upstream and workflow divergence
 
 The fork follows upstream `.github/` workflows except for these intentional changes:

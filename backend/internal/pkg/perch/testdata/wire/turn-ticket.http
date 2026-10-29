@@ -1,0 +1,14 @@
+POST /api/perch-terminal/turn-ticket HTTP/1.1
+host: <host>
+connection: keep-alive
+Content-Type: application/json
+Authorization: Bearer test-token
+User-Agent: perchai-cli/2.4.120
+x-perch-locale: en
+accept: */*
+accept-language: *
+sec-fetch-mode: cors
+accept-encoding: br, gzip, deflate
+content-length: 38
+
+{"surface":"cli","profile":"standard"}

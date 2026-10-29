@@ -1,0 +1,16 @@
+POST /api/perch-terminal/model-call HTTP/1.1
+host: <host>
+connection: keep-alive
+Content-Type: application/json
+x-perch-call-delta: 1
+Accept: text/event-stream
+Authorization: Bearer test-token
+User-Agent: perchai-cli/2.4.120
+x-perch-locale: en
+x-perch-turn-ticket: test.ticket
+accept-language: *
+sec-fetch-mode: cors
+accept-encoding: br, gzip, deflate
+content-length: 17
+
+{"hello":"world"}

@@ -1,0 +1,8 @@
+data: {"type":"tool_call_delta","toolCalls":[{"id":"call_1","name":"write","arguments":{}}]}
+
+data: {"type":"tool_call_delta","toolCalls":[{"id":"call_1","name":"write","arguments":{"path":"a"}}]}
+
+data: {"type":"tool_use_end","toolCalls":[{"id":"call_1","name":"write","arguments":{"path":"a.txt","body":"x"}}]}
+
+data: {"type":"done","ok":true,"text":"","content":[],"toolCalls":[],"finishReason":"tool_calls","provider":"perch","model":"deepseek/deepseek-v4.1-flash","durationMs":10,"usage":{"inputTokens":1,"outputTokens":1,"cacheCreationInputTokens":0,"cacheReadInputTokens":0,"totalTokens":2}}
+

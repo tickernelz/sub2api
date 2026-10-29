@@ -1,0 +1,62 @@
+package perch
+
+import (
+	"context"
+	"testing"
+)
+
+func TestModelCallSendsAttributionFromAccount(t *testing.T) {
+	server := newPerchTestServer(t, perchTestOptions{})
+	session := NewSession(testCredentials(server.URL), WithHTTPClient(server.Client()))
+	client := NewClient(session)
+
+	stream, err := client.OpenModelCall(context.Background(), ModelCallRequest{})
+	if err != nil {
+		t.Fatalf("OpenModelCall: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+
+	attribution := server.lastModelReq.Attribution
+	if attribution == nil {
+		t.Fatalf("model call must carry attribution")
+	}
+	if attribution.UserID != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("attribution userId = %q", attribution.UserID)
+	}
+	if attribution.Workspace != "33333333-3333-4333-8333-333333333333" {
+		t.Fatalf("attribution workspaceId = %q", attribution.Workspace)
+	}
+	if attribution.Source != ClientSurfaceCLI || attribution.Lane != LaneChat {
+		t.Fatalf("attribution surface = %#v", attribution)
+	}
+	if attribution.RunID != server.lastModelReq.RunID || attribution.RunID == "" {
+		t.Fatalf("attribution runId = %q, request runId = %q", attribution.RunID, server.lastModelReq.RunID)
+	}
+	if server.accountHits != 1 {
+		t.Fatalf("account lookups = %d, want 1", server.accountHits)
+	}
+
+	second, err := client.OpenModelCall(context.Background(), ModelCallRequest{})
+	if err != nil {
+		t.Fatalf("second OpenModelCall: %v", err)
+	}
+	defer func() { _ = second.Close() }()
+	if server.accountHits != 1 {
+		t.Fatalf("account lookups after second call = %d, want cached 1", server.accountHits)
+	}
+}
+
+func TestModelCallSkipsAttributionWhenAccountFails(t *testing.T) {
+	server := newPerchTestServer(t, perchTestOptions{AccountBody: []byte(`{"ok":false,"error":"boom"}`)})
+	session := NewSession(testCredentials(server.URL), WithHTTPClient(server.Client()))
+	client := NewClient(session)
+
+	stream, err := client.OpenModelCall(context.Background(), ModelCallRequest{})
+	if err != nil {
+		t.Fatalf("OpenModelCall must still run without attribution: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+	if server.lastModelReq.Attribution != nil {
+		t.Fatalf("attribution must stay empty when the account lookup yields nothing: %#v", server.lastModelReq.Attribution)
+	}
+}
