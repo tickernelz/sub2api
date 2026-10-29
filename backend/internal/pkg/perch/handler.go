@@ -40,6 +40,7 @@ type Handler struct {
 	http        Doer
 	now         func() time.Time
 	turnContext bool
+	fingerprint bool
 
 	mu      sync.Mutex
 	clients map[string]*clientEntry
@@ -64,6 +65,12 @@ func WithHandlerHTTP(doer Doer) HandlerOption {
 	}
 }
 
+func WithFingerprintTransport(enabled bool) HandlerOption {
+	return func(h *Handler) {
+		h.fingerprint = enabled
+	}
+}
+
 func WithTurnContext(enabled bool) HandlerOption {
 	return func(h *Handler) {
 		h.turnContext = enabled
@@ -83,6 +90,7 @@ func NewHandler(source CredentialSource, opts ...HandlerOption) *Handler {
 		source:      source,
 		now:         time.Now,
 		turnContext: true,
+		fingerprint: true,
 		clients:     make(map[string]*clientEntry),
 	}
 	for _, opt := range opts {
@@ -289,14 +297,23 @@ func (h *Handler) client(ctx context.Context) (*Client, func(), error) {
 			}
 		}))
 	}
-	if doer != nil {
+	switch {
+	case doer != nil:
 		opts = append(opts, WithHTTPClient(doer))
+	case h.fingerprint:
+		fingerprinted := FingerprintHTTPClient(nil)
+		opts = append(opts, WithHTTPClient(fingerprinted))
 	}
 	session := NewSession(creds, opts...)
 	client := NewClient(session, WithClientClock(now))
-	if doer != nil {
+	switch {
+	case doer != nil:
 		client.http = doer
 		client.streamHTTP = streamingClient(doer)
+	case h.fingerprint:
+		fingerprinted := FingerprintHTTPClient(nil)
+		client.http = fingerprinted
+		client.streamHTTP = fingerprinted
 	}
 
 	h.seq++

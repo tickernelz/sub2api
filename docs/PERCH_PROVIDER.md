@@ -49,6 +49,14 @@ Perch does not take an OpenAI model name: the captured CLI keeps `preferredModel
 
 A stream that closes without a `done` event is reported as `stream_interrupted` and never closed with `[DONE]`. A failed turn-ticket mint refreshes the session and mints again instead of calling the model proxy without a ticket.
 
+## Transport fingerprint
+
+`fingerprint.go` reproduces the TLS ClientHello of the official CLI 2.4.120, measured offline against a local capture listener: JA3 `fe1a22af39881f8613c4834b2a568a00` (`fingerprint.go` keeps the full parameter string in `PerchJA3Raw`), 52 cipher suites in the recorded order, extensions `65281,11,10,35,16,22,23,13,43,45,51`, curves `4588,29,23,30,24,25,256,257`, point formats `0,1,2`, and ALPN `http/1.1` — the CLI does not speak HTTP/2, so `FingerprintTransport` leaves `ForceAttemptHTTP2` off.
+
+`TestFingerprintProfileMatchesRecordedJA3` listens on a loopback socket, dials with the profile, parses the produced ClientHello and asserts both the JA3 hash and the raw parameter string. `WithFingerprintTransport(false)` switches the profile off for a plain transport.
+
+Still open for full parity: HTTP/1.1 header order and the request body key order, plus the per-turn request sequence (`public-model-default`, `account`, `cli-context`, `turn-ticket`, `model-call`).
+
 ## Client identity
 
 Perch only serves hosted models to its own surfaces, so the adapter presents the same client identity the official CLI does, the way the codex and claude providers already do for their upstreams:
