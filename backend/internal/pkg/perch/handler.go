@@ -296,7 +296,7 @@ func (h *Handler) client(ctx context.Context) (*Client, func(), error) {
 			persistCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			if storeErr := store.StorePerchCredentials(persistCtx, next); storeErr != nil {
-				logger.LegacyPrintf("perch.handler", "persist refreshed credentials failed: %v", storeErr)
+				logger.LegacyPrintf("perch.handler", "persist refreshed credentials failed: type=%T", storeErr)
 			}
 		}))
 	}

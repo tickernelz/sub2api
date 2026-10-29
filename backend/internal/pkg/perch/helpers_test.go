@@ -71,7 +71,26 @@ type perchTestServer struct {
 	lastTicketHeaders http.Header
 	lastHeaders       http.Header
 	stall             chan struct{}
+	ticketCalls       map[string]int
 	mu                sync.Mutex
+}
+
+func (s *perchTestServer) maxTicketCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	max := 0
+	for _, calls := range s.ticketCalls {
+		if calls > max {
+			max = calls
+		}
+	}
+	return max
+}
+
+func (s *perchTestServer) ticketMints() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ticketHits
 }
 
 type perchTestOptions struct {
@@ -176,6 +195,10 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 		modelHits := ts.modelHits
 		ts.lastModelReq = modelReq
 		ts.lastHeaders = r.Header.Clone()
+		if ts.ticketCalls == nil {
+			ts.ticketCalls = make(map[string]int)
+		}
+		ts.ticketCalls[r.Header.Get("x-perch-turn-ticket")]++
 		ts.mu.Unlock()
 		if opts.FirstModelFails && modelHits == 1 {
 			writeFixtureJSON(t, w, http.StatusUnauthorized, []byte(`{"ok":false,"error":"Unauthorized","errorCode":"not_authenticated"}`))

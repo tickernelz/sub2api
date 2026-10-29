@@ -34,23 +34,28 @@ func TestHandlerFingerprintKeepsControlPlaneDeadline(t *testing.T) {
 	}
 }
 
-func TestDiscardTicketKeepsOtherBudgets(t *testing.T) {
+func TestDiscardTicketKeepsBudgetTombstone(t *testing.T) {
 	client := NewClient(NewSession(testCredentials("https://app.example.com")))
-	if !client.reserveTicketUse("ticket-a") || !client.reserveTicketUse("ticket-b") {
-		t.Fatalf("reserve failed")
+	exhausted := Ticket{Ticket: "ticket-a", ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339)}
+	other := Ticket{Ticket: "ticket-b", ExpiresAt: time.Now().Add(time.Minute).UTC().Format(time.RFC3339)}
+	for i := 0; i < ticketCallLimit; i++ {
+		if !client.reserveTicketUse(exhausted) {
+			t.Fatalf("reserve %d failed below the limit", i)
+		}
 	}
-	client.discardTicket(ClientSurfaceCLI, DefaultProfile, "ticket-a")
+	if !client.reserveTicketUse(other) {
+		t.Fatalf("second ticket reserve failed")
+	}
+	client.discardTicket(ClientSurfaceCLI, DefaultProfile)
 
+	if client.reserveTicketUse(exhausted) {
+		t.Fatalf("a discarded, exhausted ticket must stay closed to further calls")
+	}
 	client.mu.Lock()
-	_, hasA := client.ticketUses["ticket-a"]
 	usesB := client.ticketUses["ticket-b"]
 	client.mu.Unlock()
-
-	if hasA {
-		t.Fatalf("discarded ticket kept its budget entry")
-	}
-	if usesB != 1 {
-		t.Fatalf("ticket-b uses = %d, want 1", usesB)
+	if usesB.count != 1 {
+		t.Fatalf("ticket-b uses = %d, want 1", usesB.count)
 	}
 }
 
@@ -64,7 +69,7 @@ func TestTicketRotationMintsOnceForConcurrentWorkers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prime ticket: %v", err)
 	}
-	for client.reserveTicketUse(first.Ticket) {
+	for client.reserveTicketUse(first) {
 	}
 
 	const workers = 4
@@ -74,7 +79,7 @@ func TestTicketRotationMintsOnceForConcurrentWorkers(t *testing.T) {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			_, err := client.nextTicket(context.Background(), first.Ticket)
+			_, err := client.nextTicket(context.Background(), first)
 			errs[index] = err
 		}(i)
 	}

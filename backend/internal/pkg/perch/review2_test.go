@@ -13,14 +13,14 @@ import (
 func TestReserveTicketUseIsBounded(t *testing.T) {
 	client := NewClient(NewSession(testCredentials("https://app.example.com")))
 	for i := 0; i < ticketCallLimit; i++ {
-		if !client.reserveTicketUse("ticket-a") {
+		if !client.reserveTicketUse(Ticket{Ticket: "ticket-a"}) {
 			t.Fatalf("reserve %d returned false before the limit", i)
 		}
 	}
-	if client.reserveTicketUse("ticket-a") {
+	if client.reserveTicketUse(Ticket{Ticket: "ticket-a"}) {
 		t.Fatalf("reserve past the limit must return false")
 	}
-	if !client.reserveTicketUse("ticket-b") {
+	if !client.reserveTicketUse(Ticket{Ticket: "ticket-b"}) {
 		t.Fatalf("a fresh ticket must start with a clean budget")
 	}
 }

@@ -82,7 +82,9 @@ The model-call body follows the captured CLI byte shape rather than the spec tab
 
 ## Concurrency
 
-Control-plane calls (`cli-auth/config`, `turn-ticket`, `acct`) keep a 60s total deadline even when the fingerprint transport is active; only the model-call client runs without a total timeout and relies on the 60s idle read instead.
+Ticket minting is single-flight and the per-ticket budget leaves a tombstone: a spent ticket keeps its counter until it expires, so workers that still hold it cannot re-acquire budget, while a rotation mints exactly one replacement that the other workers share.
+
+Control-plane calls (`cli-auth/config`, `turn-ticket`, `account`) keep a 60s total deadline even when the fingerprint transport is active; only the model-call client runs without a total timeout and relies on the 60s idle read instead.
 
 One `Client` (and one `Session`) exists per account: the handler creates it under its own mutex, so two cold-start requests cannot mint two sessions that refresh with the same rotated token. Cached clients are reference-counted while a request uses them, and eviction only removes unpinned entries. The turn-ticket budget is reserved under the client mutex, so the 40-call limit and the reuse counter cannot be raced.
 

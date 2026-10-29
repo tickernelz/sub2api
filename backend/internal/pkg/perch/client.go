@@ -22,6 +22,7 @@ const (
 	modelCallIdleTimeout  = 60 * time.Second
 	responseHeaderTimeout = 60 * time.Second
 	ticketCallLimit       = 40
+	DefaultTicketTTL      = 5 * time.Minute
 )
 
 // Client speaks the authenticated Perch terminal API on behalf of one session.
@@ -33,9 +34,10 @@ type Client struct {
 	now        func() time.Time
 
 	mu         sync.Mutex
+	mintMu     sync.Mutex
 	rotateMu   sync.Mutex
 	tickets    map[string]ticketEntry
-	ticketUses map[string]int
+	ticketUses map[string]ticketUse
 
 	account   AccountInfo
 	accountAt time.Time
@@ -45,6 +47,11 @@ type Client struct {
 type ticketEntry struct {
 	ticket    Ticket
 	fetchedAt time.Time
+	expiresAt time.Time
+}
+
+type ticketUse struct {
+	count     int
 	expiresAt time.Time
 }
 
@@ -75,7 +82,7 @@ func NewClient(session *Session, opts ...ClientOption) *Client {
 		idle:       modelCallIdleTimeout,
 		now:        time.Now,
 		tickets:    make(map[string]ticketEntry),
-		ticketUses: make(map[string]int),
+		ticketUses: make(map[string]ticketUse),
 	}
 	if session != nil {
 		c.http = session.http
@@ -196,6 +203,9 @@ func (c *Client) TurnTicket(ctx context.Context, surface, profile string) (Ticke
 	}
 	key := surface + "|" + profile
 
+	c.mintMu.Lock()
+	defer c.mintMu.Unlock()
+
 	c.mu.Lock()
 	entry, ok := c.tickets[key]
 	c.mu.Unlock()
@@ -239,48 +249,62 @@ func (c *Client) TurnTicket(ctx context.Context, surface, profile string) (Ticke
 	return ticket, nil
 }
 
-func (c *Client) reserveTicketUse(token string) bool {
-	if token == "" {
+func (c *Client) reserveTicketUse(ticket Ticket) bool {
+	if strings.TrimSpace(ticket.Ticket) == "" {
 		return true
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.ticketUses == nil {
-		c.ticketUses = make(map[string]int)
-	}
-	if c.ticketUses[token] >= ticketCallLimit {
+	now := c.now()
+	c.pruneTicketUsesLocked(now)
+	use := c.ticketUses[ticket.Ticket]
+	if use.count >= ticketCallLimit {
 		return false
 	}
-	c.ticketUses[token]++
+	use.count++
+	use.expiresAt = ticketExpiry(ticket, now)
+	c.ticketUses[ticket.Ticket] = use
 	return true
 }
 
-func (c *Client) discardTicket(surface, profile, token string) {
+func (c *Client) pruneTicketUsesLocked(now time.Time) {
+	for token, use := range c.ticketUses {
+		if !use.expiresAt.IsZero() && now.After(use.expiresAt) {
+			delete(c.ticketUses, token)
+		}
+	}
+}
+
+func ticketExpiry(ticket Ticket, now time.Time) time.Time {
+	if parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(ticket.ExpiresAt)); err == nil {
+		return parsed
+	}
+	return now.Add(DefaultTicketTTL)
+}
+
+func (c *Client) discardTicket(surface, profile string) {
 	if strings.TrimSpace(profile) == "" {
 		profile = DefaultProfile
 	}
 	c.mu.Lock()
 	delete(c.tickets, surface+"|"+profile)
-	if token != "" {
-		delete(c.ticketUses, token)
-	}
 	c.mu.Unlock()
 }
 
-func (c *Client) nextTicket(ctx context.Context, exhausted string) (Ticket, error) {
+func (c *Client) nextTicket(ctx context.Context, exhausted Ticket) (Ticket, error) {
 	c.rotateMu.Lock()
 	defer c.rotateMu.Unlock()
 
 	cached, err := c.TurnTicket(ctx, ClientSurfaceCLI, DefaultProfile)
-	if err == nil && cached.Ticket != exhausted && c.reserveTicketUse(cached.Ticket) {
+	if err == nil && cached.Ticket != exhausted.Ticket && c.reserveTicketUse(cached) {
 		return cached, nil
 	}
-	c.discardTicket(ClientSurfaceCLI, DefaultProfile, exhausted)
+	c.discardTicket(ClientSurfaceCLI, DefaultProfile)
 	fresh, err := c.TurnTicket(ctx, ClientSurfaceCLI, DefaultProfile)
 	if err != nil {
 		return Ticket{}, err
 	}
-	if !c.reserveTicketUse(fresh.Ticket) {
+	if !c.reserveTicketUse(fresh) {
 		return Ticket{}, &APIError{Status: http.StatusBadGateway, Code: CodeTicketUnavailable, Message: "perch: turn ticket budget exhausted"}
 	}
 	return fresh, nil
@@ -322,11 +346,11 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 			if _, refreshErr := c.session.Refresh(ctx); refreshErr != nil {
 				return nil, refreshErr
 			}
-			c.discardTicket(ClientSurfaceCLI, DefaultProfile, "")
+			c.discardTicket(ClientSurfaceCLI, DefaultProfile)
 			continue
 		}
-		if !c.reserveTicketUse(ticket.Ticket) {
-			ticket, err = c.nextTicket(ctx, ticket.Ticket)
+		if !c.reserveTicketUse(ticket) {
+			ticket, err = c.nextTicket(ctx, ticket)
 			if err != nil {
 				return nil, err
 			}
@@ -387,10 +411,10 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 			if _, err := c.session.Refresh(ctx); err != nil {
 				return nil, err
 			}
-			c.discardTicket(ClientSurfaceCLI, DefaultProfile, ticket.Ticket)
+			c.discardTicket(ClientSurfaceCLI, DefaultProfile)
 			continue
 		}
-		c.discardTicket(ClientSurfaceCLI, DefaultProfile, ticket.Ticket)
+		c.discardTicket(ClientSurfaceCLI, DefaultProfile)
 	}
 }
 
