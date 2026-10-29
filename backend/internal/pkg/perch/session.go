@@ -194,16 +194,19 @@ func (s *Session) exchangeRefreshToken(ctx context.Context, creds Credentials) (
 	if err != nil {
 		return Credentials{}, fmt.Errorf("perch: build refresh request: %w", err)
 	}
-	req.Header.Set("content-type", "application/json")
-	req.Header.Set("apikey", auth.SupabaseAnonKey)
-	req.Header.Set("authorization", "Bearer "+auth.SupabaseAnonKey)
+	setSupabaseTokenHeaders(req, auth.SupabaseAnonKey)
 
 	resp, err := s.http.Do(req)
 	if err != nil {
 		return Credentials{}, fmt.Errorf("perch: refresh session: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	decoded, err := decodeResponseBody(resp)
+	if err != nil {
+		_ = resp.Body.Close()
+		return Credentials{}, fmt.Errorf("perch: decode refresh response: %w", err)
+	}
+	defer func() { _ = decoded.Close() }()
+	payload, err := io.ReadAll(io.LimitReader(decoded, 1<<20))
 	if err != nil {
 		return Credentials{}, fmt.Errorf("perch: read refresh response: %w", err)
 	}

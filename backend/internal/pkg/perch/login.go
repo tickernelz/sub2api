@@ -229,9 +229,14 @@ func NewExchangeRequest(ctx context.Context, flow LoginFlow, code string) (*http
 	if err != nil {
 		return nil, fmt.Errorf("perch: build pkce exchange: %w", err)
 	}
+	setSupabaseTokenHeaders(req, flow.SupabaseAnonKey)
+	return req, nil
+}
+
+func setSupabaseTokenHeaders(req *http.Request, anonKey string) {
 	req.Header.Set("Content-Type", "application/json;charset=UTF-8")
-	req.Header.Set("Authorization", "Bearer "+flow.SupabaseAnonKey)
-	req.Header.Set("apikey", flow.SupabaseAnonKey)
+	req.Header.Set("Authorization", "Bearer "+anonKey)
+	req.Header.Set("apikey", anonKey)
 	req.Header.Set("X-Client-Info", supabaseClientInfo)
 	req.Header.Set("X-Supabase-Api-Version", supabaseAPIVersion)
 	req.Header.Set("accept", "*/*")
@@ -239,7 +244,6 @@ func NewExchangeRequest(ctx context.Context, flow LoginFlow, code string) (*http
 	req.Header.Set("sec-fetch-mode", "cors")
 	req.Header.Set("user-agent", supabaseUserAgent)
 	req.Header.Set("accept-encoding", "br, gzip, deflate")
-	return req, nil
 }
 
 func (c *LoginClient) Exchange(ctx context.Context, flow LoginFlow, code string) (Credentials, error) {
@@ -257,8 +261,13 @@ func (c *LoginClient) Exchange(ctx context.Context, flow LoginFlow, code string)
 	if err != nil {
 		return Credentials{}, fmt.Errorf("perch: pkce exchange: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	decoded, err := decodeResponseBody(resp)
+	if err != nil {
+		_ = resp.Body.Close()
+		return Credentials{}, fmt.Errorf("perch: decode pkce exchange: %w", err)
+	}
+	defer func() { _ = decoded.Close() }()
+	payload, err := io.ReadAll(io.LimitReader(decoded, 1<<20))
 	if err != nil {
 		return Credentials{}, fmt.Errorf("perch: read pkce exchange: %w", err)
 	}
