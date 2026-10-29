@@ -63,7 +63,7 @@ var wireDefaultHeaders = []wireDefaultHeader{
 	{"accept", "*/*"},
 	{"accept-language", "*"},
 	{"sec-fetch-mode", "cors"},
-	{"accept-encoding", "gzip, deflate"},
+	{"accept-encoding", "br, gzip, deflate"},
 }
 
 // WireDoer speaks HTTP/1.1 with the header order the official client emits.

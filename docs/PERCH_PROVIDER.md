@@ -153,7 +153,7 @@ The per-turn sequence follows the CLI: `public-model-default`, `account`, `turn-
 
 `net/http` always sorts request headers, so the adapter cannot reproduce the CLI's wire order through `http.Client`. `wire.go` therefore writes HTTP/1.1 itself over the TLS connection and parses the response with `http.ReadResponse`.
 
-Header order is the one the CLI's own client (undici, as shipped in `perchai-cli`'s dependency tree) puts on the wire: request line, `host`, `connection: keep-alive`, the headers the CLI sets in its own insertion order (`Content-Type`, `x-perch-call-delta`, `Accept`, `Authorization`, `User-Agent`, `x-perch-locale`, `x-perch-turn-ticket` for model calls; `Content-Type`, `Authorization`, `User-Agent`, `x-perch-locale` for JSON control calls), then the defaults undici appends (`accept: */*` when absent, `accept-language: *`, `sec-fetch-mode: cors`, `accept-encoding: gzip, deflate`), and finally `content-length`. `gzip, deflate` is what the recorded CLI turn carries; the `br, gzip, deflate` variant appears only in the synthetic undici harness, never in a recorded CLI request.
+Header order is the one the CLI's own client (undici, as shipped in `perchai-cli`'s dependency tree) puts on the wire: request line, `host`, `connection: keep-alive`, the headers the CLI sets in its own insertion order (`Content-Type`, `x-perch-call-delta`, `Accept`, `Authorization`, `User-Agent`, `x-perch-locale`, `x-perch-turn-ticket` for model calls; `Content-Type`, `Authorization`, `User-Agent`, `x-perch-locale` for JSON control calls), then the defaults undici appends (`accept: */*` when absent, `accept-language: *`, `sec-fetch-mode: cors`, `accept-encoding: br, gzip, deflate`), and finally `content-length`. undici picks `accept-encoding` by scheme: the TLS recordings carry `br, gzip, deflate` on all 15 captured CLI requests, while `gzip, deflate` shows up only on the plain-HTTP loopback captures used for offline testing. Production Perch is HTTPS, so the adapter always sends `br, gzip, deflate`.
 
 Kept from `net/http`: response parsing, chunked decoding, connection reuse. Response bodies are decompressed for `gzip`, `deflate` and `br` because the request advertises two of them and Perch may answer compressed with any of the three; without it the JSON and SSE readers see binary. A connection returns to the pool only when the body was read to EOF, the response allows reuse and no buffered bytes remain; an SSE stream closed early drops its connection. Before an idle connection is reused it is peeked without consuming bytes (`recvfrom` with `MSG_PEEK|MSG_DONTWAIT` on unix; the TLS wrapper is unwrapped with `NetConn` first, and platforms without the probe never reuse), so a pending byte or a queued EOF drops the connection instead of being read as the next response. A body settles exactly once through `sync.Once`, so a concurrent `Read` and `Close` cannot release and close the same socket. Header names and values go to the socket verbatim, so `checkWireHeader` rejects any name or value carrying a control byte (`errWireHeader`) before a byte leaves: a token, ticket or credential containing a newline cannot inject a header line. Two doers cover the two deadlines: control calls get a 60s whole-exchange timeout, model calls get a response-header timeout and no total timeout (an idle reader still trips the 60s stream guard). `WireDoer.Share` hands both doers one idle pool, so a turn keeps a single TCP connection across control and model calls, like the CLI.
 
@@ -173,7 +173,7 @@ Every layer below is measured by `~/re/perchai/tools/parity.sh`, which drives th
 | keep-alive | one connection carries the turn | identical | match |
 | request line, header order and casing (model-call, turn-ticket) | exact | identical | match |
 | control-plane headers (account, public-model-default) | two CLI stacks: `node` UA on the fetch path, `perchai-cli/2.4.120` on the node:https path | `perchai-cli/2.4.120`, same header set | match inside the CLI's own variation |
-| accept-encoding | `gzip, deflate` | identical | match |
+| accept-encoding | `br, gzip, deflate` | identical | match |
 | turn-ticket body | `{"surface":"cli","profile":"standard"}` | identical | match |
 | model-call key order, top level and `request` | exact | identical | match |
 | `temperature`, `maxTokens`, `toolChoice` | 0.6 / 32000 / `"auto"` | same defaults when the caller omits them | match |
@@ -208,7 +208,7 @@ Perch only serves hosted models to its own surfaces, so the adapter presents the
 | `x-perch-locale` | `en` |
 | `x-perch-call-delta` | `1` on model calls only |
 | `accept-language`, `sec-fetch-mode` | `*`, `cors` |
-| `Accept-Encoding` | `gzip, deflate`, the value every recorded CLI request carries, decoded by `encoding.go` |
+| `Accept-Encoding` | `br, gzip, deflate`, the value every recorded TLS CLI request carries, decoded by `encoding.go` (brotli included) |
 | turn context | a `<perch_turn_context>` user message with today's date, inserted after any system messages |
 | system prompt | `surfacePromptText` as the first message, ≥ `surfacePromptFloor` (205) characters, ahead of any caller system message (see the surface gate) |
 

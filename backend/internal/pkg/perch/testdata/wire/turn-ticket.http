@@ -8,7 +8,7 @@ x-perch-locale: en
 accept: */*
 accept-language: *
 sec-fetch-mode: cors
-accept-encoding: gzip, deflate
+accept-encoding: br, gzip, deflate
 content-length: 38
 
 {"surface":"cli","profile":"standard"}
