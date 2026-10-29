@@ -28,7 +28,21 @@ Usage is camelCase (`inputTokens`, `outputTokens`, `cacheReadInputTokens`, `cach
 
 ## Wiring
 
-`perch.Handler` serves `POST /v1/chat/completions` and `GET /v1/models` from a `CredentialSource`. Mount it behind the platform router once the platform is registered; `Client.Health` is the account health check (`/api/perchai/account` -> plan, entitlements, allowed models).
+The platform is registered: `domain.PlatformPerch` ("perch", display "Perch") sits in `domain.platformList` with `PlatformGatewayOpenAI`, and `service.PlatformPerch` mirrors it for the service layer. Registration is what makes a perch account reachable: the OpenAI gateway handler selects accounts by `spec.Gateway`, so removing the `platformList` row silently removes the platform from every list and from the scheduler.
+
+Dispatch: `forwardAsChatCompletions` hands a perch account to `OpenAIGatewayService.forwardPerchChatCompletions` before any Codex or protocol-routing work. That path builds the Perch model call from the client's Chat Completions body, streams `perch.StreamChat` chunks straight into the client's SSE response, and returns `OpenAIForwardResult` with Perch's usage so the normal billing path applies. `/v1/responses` is rejected with `unsupported_protocol` because Perch exposes no Responses endpoint.
+
+Account credentials (all optional except the access token):
+
+| Key | Meaning |
+| --- | --- |
+| `app_url` | Perch app origin; defaults to `https://app.perchai.app` |
+| `access_token` | Supabase access token (required) |
+| `refresh_token` | Rotated on refresh and written back to the account row |
+| `expires_at` | Unix seconds; decides whether a cached client is refreshed |
+| `user_id`, `email` | Session identity, used for the client cache key |
+
+`perch.NewGatewayClient` builds the fingerprinted control and stream doers; refreshed credentials are persisted through `persistAccountCredentials`, so a rotated refresh token never lives only in memory. The client cache is keyed by account id, and a newer `expires_at` replaces the cached session. `Client.Health` remains the account health check (`/api/perchai/account` -> plan, entitlements, allowed models).
 
 ## Model selection
 

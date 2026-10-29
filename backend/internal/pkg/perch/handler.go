@@ -202,68 +202,32 @@ func (h *Handler) streamResponse(w http.ResponseWriter, stream *ModelCallStream,
 	header.Set("connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
-	emitter := NewChunkEmitter(model, responseID, h.now().Unix())
-	wroteOutput := false
-	writeChunk := func(chunk apicompat.ChatCompletionsChunk) {
+	_, err := StreamChat(stream, model, responseID, h.now().Unix(), includeUsage, func(chunk apicompat.ChatCompletionsChunk) error {
 		payload, err := json.Marshal(chunk)
 		if err != nil {
-			return
+			return err
 		}
-		fmt.Fprintf(w, "data: %s\n\n", payload)
-		wroteOutput = true
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", payload); err != nil {
+			return err
+		}
 		if flusher != nil {
 			flusher.Flush()
 		}
-	}
-
-	var settled *Outcome
-	for {
-		event, body, err := stream.Next()
-		if errors.Is(err, io.EOF) {
-			break
+		return nil
+	})
+	if err != nil {
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) {
+			apiErr = &APIError{Status: http.StatusBadGateway, Code: CodeAPIError, Message: err.Error()}
 		}
-		if err != nil {
-			writeStreamError(w, &APIError{Status: http.StatusBadGateway, Code: CodeStreamInterrupted, Message: "perch stream read failed"})
-			return
-		}
-		if event.Type == EventDone {
-			settled = outcomeFromDone(body)
-			continue
-		}
-		if event.Type == EventStreamRestart {
-			if wroteOutput {
-				writeStreamError(w, &APIError{Status: http.StatusBadGateway, Code: CodeStreamInterrupted, Message: "perch restarted the stream after output was sent"})
-				return
-			}
-			emitter.ResetToolCalls()
-			continue
-		}
-		if event.Type == EventError {
-			writeStreamError(w, &APIError{Status: http.StatusBadGateway, Code: firstNonEmpty(body.ErrorCode, CodeAPIError), Message: firstNonEmpty(body.Message, "perch stream error")})
-			return
-		}
-		for _, chunk := range emitter.Chunks(event, body) {
-			writeChunk(chunk)
-		}
-	}
-
-	if settled == nil {
-		writeStreamError(w, &APIError{Status: http.StatusBadGateway, Code: CodeStreamInterrupted, Message: "perch stream ended without a done event"})
+		writeStreamError(w, apiErr)
 		return
-	}
-	if !settled.OK {
-		writeStreamError(w, &APIError{Status: ErrorStatus(firstNonEmpty(settled.ErrorCode, CodeAPIError)), Code: firstNonEmpty(settled.ErrorCode, CodeAPIError), Message: settled.Error, Limit: settled.Limit})
-		return
-	}
-	for _, chunk := range emitter.Final(settled, includeUsage) {
-		writeChunk(chunk)
 	}
 	fmt.Fprint(w, "data: [DONE]\n\n")
 	if flusher != nil {
 		flusher.Flush()
 	}
 }
-
 func (h *Handler) client(ctx context.Context) (*Client, func(), error) {
 	creds, err := h.source.PerchCredentials(ctx)
 	if err != nil {
