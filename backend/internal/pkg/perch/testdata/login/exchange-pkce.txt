@@ -4,7 +4,7 @@ connection: keep-alive
 Content-Type: application/json;charset=UTF-8
 Authorization: Bearer FIXTURE_ANON_KEY
 apikey: FIXTURE_ANON_KEY
-X-Client-Info: FIXTURE_CLIENT_INFO_24CH
+X-Client-Info: supabase-js-node/2.106.0
 X-Supabase-Api-Version: 2024-01-01
 accept: */*
 accept-language: *

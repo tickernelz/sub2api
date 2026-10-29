@@ -23,12 +23,11 @@ const (
 	ProviderGoogle = "google"
 	ProviderGitHub = "github"
 
-	authorizePath     = "/auth/v1/authorize"
-	tokenPath         = "/auth/v1/token"
-	supabaseTokenPath = "/auth/v1/token"
-	loginStoreName    = "oauth:session:perch"
+	authorizePath  = "/auth/v1/authorize"
+	tokenPath      = "/auth/v1/token"
+	loginStoreName = "oauth:session:perch"
 
-	supabaseClientInfo = "FIXTURE_CLIENT_INFO_24CH"
+	supabaseClientInfo = "supabase-js-node/2.106.0"
 	supabaseAPIVersion = "2024-01-01"
 	supabaseUserAgent  = "node"
 

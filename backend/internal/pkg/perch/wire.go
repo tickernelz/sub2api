@@ -398,7 +398,7 @@ func wireOrderFor(req *http.Request) []wireHeaderName {
 	if strings.HasSuffix(path, modelCallPath) {
 		return modelCallWireHeaders
 	}
-	if strings.HasSuffix(path, supabaseTokenPath) {
+	if strings.HasSuffix(path, tokenPath) {
 		return supabaseTokenWireHeaders
 	}
 	return jsonWireHeaders

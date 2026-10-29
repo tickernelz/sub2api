@@ -79,12 +79,12 @@ POST {supabaseUrl}/auth/v1/token?grant_type=pkce   {"auth_code":"…","code_veri
     Content-Type: application/json;charset=UTF-8
     Authorization: Bearer <publishable key>
     apikey: <publishable key>
-    X-Client-Info: <supabase-js client tag, 24 chars as captured>
+    X-Client-Info: supabase-js-node/2.106.0
     X-Supabase-Api-Version: 2024-01-01
     accept, accept-language, sec-fetch-mode, user-agent: node, accept-encoding, content-length
 ```
 
-The header set and its order come from the CLI capture (`~/re/perchai/captures/raw/flows.jsonl`, flow 2); `wire.go` emits that order through `supabaseTokenWireHeaders`, and the login client dials Supabase through `NewWireDoer(FingerprintDialer(nil))` exactly like the gateway and refresh paths, so the TLS hello and header order match the CLI instead of Go's defaults. The captured `X-Client-Info` value is redacted, so the constant matches the recorded 24-character length and is documented here rather than guessed silently.
+The header set and its order come from the CLI capture (`~/re/perchai/captures/raw/flows.jsonl`, flow 2); `wire.go` emits that order through `supabaseTokenWireHeaders`, and the login client dials Supabase through `NewWireDoer(FingerprintDialer(nil))` exactly like the gateway and refresh paths, so the TLS hello and header order match the CLI instead of Go's defaults. The captured `X-Client-Info` value is redacted in the flow capture, but it is a public library tag: `perchai-cli` 2.4.120 bundles supabase-js and builds the header as `supabase-js-${runtime}/${version}` with runtime `node` and version `2.106.0` (`~/re/perchai/artifacts/package/dist/perch.mjs`), which is 24 characters, the length the capture records. The constant carries that value.
 
 `prompt=select_account` is sent for Google only, matching the CLI. The publishable key is fetched per login from `cli-auth/config`, never hardcoded. Upstream 401/403/5xx are reported to the admin API as 502 with a `PERCH_OAUTH_*` reason, so the panel's own 401 handling never treats an upstream refusal as an expired admin session.
 
