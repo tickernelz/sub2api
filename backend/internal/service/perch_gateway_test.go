@@ -19,7 +19,7 @@ type perchFakeServer struct {
 	modelCalls int
 }
 
-func newPerchGatewayServer(t *testing.T, text string, modelStatus int) *perchFakeServer {
+func newPerchGatewayServer(t *testing.T, text string, modelStatus int, errorCode string) *perchFakeServer {
 	t.Helper()
 	fake := &perchFakeServer{}
 	fake.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +32,7 @@ func newPerchGatewayServer(t *testing.T, text string, modelStatus int) *perchFak
 			if modelStatus != 0 {
 				w.Header().Set("content-type", "application/json")
 				w.WriteHeader(modelStatus)
-				fmt.Fprint(w, `{"ok":false,"error":"perch refused","errorCode":"perch_surface_required"}`)
+				fmt.Fprintf(w, `{"ok":false,"error":"perch refused","errorCode":%q}`, errorCode)
 				return
 			}
 			w.Header().Set("content-type", "text/event-stream")
@@ -87,7 +87,7 @@ func newPerchGinContext(t *testing.T, body string) (*gin.Context, *httptest.Resp
 }
 
 func TestForwardPerchChatCompletionsNonStream(t *testing.T) {
-	server := newPerchGatewayServer(t, "pong", 0)
+	server := newPerchGatewayServer(t, "pong", 0, "")
 	withPerchTestFactory(t, server.Server)
 	account := newPerchAccountForTest(server.Server)
 	service := &OpenAIGatewayService{}
@@ -111,7 +111,7 @@ func TestForwardPerchChatCompletionsNonStream(t *testing.T) {
 }
 
 func TestForwardPerchChatCompletionsStream(t *testing.T) {
-	server := newPerchGatewayServer(t, "pong", 0)
+	server := newPerchGatewayServer(t, "pong", 0, "")
 	withPerchTestFactory(t, server.Server)
 	account := newPerchAccountForTest(server.Server)
 	service := &OpenAIGatewayService{}
@@ -139,7 +139,7 @@ func TestForwardPerchChatCompletionsStream(t *testing.T) {
 }
 
 func TestForwardPerchChatCompletionsFailsOverOnUpstreamRefusal(t *testing.T) {
-	server := newPerchGatewayServer(t, "pong", http.StatusTooManyRequests)
+	server := newPerchGatewayServer(t, "pong", http.StatusTooManyRequests, "perch_surface_required")
 	withPerchTestFactory(t, server.Server)
 	account := newPerchAccountForTest(server.Server)
 	service := &OpenAIGatewayService{}
@@ -162,8 +162,35 @@ func TestForwardPerchChatCompletionsFailsOverOnUpstreamRefusal(t *testing.T) {
 	}
 }
 
+func TestForwardPerchChatCompletionsKeepsRequestErrors(t *testing.T) {
+	server := newPerchGatewayServer(t, "pong", http.StatusBadRequest, "context_overflow")
+	withPerchTestFactory(t, server.Server)
+	account := newPerchAccountForTest(server.Server)
+	service := &OpenAIGatewayService{}
+
+	body := `{"model":"perch-standard","messages":[{"role":"user","content":"ping"}]}`
+	c, recorder := newPerchGinContext(t, body)
+	result, err := service.forwardPerchChatCompletions(c.Request.Context(), c, account, []byte(body), "")
+	if result != nil {
+		t.Fatalf("result = %+v, want nil", result)
+	}
+	var failover *UpstreamFailoverError
+	if errors.As(err, &failover) {
+		t.Fatalf("request-scoped error became a failover: %+v", failover)
+	}
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), "context_overflow") {
+		t.Fatalf("body = %s, want the perch code", recorder.Body.String())
+	}
+	if server.modelCalls != 1 {
+		t.Fatalf("model calls = %d, want exactly 1", server.modelCalls)
+	}
+}
+
 func TestForwardPerchChatCompletionsStreamFailsOverBeforeOutput(t *testing.T) {
-	server := newPerchGatewayServer(t, "pong", http.StatusServiceUnavailable)
+	server := newPerchGatewayServer(t, "pong", http.StatusServiceUnavailable, "upstream_unavailable")
 	withPerchTestFactory(t, server.Server)
 	account := newPerchAccountForTest(server.Server)
 	service := &OpenAIGatewayService{}
@@ -181,7 +208,7 @@ func TestForwardPerchChatCompletionsStreamFailsOverBeforeOutput(t *testing.T) {
 }
 
 func TestPerchRejectsUnsupportedGatewayEntries(t *testing.T) {
-	server := newPerchGatewayServer(t, "pong", 0)
+	server := newPerchGatewayServer(t, "pong", 0, "")
 	withPerchTestFactory(t, server.Server)
 	account := newPerchAccountForTest(server.Server)
 	service := &OpenAIGatewayService{}

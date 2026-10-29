@@ -183,6 +183,41 @@ func perchUsage(u *perch.Usage) OpenAIUsage {
 	}
 }
 
+func perchAccountScopedFailure(status int, code string) bool {
+	switch status {
+	case http.StatusUnauthorized, http.StatusTooManyRequests:
+		return true
+	case http.StatusForbidden:
+		return code == "perch_surface_required"
+	}
+	return status >= 500
+}
+
+func (s *OpenAIGatewayService) perchUpstreamError(c *gin.Context, err error) error {
+	status := http.StatusBadGateway
+	code := "upstream_error"
+	message := err.Error()
+	var apiErr *perch.APIError
+	if errors.As(err, &apiErr) {
+		if apiErr.Status >= 400 && apiErr.Status <= 599 {
+			status = apiErr.Status
+		}
+		if apiErr.Code != "" {
+			code = apiErr.Code
+		}
+		if apiErr.Message != "" {
+			message = apiErr.Message
+		}
+	}
+	if perchAccountScopedFailure(status, code) {
+		return perchFailoverError(err)
+	}
+	if c != nil && c.Writer != nil && !c.Writer.Written() {
+		writeChatCompletionsError(c, status, code, message)
+	}
+	return err
+}
+
 func perchFailoverError(err error) error {
 	status := http.StatusBadGateway
 	code := "upstream_error"
@@ -247,7 +282,7 @@ func (s *OpenAIGatewayService) forwardPerchChatCompletions(
 
 	stream, err := client.OpenModelCall(ctx, call)
 	if err != nil {
-		return nil, perchFailoverError(err)
+		return nil, s.perchUpstreamError(c, err)
 	}
 	defer func() { _ = stream.Close() }()
 
@@ -264,7 +299,7 @@ func (s *OpenAIGatewayService) forwardPerchChatCompletions(
 
 	outcome, err := perch.CollectOutcome(stream)
 	if err != nil {
-		return nil, perchFailoverError(err)
+		return nil, s.perchUpstreamError(c, err)
 	}
 	settledModel := model
 	if outcome.Model != "" {
@@ -316,7 +351,7 @@ func (s *OpenAIGatewayService) streamPerchChatCompletions(
 	})
 	if err != nil {
 		if !wroteOutput {
-			return nil, perchFailoverError(err)
+			return nil, s.perchUpstreamError(c, err)
 		}
 		code := "upstream_error"
 		message := err.Error()
