@@ -40,7 +40,7 @@ type Handler struct {
 	http        Doer
 	now         func() time.Time
 	turnContext bool
-	fingerprint bool
+	wire        bool
 
 	mu      sync.Mutex
 	clients map[string]*clientEntry
@@ -68,9 +68,9 @@ func WithHandlerHTTP(doer Doer) HandlerOption {
 	}
 }
 
-func WithFingerprintTransport(enabled bool) HandlerOption {
+func WithWireTransport(enabled bool) HandlerOption {
 	return func(h *Handler) {
-		h.fingerprint = enabled
+		h.wire = enabled
 	}
 }
 
@@ -93,7 +93,7 @@ func NewHandler(source CredentialSource, opts ...HandlerOption) *Handler {
 		source:      source,
 		now:         time.Now,
 		turnContext: true,
-		fingerprint: true,
+		wire:        true,
 		clients:     make(map[string]*clientEntry),
 	}
 	for _, opt := range opts {
@@ -268,10 +268,10 @@ func (h *Handler) client(ctx context.Context) (*Client, func(), error) {
 	switch {
 	case doer != nil:
 		streamHTTP = streamingClient(doer)
-	case h.fingerprint:
-		dialer := FingerprintDialer(nil)
-		controlHTTP = NewWireDoer(dialer.DialTLSContext, controlPlaneTimeout, responseHeaderTimeout)
-		streamHTTP = NewWireDoer(dialer.DialTLSContext, 0, responseHeaderTimeout)
+	case h.wire:
+		dial := StandardDialer()
+		controlHTTP = NewWireDoer(dial, controlPlaneTimeout, responseHeaderTimeout)
+		streamHTTP = NewWireDoer(dial, 0, responseHeaderTimeout)
 	}
 	if controlHTTP != nil {
 		opts = append(opts, WithHTTPClient(controlHTTP))

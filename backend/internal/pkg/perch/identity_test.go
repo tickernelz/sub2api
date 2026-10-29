@@ -108,13 +108,13 @@ func TestTurnContextIsPrependedBeforeFirstUserMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildModelCallRequest: %v", err)
 	}
-	if got := messageRoles(t, call.Request.Messages); strings.Join(got, ",") != "system,user,user" {
+	if got := messageRoles(t, call.Request.Messages); strings.Join(got, ",") != "system,system,user,user" {
 		t.Fatalf("roles = %v", got)
 	}
-	if text := messageText(t, call.Request.Messages[1]); !strings.HasPrefix(text, "<perch_turn_context>") {
+	if text := messageText(t, call.Request.Messages[2]); !strings.HasPrefix(text, "<perch_turn_context>") {
 		t.Fatalf("turn context = %q", text)
 	}
-	if text := messageText(t, call.Request.Messages[2]); text != "Reply with pong." {
+	if text := messageText(t, call.Request.Messages[3]); text != "Reply with pong." {
 		t.Fatalf("user message = %q", text)
 	}
 }

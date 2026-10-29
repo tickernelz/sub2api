@@ -183,6 +183,12 @@ func (w *WireDoer) exchange(req *http.Request, conn net.Conn, addr string, body 
 		_ = conn.Close()
 		return nil, fmt.Errorf("perch: wire read response: %w", err)
 	}
+	decoded, decodeErr := decodeResponseBody(resp)
+	if decodeErr != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("perch: wire decode response: %w", decodeErr)
+	}
+	resp.Body = decoded
 	if w.control == 0 {
 		if err := conn.SetDeadline(time.Time{}); err != nil {
 			_ = conn.Close()
