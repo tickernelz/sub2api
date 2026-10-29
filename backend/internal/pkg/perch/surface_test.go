@@ -8,6 +8,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 )
 
+const surfacePromptFloor = 205
+
 func surfacePromptSatisfied(text string) bool {
 	return len(text) >= surfacePromptFloor
 }

@@ -296,7 +296,7 @@ Observed: 20 tests, all passing. Run the full `go test -tags=unit ./...` gate fr
 
 ### H. Perch provider platform (Perch AI over its own model-call protocol)
 
-The fork ships a Perch provider: accounts authenticate with a Perch Supabase session and requests are translated to Perch's own `model-call` SSE protocol. It is not an OpenAI-compatible upstream; the package owns the wire format, the client fingerprint the vendor expects, and the translation back to `chat.completion.chunk`.
+The fork ships a Perch provider: accounts authenticate with a Perch Supabase session and requests are translated to Perch's own `model-call` SSE protocol. It is not an OpenAI-compatible upstream; the package owns the wire format, the ClientHello and header order the official CLI presents, and the translation back to `chat.completion.chunk`.
 
 Required behavior:
 

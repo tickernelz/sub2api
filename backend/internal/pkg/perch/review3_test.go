@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestHandlerFingerprintKeepsControlPlaneDeadline(t *testing.T) {
+func TestHandlerWireKeepsControlPlaneDeadline(t *testing.T) {
 	store := &recordingStore{creds: testCredentials("https://app.perchai.app")}
 	handler := NewHandler(store)
 

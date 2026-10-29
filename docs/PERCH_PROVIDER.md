@@ -67,7 +67,7 @@ A stream that closes without a `done` event is reported as `stream_interrupted` 
 
 `fingerprint.go` reproduces the CLI ClientHello through `internal/pkg/tlsfingerprint`: JA3 `fe1a22af39881f8613c4834b2a568a00`, 52 cipher suites in the recorded order, the captured 12-extension list (server_name second, ending 43/45/51), curves `4588,29,23,30,24,25,256,257`, point formats `0,1,2`, 26 signature algorithms starting at 2309, key-share groups X25519MLKEM768 and X25519, and ALPN `http/1.1` only. `wire.go` writes the HTTP/1.1 bytes over that connection.
 
-The transport first failed every handshake (`remote error: tls: handshake failure`) because the profile omitted `server_name`; Cloudflare rejects a hello without SNI before the application sees it. With the extension list and the signature algorithms taken from a captured CLI hello the handshake completes and the request reaches Perch. The surface gate below is still content-based, so this layer is parity, not the gate. `WithWireTransport(false)` falls back to plain `net/http`.
+The transport first failed every handshake (`remote error: tls: handshake failure`) because the profile omitted `server_name`; Cloudflare rejects a hello without SNI before the application sees it. With the extension list and the signature algorithms taken from a captured CLI hello the handshake completes and the request reaches Perch. The surface gate below is still content-based, so this layer is parity, not the gate.
 
 The per-turn request sequence is deliberately not replicated. The CLI also emits `public-model-default`, `account` and three `cli-context` calls around each turn; measured 2026-10-29, a model call that skips `public-model-default` and `cli-context` still answers 200, and `cli-context` reports the CLI's own context-assembly statistics, so replaying it would send fabricated telemetry for no benefit.
 
@@ -112,7 +112,7 @@ The model-call body follows the captured CLI byte shape rather than the spec tab
 
 Ticket minting is single-flight through a one-slot gate, so a caller waiting behind another goroutine's mint is released by its own context instead of the control-plane deadline. The per-ticket budget leaves a tombstone: a spent ticket keeps its counter until it expires, so workers that still hold it cannot re-acquire budget, while a rotation mints exactly one replacement that the other workers share.
 
-Control-plane calls (`cli-auth/config`, `turn-ticket`, `account`) keep a 60s total deadline even when the fingerprint transport is active; only the model-call client runs without a total timeout and relies on the 60s idle read instead.
+Control-plane calls (`cli-auth/config`, `turn-ticket`, `account`) keep a 60s total deadline even when the wire transport is active; only the model-call client runs without a total timeout and relies on the 60s idle read instead.
 
 One `Client` (and one `Session`) exists per account: the handler creates it under its own mutex, so two cold-start requests cannot mint two sessions that refresh with the same rotated token. Cached clients are reference-counted while a request uses them, and eviction only removes unpinned entries. The turn-ticket budget is reserved under the client mutex, so the 40-call limit and the reuse counter cannot be raced.
 
