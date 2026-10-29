@@ -56,7 +56,11 @@ func FingerprintDialer(base BaseDialer) *tlsfingerprint.Dialer {
 func FingerprintTransport(base *http.Transport) *http.Transport {
 	transport := base
 	if transport == nil {
-		transport = http.DefaultTransport.(*http.Transport).Clone()
+		defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+		if !ok {
+			return nil
+		}
+		transport = defaultTransport.Clone()
 	}
 	dialer := FingerprintDialer(transport.DialContext)
 	transport.DialTLSContext = dialer.DialTLSContext
@@ -67,7 +71,9 @@ func FingerprintTransport(base *http.Transport) *http.Transport {
 func FingerprintHTTPClient(base *http.Client) *http.Client {
 	client := &http.Client{}
 	if base != nil {
-		*client = *base
+		client.Jar = base.Jar
+		client.Timeout = base.Timeout
+		client.CheckRedirect = base.CheckRedirect
 	}
 	client.Transport = FingerprintTransport(transportOf(base))
 	return client
