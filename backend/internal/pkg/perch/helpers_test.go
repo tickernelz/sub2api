@@ -68,22 +68,26 @@ type perchTestServer struct {
 	lastTicket        map[string]string
 	lastTicketHeaders http.Header
 	lastHeaders       http.Header
+	stall             chan struct{}
 }
 
 type perchTestOptions struct {
-	StreamBody       []byte
-	ModelStatus      int
-	ModelErrorBody   []byte
-	AccountBody      []byte
-	RefreshBody      []byte
-	RefreshStatus    int
-	FirstModelFails  bool
-	FirstTicketFails bool
+	StreamBody        []byte
+	ModelStatus       int
+	ModelErrorBody    []byte
+	AccountBody       []byte
+	RefreshBody       []byte
+	RefreshStatus     int
+	FirstModelFails   bool
+	FirstTicketFails  bool
+	TicketAlwaysFails bool
+	AbortAfterDelta   bool
+	StallAfterDelta   bool
 }
 
 func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 	t.Helper()
-	ts := &perchTestServer{}
+	ts := &perchTestServer{stall: make(chan struct{})}
 	mux := http.NewServeMux()
 	streamBody := opts.StreamBody
 	if streamBody == nil {
@@ -129,7 +133,7 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 	})
 	mux.HandleFunc("/api/perch-terminal/turn-ticket", func(w http.ResponseWriter, r *http.Request) {
 		ts.ticketHits++
-		if opts.FirstTicketFails && ts.ticketHits == 1 {
+		if opts.TicketAlwaysFails || (opts.FirstTicketFails && ts.ticketHits == 1) {
 			writeFixtureJSON(t, w, http.StatusUnauthorized, []byte(`{"ok":false,"error":"not_authenticated","errorCode":"not_authenticated"}`))
 			return
 		}
@@ -170,8 +174,26 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 		}
 		w.Header().Set("content-type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		if _, err := w.Write(streamBody); err != nil {
-			t.Errorf("write stream: %v", err)
+		if !opts.AbortAfterDelta && !opts.StallAfterDelta {
+			if _, err := w.Write(streamBody); err != nil {
+				t.Errorf("write stream: %v", err)
+			}
+			return
+		}
+		delta := []byte("data: {\"type\":\"answer_delta\",\"text\":\"partial\"}\n\n")
+		if _, err := w.Write(delta); err != nil {
+			t.Errorf("write delta: %v", err)
+			return
+		}
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		if opts.AbortAfterDelta {
+			panic(http.ErrAbortHandler)
+		}
+		select {
+		case <-ts.stall:
+		case <-r.Context().Done():
 		}
 	})
 	mux.HandleFunc("/api/perchai/account", func(w http.ResponseWriter, r *http.Request) {

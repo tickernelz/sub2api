@@ -294,7 +294,9 @@ func (e *ChunkEmitter) Chunks(event Event, body *eventBody) []apicompat.ChatComp
 		}
 		text := body.Text
 		return e.wrap(apicompat.ChatDelta{ReasoningContent: &text}, nil)
-	case EventToolCallDelta, EventToolUseEnd:
+	case EventToolCallDelta:
+		return nil
+	case EventToolUseEnd:
 		if len(body.ToolCalls) == 0 {
 			return nil
 		}
@@ -327,10 +329,34 @@ func (e *ChunkEmitter) Chunks(event Event, body *eventBody) []apicompat.ChatComp
 	return nil
 }
 
-// Final emits the finish chunk plus the usage chunk when requested.
 func (e *ChunkEmitter) Final(outcome *Outcome, includeUsage bool) []apicompat.ChatCompletionsChunk {
+	var chunks []apicompat.ChatCompletionsChunk
+	missing := make([]apicompat.ChatToolCall, 0, len(outcome.ToolCalls))
+	for _, call := range outcome.ToolCalls {
+		key := call.ID
+		if key == "" {
+			key = call.Name
+		}
+		if _, seen := e.emitted[key]; seen {
+			continue
+		}
+		e.emitted[key] = struct{}{}
+		index := len(e.emitted) - 1
+		missing = append(missing, apicompat.ChatToolCall{
+			Index: &index,
+			ID:    call.ID,
+			Type:  "function",
+			Function: apicompat.ChatFunctionCall{
+				Name:      call.Name,
+				Arguments: argumentsText(call.Arguments),
+			},
+		})
+	}
+	if len(missing) > 0 {
+		chunks = append(chunks, e.wrap(apicompat.ChatDelta{ToolCalls: missing}, nil)...)
+	}
 	reason := FinishReason(outcome)
-	chunks := e.wrap(apicompat.ChatDelta{}, &reason)
+	chunks = append(chunks, e.wrap(apicompat.ChatDelta{}, &reason)...)
 	if includeUsage {
 		usage := UsageToChat(outcome.Usage)
 		if usage != nil {

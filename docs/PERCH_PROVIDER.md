@@ -64,9 +64,17 @@ Perch only serves hosted models to its own surfaces, so the adapter presents the
 
 `identity.go` resolves the version once per process, so the header cannot change between requests. All outbound Perch calls go through one header applier; the turn ticket request deliberately omits delta mode.
 
+## Streaming limits
+
+Model calls get their own HTTP client with no total timeout: `net/http` measures `Client.Timeout` across the body, which would cut any turn longer than a minute. The 60s budget is applied per read instead — an idle body is closed and reported as `stream_interrupted` — and the transport keeps a 60s `ResponseHeaderTimeout` for the header phase. When Perch restarts a stream after output already reached the client, the response ends as `stream_interrupted` rather than replaying the resent text.
+
+A turn ticket is reusable for up to 40 model calls on the `standard` profile; the client mints a new one after that instead of running into the vendor limit.
+
 ## Session ownership
 
 Do not point this provider at the session file the CLI is using. Supabase refresh tokens rotate, and a second client refreshing the same token can revoke the token family: after the adapter refreshed `~/.perch/cli-auth-session.json` once more, both the adapter and the official CLI started answering `401 not_authenticated` / `Not authorized` on that session. Import a snapshot of the session at account creation (copy the file, then let the adapter own the copy) and keep the CLI session separate.
+
+After a fresh `perch login` on 2026-10-29 the adapter still answered `401 not_authenticated` on the turn ticket, and the official CLI on the same session answered `Not authorized`, so the block is account-side rather than client-side. Probe evidence lives in `~/re/perchai/notes/p5-live-attempts.md`.
 
 ## Access restriction
 

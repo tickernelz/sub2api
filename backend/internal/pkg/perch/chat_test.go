@@ -277,6 +277,43 @@ func TestChunkEmitterEmitsRoleOnceAndUsageLast(t *testing.T) {
 	}
 }
 
+func TestChunkEmitterEmitsSealedToolArguments(t *testing.T) {
+	stream := NewSSEStream(strings.NewReader(string(fixture(t, "model_call_tool_sealed.sse"))))
+	emitter := NewChunkEmitter("wandb-kimi-k2-6", "chatcmpl-3", 1700000000)
+
+	var calls []apicompat.ChatToolCall
+	var settled *Outcome
+	for {
+		payload, err := stream.Next()
+		if err != nil {
+			break
+		}
+		event, body, err := decodeEvent(payload)
+		if err != nil {
+			t.Fatalf("decode event: %v", err)
+		}
+		if event.Type == EventDone {
+			settled = outcomeFromDone(body)
+			continue
+		}
+		for _, chunk := range emitter.Chunks(event, body) {
+			calls = append(calls, chunk.Choices[0].Delta.ToolCalls...)
+		}
+	}
+	if settled == nil {
+		t.Fatalf("stream carried no done event")
+	}
+	for _, chunk := range emitter.Final(settled, false) {
+		calls = append(calls, chunk.Choices[0].Delta.ToolCalls...)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("tool call deltas = %d, want 1 sealed call", len(calls))
+	}
+	if calls[0].Function.Arguments != `{"path":"a.txt","body":"x"}` {
+		t.Fatalf("arguments = %s, want the sealed snapshot", calls[0].Function.Arguments)
+	}
+}
+
 func TestChunkEmitterDeduplicatesToolCalls(t *testing.T) {
 	stream := NewSSEStream(strings.NewReader(string(fixture(t, "model_call_tool_stream.sse"))))
 	emitter := NewChunkEmitter("wandb-kimi-k2-6", "chatcmpl-2", 1700000000)
@@ -299,6 +336,12 @@ func TestChunkEmitterDeduplicatesToolCalls(t *testing.T) {
 		for _, chunk := range emitter.Chunks(event, body) {
 			calls = append(calls, chunk.Choices[0].Delta.ToolCalls...)
 		}
+	}
+	if settled == nil {
+		t.Fatalf("stream carried no done event")
+	}
+	for _, chunk := range emitter.Final(settled, false) {
+		calls = append(calls, chunk.Choices[0].Delta.ToolCalls...)
 	}
 	if len(calls) != 1 {
 		t.Fatalf("tool call deltas = %d, want 1 (done event repeats the same call)", len(calls))

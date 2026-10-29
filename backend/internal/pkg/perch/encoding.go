@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/andybalholm/brotli"
 )
@@ -18,6 +19,34 @@ type decodedBody struct {
 func (d decodedBody) Read(p []byte) (int, error) { return d.reader.Read(p) }
 
 func (d decodedBody) Close() error { return d.close() }
+
+type idleBody struct {
+	body  io.ReadCloser
+	idle  time.Duration
+	timer *time.Timer
+}
+
+func newIdleBody(body io.ReadCloser, idle time.Duration) io.ReadCloser {
+	if idle <= 0 {
+		return body
+	}
+	wrapped := &idleBody{body: body, idle: idle}
+	wrapped.timer = time.AfterFunc(idle, func() { _ = body.Close() })
+	return wrapped
+}
+
+func (b *idleBody) Read(p []byte) (int, error) {
+	n, err := b.body.Read(p)
+	if n > 0 {
+		b.timer.Reset(b.idle)
+	}
+	return n, err
+}
+
+func (b *idleBody) Close() error {
+	b.timer.Stop()
+	return b.body.Close()
+}
 
 func decodeResponseBody(resp *http.Response) (io.ReadCloser, error) {
 	encoding := strings.ToLower(strings.TrimSpace(resp.Header.Get("content-encoding")))

@@ -124,8 +124,30 @@ func SaveCredentialsFile(path string, creds Credentials) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("perch: create session dir: %w", err)
 	}
-	if err := os.WriteFile(path, payload, 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".perch-session-*")
+	if err != nil {
+		return fmt.Errorf("perch: create session temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+	}
+	if _, err := tmp.Write(payload); err != nil {
+		cleanup()
 		return fmt.Errorf("perch: write session file: %w", err)
 	}
-	return os.Chmod(path, 0o600)
+	if err := tmp.Chmod(0o600); err != nil {
+		cleanup()
+		return fmt.Errorf("perch: chmod session file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("perch: close session file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("perch: replace session file: %w", err)
+	}
+	return nil
 }

@@ -105,6 +105,8 @@ func (s *Session) AppURL() string {
 	return DefaultAppURL
 }
 
+const refreshExchangeTimeout = 30 * time.Second
+
 func (s *Session) AccessToken(ctx context.Context) (string, error) {
 	s.mu.Lock()
 	creds := s.creds
@@ -123,7 +125,7 @@ func (s *Session) AccessToken(ctx context.Context) (string, error) {
 }
 
 func (s *Session) Refresh(ctx context.Context) (string, error) {
-	return s.refresh(ctx)
+	return s.refresh(context.WithoutCancel(ctx))
 }
 
 func (s *Session) refresh(ctx context.Context) (string, error) {
@@ -149,7 +151,9 @@ func (s *Session) refresh(ctx context.Context) (string, error) {
 	creds := s.creds
 	s.mu.Unlock()
 
-	updated, err := s.exchangeRefreshToken(ctx, creds)
+	exchangeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshExchangeTimeout)
+	defer cancel()
+	updated, err := s.exchangeRefreshToken(exchangeCtx, creds)
 
 	s.mu.Lock()
 	flight.creds = updated
@@ -212,6 +216,8 @@ func (s *Session) exchangeRefreshToken(ctx context.Context, creds Credentials) (
 			ID    string `json:"id"`
 			Email string `json:"email"`
 		} `json:"user"`
+		ErrorCode        string `json:"error_code"`
+		Msg              string `json:"msg"`
 		Error            string `json:"error"`
 		ErrorDescription string `json:"error_description"`
 	}
@@ -219,17 +225,8 @@ func (s *Session) exchangeRefreshToken(ctx context.Context, creds Credentials) (
 		return Credentials{}, &APIError{Status: resp.StatusCode, Code: StatusToCode(resp.StatusCode), Message: truncateBody(payload)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 || parsed.AccessToken == "" {
-		code := parsed.Error
-		if code == "" {
-			code = StatusToCode(resp.StatusCode)
-		}
-		message := parsed.ErrorDescription
-		if message == "" {
-			message = parsed.Error
-		}
-		if message == "" {
-			message = truncateBody(payload)
-		}
+		code := firstNonEmpty(parsed.ErrorCode, parsed.Error, StatusToCode(resp.StatusCode))
+		message := firstNonEmpty(parsed.ErrorDescription, parsed.Msg, parsed.Error, truncateBody(payload))
 		return Credentials{}, &APIError{Status: resp.StatusCode, Code: code, Message: message}
 	}
 

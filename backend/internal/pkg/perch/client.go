@@ -18,16 +18,23 @@ const (
 	accountPath     = "/api/perchai/account"
 	ticketRenewSkew = 30 * time.Second
 	accountTTL      = 10 * time.Minute
+
+	modelCallIdleTimeout  = 60 * time.Second
+	responseHeaderTimeout = 60 * time.Second
+	ticketCallLimit       = 40
 )
 
 // Client speaks the authenticated Perch terminal API on behalf of one session.
 type Client struct {
-	session *Session
-	http    Doer
-	now     func() time.Time
+	session    *Session
+	http       Doer
+	streamHTTP Doer
+	idle       time.Duration
+	now        func() time.Time
 
-	mu      sync.Mutex
-	tickets map[string]ticketEntry
+	mu         sync.Mutex
+	tickets    map[string]ticketEntry
+	ticketUses map[string]int
 
 	account   AccountInfo
 	accountAt time.Time
@@ -60,19 +67,56 @@ func WithClientClock(now func() time.Time) ClientOption {
 
 func NewClient(session *Session, opts ...ClientOption) *Client {
 	c := &Client{
-		session: session,
-		http:    &http.Client{Timeout: 0},
-		now:     time.Now,
-		tickets: make(map[string]ticketEntry),
+		session:    session,
+		http:       &http.Client{Timeout: 0},
+		streamHTTP: &http.Client{Timeout: 0},
+		idle:       modelCallIdleTimeout,
+		now:        time.Now,
+		tickets:    make(map[string]ticketEntry),
+		ticketUses: make(map[string]int),
 	}
 	if session != nil {
 		c.http = session.http
+		c.streamHTTP = streamingClient(session.http)
 		c.now = session.now
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
 	return c
+}
+
+func WithModelCallIdle(idle time.Duration) ClientOption {
+	return func(c *Client) {
+		if idle > 0 {
+			c.idle = idle
+		}
+	}
+}
+
+func WithClientHTTPStream(doer Doer) ClientOption {
+	return func(c *Client) {
+		if doer != nil {
+			c.streamHTTP = streamingClient(doer)
+		}
+	}
+}
+
+func streamingClient(doer Doer) Doer {
+	client, ok := doer.(*http.Client)
+	if !ok {
+		return doer
+	}
+	clone := *client
+	clone.Timeout = 0
+	if transport, ok := client.Transport.(*http.Transport); ok {
+		cloned := transport.Clone()
+		if cloned.ResponseHeaderTimeout == 0 {
+			cloned.ResponseHeaderTimeout = responseHeaderTimeout
+		}
+		clone.Transport = cloned
+	}
+	return &clone
 }
 
 // Session exposes the credential holder behind the client.
@@ -193,12 +237,22 @@ func (c *Client) TurnTicket(ctx context.Context, surface, profile string) (Ticke
 	return ticket, nil
 }
 
+func (c *Client) recordTicketUse(token string) {
+	if token == "" {
+		return
+	}
+	c.mu.Lock()
+	c.ticketUses[token]++
+	c.mu.Unlock()
+}
+
 func (c *Client) invalidateTicket(surface, profile string) {
 	if strings.TrimSpace(profile) == "" {
 		profile = DefaultProfile
 	}
 	c.mu.Lock()
 	delete(c.tickets, surface+"|"+profile)
+	c.ticketUses = make(map[string]int)
 	c.mu.Unlock()
 }
 
@@ -232,18 +286,24 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 		attempt++
 		ticket, err := c.TurnTicket(ctx, ClientSurfaceCLI, DefaultProfile)
 		if err != nil {
-			if !IsAuthError(err) {
+			if !IsAuthError(err) || attempt >= 2 {
 				return nil, err
 			}
 			if _, refreshErr := c.session.Refresh(ctx); refreshErr != nil {
 				return nil, refreshErr
 			}
 			c.invalidateTicket(ClientSurfaceCLI, DefaultProfile)
-			if attempt >= 2 {
-				return nil, err
-			}
 			continue
 		}
+		if c.ticketUses[ticket.Ticket] >= ticketCallLimit {
+			c.invalidateTicket(ClientSurfaceCLI, DefaultProfile)
+			ticket, err = c.TurnTicket(ctx, ClientSurfaceCLI, DefaultProfile)
+			if err != nil {
+				return nil, err
+			}
+		}
+		c.recordTicketUse(ticket.Ticket)
+
 		if strings.TrimSpace(req.RunID) == "" {
 			req.RunID = firstNonEmpty(ticket.RunID, NewRunID(c.now()))
 		}
@@ -272,7 +332,7 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 		httpReq.Header.Set("accept-encoding", "br, gzip, deflate")
 		httpReq.Header.Set("x-perch-turn-ticket", ticket.Ticket)
 
-		resp, err := c.http.Do(httpReq)
+		resp, err := c.streamHTTP.Do(httpReq)
 		if err != nil {
 			return nil, fmt.Errorf("perch: model call: %w", err)
 		}
@@ -282,7 +342,7 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 				_ = resp.Body.Close()
 				return nil, fmt.Errorf("perch: decode model call body: %w", err)
 			}
-			resp.Body = decoded
+			resp.Body = newIdleBody(decoded, c.idle)
 			return resp, nil
 		}
 
@@ -317,7 +377,7 @@ func retryableModelCall(err *APIError) bool {
 	if IsAuthError(err) {
 		return true
 	}
-	return strings.Contains(strings.ToLower(err.Message), "ticket")
+	return err.Code == CodeTicketUnavailable
 }
 
 // CallModel runs a model call to completion and returns the settled outcome.

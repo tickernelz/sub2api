@@ -2,6 +2,8 @@ package perch
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +22,10 @@ type CredentialSource interface {
 	PerchCredentials(ctx context.Context) (Credentials, error)
 }
 
+type CredentialStore interface {
+	StorePerchCredentials(ctx context.Context, creds Credentials) error
+}
+
 // CredentialSourceFunc adapts a function to CredentialSource.
 type CredentialSourceFunc func(ctx context.Context) (Credentials, error)
 
@@ -35,7 +41,10 @@ type Handler struct {
 
 	mu      sync.Mutex
 	clients map[string]*Client
+	order   []string
 }
+
+const maxCachedClients = 64
 
 type HandlerOption func(*Handler)
 
@@ -134,7 +143,7 @@ func (h *Handler) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = stream.Close() }()
 
-	responseID := "chatcmpl-" + strings.TrimPrefix(call.RunID, "tkt-cli-")
+	responseID := "chatcmpl-" + strings.TrimPrefix(stream.Request.RunID, "tkt-cli-")
 	includeUsage := req.StreamOptions != nil && req.StreamOptions.IncludeUsage
 
 	if req.Stream {
@@ -166,12 +175,14 @@ func (h *Handler) streamResponse(w http.ResponseWriter, stream *ModelCallStream,
 	w.WriteHeader(http.StatusOK)
 
 	emitter := NewChunkEmitter(model, responseID, h.now().Unix())
+	wroteOutput := false
 	writeChunk := func(chunk apicompat.ChatCompletionsChunk) {
 		payload, err := json.Marshal(chunk)
 		if err != nil {
 			return
 		}
 		fmt.Fprintf(w, "data: %s\n\n", payload)
+		wroteOutput = true
 		if flusher != nil {
 			flusher.Flush()
 		}
@@ -184,6 +195,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, stream *ModelCallStream,
 			break
 		}
 		if err != nil {
+			writeStreamError(w, &APIError{Status: http.StatusBadGateway, Code: CodeStreamInterrupted, Message: "perch stream read failed"})
 			return
 		}
 		if event.Type == EventDone {
@@ -191,14 +203,15 @@ func (h *Handler) streamResponse(w http.ResponseWriter, stream *ModelCallStream,
 			continue
 		}
 		if event.Type == EventStreamRestart {
+			if wroteOutput {
+				writeStreamError(w, &APIError{Status: http.StatusBadGateway, Code: CodeStreamInterrupted, Message: "perch restarted the stream after output was sent"})
+				return
+			}
 			emitter.ResetToolCalls()
 			continue
 		}
 		if event.Type == EventError {
-			apiErr := &APIError{Status: http.StatusBadGateway, Code: firstNonEmpty(body.ErrorCode, CodeAPIError), Message: firstNonEmpty(body.Message, "perch stream error")}
-			if payload, err := json.Marshal(map[string]any{"error": errorEnvelope(apiErr)}); err == nil {
-				fmt.Fprintf(w, "data: %s\n\n", payload)
-			}
+			writeStreamError(w, &APIError{Status: http.StatusBadGateway, Code: firstNonEmpty(body.ErrorCode, CodeAPIError), Message: firstNonEmpty(body.Message, "perch stream error")})
 			return
 		}
 		for _, chunk := range emitter.Chunks(event, body) {
@@ -207,17 +220,11 @@ func (h *Handler) streamResponse(w http.ResponseWriter, stream *ModelCallStream,
 	}
 
 	if settled == nil {
-		apiErr := &APIError{Status: http.StatusBadGateway, Code: CodeStreamInterrupted, Message: "perch stream ended without a done event"}
-		if payload, err := json.Marshal(map[string]any{"error": errorEnvelope(apiErr)}); err == nil {
-			fmt.Fprintf(w, "data: %s\n\n", payload)
-		}
+		writeStreamError(w, &APIError{Status: http.StatusBadGateway, Code: CodeStreamInterrupted, Message: "perch stream ended without a done event"})
 		return
 	}
 	if !settled.OK {
-		apiErr := &APIError{Status: ErrorStatus(firstNonEmpty(settled.ErrorCode, CodeAPIError)), Code: firstNonEmpty(settled.ErrorCode, CodeAPIError), Message: settled.Error, Limit: settled.Limit}
-		if payload, err := json.Marshal(map[string]any{"error": errorEnvelope(apiErr)}); err == nil {
-			fmt.Fprintf(w, "data: %s\n\n", payload)
-		}
+		writeStreamError(w, &APIError{Status: ErrorStatus(firstNonEmpty(settled.ErrorCode, CodeAPIError)), Code: firstNonEmpty(settled.ErrorCode, CodeAPIError), Message: settled.Error, Limit: settled.Limit})
 		return
 	}
 	for _, chunk := range emitter.Final(settled, includeUsage) {
@@ -239,7 +246,7 @@ func (h *Handler) client(ctx context.Context) (*Client, error) {
 		return nil, err
 	}
 
-	key := firstNonEmpty(creds.AppURL, DefaultAppURL) + "|" + firstNonEmpty(creds.UserID, creds.Email, creds.AccessToken)
+	key := firstNonEmpty(creds.AppURL, DefaultAppURL) + "|" + clientIdentityKey(creds)
 	doer := h.http
 	now := h.now
 
@@ -247,11 +254,21 @@ func (h *Handler) client(ctx context.Context) (*Client, error) {
 	cached, ok := h.clients[key]
 	h.mu.Unlock()
 	if ok {
-		cached.session.SetCredentials(creds)
+		current := cached.session.Credentials()
+		if current.AccessToken == "" || creds.ExpiresAt > current.ExpiresAt {
+			cached.session.SetCredentials(creds)
+		}
 		return cached, nil
 	}
 
 	opts := []SessionOption{WithClock(now)}
+	if store, ok := h.source.(CredentialStore); ok {
+		opts = append(opts, WithCredentialsPersist(func(next Credentials) {
+			persistCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_ = store.StorePerchCredentials(persistCtx, next)
+		}))
+	}
 	if doer != nil {
 		opts = append(opts, WithHTTPClient(doer))
 	}
@@ -259,12 +276,37 @@ func (h *Handler) client(ctx context.Context) (*Client, error) {
 	client := NewClient(session, WithClientClock(now))
 	if doer != nil {
 		client.http = doer
+		client.streamHTTP = streamingClient(doer)
 	}
 
 	h.mu.Lock()
 	h.clients[key] = client
+	h.order = append(h.order, key)
+	for len(h.clients) > maxCachedClients {
+		oldest := h.order[0]
+		h.order = h.order[1:]
+		if oldest != key {
+			delete(h.clients, oldest)
+		}
+	}
 	h.mu.Unlock()
 	return client, nil
+}
+
+func clientIdentityKey(creds Credentials) string {
+	if id := firstNonEmpty(creds.UserID, creds.Email); id != "" {
+		return id
+	}
+	sum := sha256.Sum256([]byte(creds.AccessToken))
+	return hex.EncodeToString(sum[:8])
+}
+
+func writeStreamError(w http.ResponseWriter, apiErr *APIError) {
+	payload, err := json.Marshal(map[string]any{"error": errorEnvelope(apiErr)})
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "data: %s\n\n", payload)
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

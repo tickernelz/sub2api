@@ -20,6 +20,7 @@ const (
 	CodeSurfaceRequired       = "perch_surface_required"
 	CodeContextOverflow       = "context_overflow"
 	CodeStreamInterrupted     = "stream_interrupted"
+	CodeTicketUnavailable     = "turn_ticket_unavailable"
 )
 
 // Limit is the quota detail Perch attaches to a limit error, passed through untouched.
@@ -67,7 +68,7 @@ func (e *APIError) Error() string {
 
 func isSessionCode(code string) bool {
 	switch strings.ToLower(strings.TrimSpace(code)) {
-	case "invalid_grant", "invalid_refresh_token", "refresh_token_not_found", "session_expired", "session_not_found", "invalid_jwt":
+	case "invalid_grant", "invalid_refresh_token", "refresh_token_not_found", "refresh_token_already_used", "session_expired", "session_not_found", "invalid_jwt":
 		return true
 	}
 	return false
@@ -81,14 +82,10 @@ func (e *APIError) HTTPStatus() int {
 	if isSessionCode(e.Code) {
 		return http.StatusUnauthorized
 	}
-	switch {
-	case e.Status >= 400 && e.Status <= 599:
+	if e.Status >= 400 && e.Status <= 599 {
 		return e.Status
-	case e.Status > 0:
-		return http.StatusBadGateway
-	default:
-		return http.StatusBadGateway
 	}
+	return http.StatusBadGateway
 }
 
 // OpenAIType maps the Perch code onto an OpenAI error type.
@@ -142,9 +139,6 @@ func StatusToCode(status int) string {
 		return "conflict"
 	case http.StatusTooManyRequests:
 		return CodeUsageLimitReached
-	}
-	if status >= 500 {
-		return CodeAPIError
 	}
 	return CodeAPIError
 }
