@@ -41,9 +41,10 @@ func newPerchTestServer(t *testing.T) *httptest.Server {
 func TestPerchOAuthServiceAuthURLAndExchange(t *testing.T) {
 	server := newPerchTestServer(t)
 	defer server.Close()
+	t.Setenv(EnvPerchAppURL, server.URL)
 
 	svc := NewPerchOAuthService()
-	started, err := svc.GenerateAuthURL(context.Background(), PerchAuthURLInput{AdminID: 11, Provider: "google", AppURL: server.URL})
+	started, err := svc.GenerateAuthURL(context.Background(), PerchAuthURLInput{AdminID: 11, Provider: "google"})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -91,15 +92,18 @@ func TestPerchOAuthServiceAuthURLAndExchange(t *testing.T) {
 func TestPerchOAuthServiceRejectsUnknownSessionAndProvider(t *testing.T) {
 	server := newPerchTestServer(t)
 	defer server.Close()
+	t.Setenv(EnvPerchAppURL, server.URL)
 	svc := NewPerchOAuthService()
 
 	if _, err := svc.ExchangeCode(context.Background(), PerchExchangeInput{AdminID: 1, SessionID: "nope", Code: "c"}); err == nil || infraerrors.Code(err) != http.StatusNotFound {
 		t.Fatalf("unknown session: %v", err)
 	}
-	if _, err := svc.GenerateAuthURL(context.Background(), PerchAuthURLInput{AdminID: 1, Provider: "email", AppURL: server.URL}); err == nil || infraerrors.Code(err) != http.StatusBadRequest {
+	if _, err := svc.GenerateAuthURL(context.Background(), PerchAuthURLInput{AdminID: 1, Provider: "email"}); err == nil || infraerrors.Code(err) != http.StatusBadRequest {
 		t.Fatalf("unsupported provider: %v", err)
 	}
-	if _, err := svc.GenerateAuthURL(context.Background(), PerchAuthURLInput{AdminID: 1, Provider: "google", AppURL: "http://127.0.0.1:1"}); err == nil {
+	unreachable := NewPerchOAuthService()
+	unreachable.appURL = "http://127.0.0.1:1"
+	if _, err := unreachable.GenerateAuthURL(context.Background(), PerchAuthURLInput{AdminID: 1, Provider: "google"}); err == nil {
 		t.Fatal("unreachable perch app must fail")
 	}
 }
