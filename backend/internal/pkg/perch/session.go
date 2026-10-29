@@ -29,6 +29,7 @@ type AuthConfig struct {
 	SupabaseURL     string   `json:"supabaseUrl"`
 	SupabaseAnonKey string   `json:"supabaseAnonKey"`
 	Providers       []string `json:"providers"`
+	RedirectHost    string   `json:"redirectHost"`
 }
 
 type SessionOption func(*Session)

@@ -128,7 +128,9 @@
         :show-cookie-option="isAnthropic"
         :allow-multiple="false"
         :method-label="t('admin.accounts.inputMethod')"
-        :platform="isOpenAI ? 'openai' : isGemini ? 'gemini' : isAntigravity ? 'antigravity' : 'anthropic'"
+        :platform="
+          isPerch ? 'perch' : isOpenAI ? 'openai' : isGemini ? 'gemini' : isAntigravity ? 'antigravity' : 'anthropic'
+        "
         :show-project-id="isGemini && geminiOAuthType === 'code_assist'"
         @generate-url="handleGenerateUrl"
         @cookie-auth="handleCookieAuth"
@@ -192,6 +194,7 @@ import {
 import { useOpenAIOAuth } from '@/composables/useOpenAIOAuth'
 import { useGeminiOAuth } from '@/composables/useGeminiOAuth'
 import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
+import { usePerchOAuth } from '@/composables/usePerchOAuth'
 import type { Account } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -227,6 +230,7 @@ const claudeOAuth = useAccountOAuth()
 const openaiOAuth = useOpenAIOAuth()
 const geminiOAuth = useGeminiOAuth()
 const antigravityOAuth = useAntigravityOAuth()
+const perchOAuth = usePerchOAuth()
 
 // Refs
 const oauthFlowRef = ref<OAuthFlowExposed | null>(null)
@@ -241,27 +245,32 @@ const isOpenAILike = computed(() => isOpenAI.value)
 const isGemini = computed(() => props.account?.platform === 'gemini')
 const isAnthropic = computed(() => props.account?.platform === 'anthropic')
 const isAntigravity = computed(() => props.account?.platform === 'antigravity')
+const isPerch = computed(() => props.account?.platform === 'perch')
 
 // Computed - current OAuth state based on platform
 const currentAuthUrl = computed(() => {
+  if (isPerch.value) return perchOAuth.authUrl.value
   if (isOpenAILike.value) return openaiOAuth.authUrl.value
   if (isGemini.value) return geminiOAuth.authUrl.value
   if (isAntigravity.value) return antigravityOAuth.authUrl.value
   return claudeOAuth.authUrl.value
 })
 const currentSessionId = computed(() => {
+  if (isPerch.value) return perchOAuth.sessionId.value
   if (isOpenAILike.value) return openaiOAuth.sessionId.value
   if (isGemini.value) return geminiOAuth.sessionId.value
   if (isAntigravity.value) return antigravityOAuth.sessionId.value
   return claudeOAuth.sessionId.value
 })
 const currentLoading = computed(() => {
+  if (isPerch.value) return perchOAuth.loading.value
   if (isOpenAILike.value) return openaiOAuth.loading.value
   if (isGemini.value) return geminiOAuth.loading.value
   if (isAntigravity.value) return antigravityOAuth.loading.value
   return claudeOAuth.loading.value
 })
 const currentError = computed(() => {
+  if (isPerch.value) return perchOAuth.error.value
   if (isOpenAILike.value) return openaiOAuth.error.value
   if (isGemini.value) return geminiOAuth.error.value
   if (isAntigravity.value) return antigravityOAuth.error.value
@@ -271,7 +280,13 @@ const currentError = computed(() => {
 // Computed
 const isManualInputMethod = computed(() => {
   // OpenAI/Gemini/Antigravity always use manual input (no cookie auth option)
-  return isOpenAILike.value || isGemini.value || isAntigravity.value || oauthFlowRef.value?.inputMethod === 'manual'
+  return (
+    isOpenAILike.value ||
+    isGemini.value ||
+    isAntigravity.value ||
+    isPerch.value ||
+    oauthFlowRef.value?.inputMethod === 'manual'
+  )
 })
 
 const canExchangeCode = computed(() => {
@@ -316,6 +331,7 @@ const resetState = () => {
   openaiOAuth.resetState()
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
+  perchOAuth.resetState()
   oauthFlowRef.value?.reset()
 }
 
@@ -335,6 +351,8 @@ const handleGenerateUrl = async () => {
     await geminiOAuth.generateAuthUrl(props.account.proxy_id, projectId, geminiOAuthType.value, tierId)
   } else if (isAntigravity.value) {
     await antigravityOAuth.generateAuthUrl(props.account.proxy_id)
+  } else if (isPerch.value) {
+    await perchOAuth.generateAuthUrl('google')
   } else {
     await claudeOAuth.generateAuthUrl(addMethod.value, props.account.proxy_id)
   }
@@ -345,6 +363,23 @@ const handleExchangeCode = async () => {
 
   const authCode = oauthFlowRef.value?.authCode || ''
   if (!authCode.trim()) return
+
+  if (isPerch.value) {
+    const tokenInfo = await perchOAuth.exchangeAuthCode(authCode)
+    if (!tokenInfo) return
+    const credentials = perchOAuth.buildCredentials(tokenInfo)
+    try {
+      await adminAPI.accounts.update(props.account.id, { type: 'apikey', credentials })
+      await adminAPI.accounts.clearError(props.account.id)
+      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
+      emit('reauthorized')
+      handleClose()
+    } catch (error: any) {
+      perchOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+      appStore.showError(perchOAuth.error.value)
+    }
+    return
+  }
 
   if (isOpenAILike.value) {
     // OpenAI OAuth flow

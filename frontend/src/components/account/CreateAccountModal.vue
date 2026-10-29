@@ -1519,49 +1519,28 @@
         </div>
       </div>
 
-      <div v-if="form.platform === 'perch'" class="space-y-4" data-testid="perch-credentials">
-        <div>
-          <label class="input-label">{{ t('admin.accounts.perch.sessionLabel') }}</label>
-          <textarea
-            v-model="perchSessionInput"
-            rows="3"
-            class="input font-mono text-xs"
-            data-testid="perch-session-input"
-            :placeholder="t('admin.accounts.perch.sessionPlaceholder')"
-            @change="applyPerchSessionInput"
-          />
-          <p class="input-hint">{{ t('admin.accounts.perch.sessionHint') }}</p>
+      <div v-if="form.platform === 'perch'" data-testid="perch-provider">
+        <label class="input-label">{{ t('admin.accounts.oauth.perch.loginProvider') }}</label>
+        <div class="mt-2 flex gap-4">
+          <label class="flex cursor-pointer items-center">
+            <input
+              v-model="perchProvider"
+              type="radio"
+              value="google"
+              class="mr-2 text-primary-600 focus:ring-primary-500"
+            />
+            <span class="text-sm text-gray-700 dark:text-gray-300">Google</span>
+          </label>
+          <label class="flex cursor-pointer items-center">
+            <input
+              v-model="perchProvider"
+              type="radio"
+              value="github"
+              class="mr-2 text-primary-600 focus:ring-primary-500"
+            />
+            <span class="text-sm text-gray-700 dark:text-gray-300">GitHub</span>
+          </label>
         </div>
-        <div>
-          <label class="input-label">{{ t('admin.accounts.perch.accessToken') }}</label>
-          <input
-            v-model="perchAccessToken"
-            type="password"
-            class="input font-mono"
-            data-testid="perch-access-token"
-          />
-        </div>
-        <div>
-          <label class="input-label">{{ t('admin.accounts.perch.refreshToken') }}</label>
-          <input
-            v-model="perchRefreshToken"
-            type="password"
-            class="input font-mono"
-            data-testid="perch-refresh-token"
-          />
-          <p class="input-hint">{{ t('admin.accounts.perch.refreshTokenHint') }}</p>
-        </div>
-        <div>
-          <label class="input-label">{{ t('admin.accounts.perch.appUrl') }}</label>
-          <input
-            v-model="perchAppUrl"
-            type="text"
-            class="input font-mono"
-            :placeholder="PERCH_DEFAULT_APP_URL"
-            data-testid="perch-app-url"
-          />
-        </div>
-        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.perch.limits') }}</p>
       </div>
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
@@ -4204,6 +4183,7 @@ import { useOpenAIOAuth } from '@/composables/useOpenAIOAuth'
 import { useGeminiOAuth } from '@/composables/useGeminiOAuth'
 import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
 import { useGrokOAuth } from '@/composables/useGrokOAuth'
+import { usePerchOAuth } from '@/composables/usePerchOAuth'
 import type {
   Proxy,
   AdminGroup,
@@ -4265,7 +4245,6 @@ import {
   type OpenCodeGoProtocolRule
 } from '@/components/account/credentialsBuilder'
 import { listPlatforms } from '@/constants/platformCatalog'
-import { PERCH_DEFAULT_APP_URL, parsePerchSession, perchCredentials } from '@/utils/perchSession'
 import {
   formatDateTimeLocalInput,
   getBrowserTimeZone,
@@ -4310,6 +4289,7 @@ const oauthStepTitle = computed(() => {
   if (form.platform === 'gemini') return t('admin.accounts.oauth.gemini.title')
   if (form.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.title')
   if (form.platform === 'grok') return t('admin.accounts.oauth.grok.title')
+  if (form.platform === 'perch') return t('admin.accounts.oauth.perch.title')
   return t('admin.accounts.oauth.title')
 })
 
@@ -4405,9 +4385,11 @@ const openaiOAuth = useOpenAIOAuth() // For OpenAI OAuth
 const geminiOAuth = useGeminiOAuth() // For Gemini OAuth
 const antigravityOAuth = useAntigravityOAuth() // For Antigravity OAuth
 const grokOAuth = useGrokOAuth() // For Grok OAuth
+const perchOAuth = usePerchOAuth() // For Perch OAuth
 
 // Computed: current OAuth state for template binding
 const currentAuthUrl = computed(() => {
+  if (form.platform === 'perch') return perchOAuth.authUrl.value
   if (form.platform === 'openai') return openaiOAuth.authUrl.value
   if (form.platform === 'gemini') return geminiOAuth.authUrl.value
   if (form.platform === 'antigravity') return antigravityOAuth.authUrl.value
@@ -4416,6 +4398,7 @@ const currentAuthUrl = computed(() => {
 })
 
 const currentSessionId = computed(() => {
+  if (form.platform === 'perch') return perchOAuth.sessionId.value
   if (form.platform === 'openai') return openaiOAuth.sessionId.value
   if (form.platform === 'gemini') return geminiOAuth.sessionId.value
   if (form.platform === 'antigravity') return antigravityOAuth.sessionId.value
@@ -4424,6 +4407,7 @@ const currentSessionId = computed(() => {
 })
 
 const currentOAuthLoading = computed(() => {
+  if (form.platform === 'perch') return perchOAuth.loading.value
   if (form.platform === 'openai') return openaiOAuth.loading.value
   if (form.platform === 'gemini') return geminiOAuth.loading.value
   if (form.platform === 'antigravity') return antigravityOAuth.loading.value
@@ -4432,6 +4416,7 @@ const currentOAuthLoading = computed(() => {
 })
 
 const currentOAuthError = computed(() => {
+  if (form.platform === 'perch') return perchOAuth.error.value
   if (form.platform === 'openai') return openaiOAuth.error.value
   if (form.platform === 'gemini') return geminiOAuth.error.value
   if (form.platform === 'antigravity') return antigravityOAuth.error.value
@@ -4495,18 +4480,7 @@ const isGenericMultiProtocolPlatform = computed(
 const extraMultiProtocolPlatforms = computed(() =>
   listPlatforms().filter(spec => !!spec.multi_protocol && !isCNProviderPlatform(spec.id) && spec.id !== 'opencode_go')
 )
-const perchSessionInput = ref('')
-const perchAccessToken = ref('')
-const perchRefreshToken = ref('')
-const perchAppUrl = ref('')
-function applyPerchSessionInput() {
-  const parsed = parsePerchSession(perchSessionInput.value)
-  if (!parsed.accessToken) return
-  perchAccessToken.value = parsed.accessToken
-  perchRefreshToken.value = parsed.refreshToken ?? ''
-  perchAppUrl.value = parsed.appUrl ?? ''
-  perchSessionInput.value = ''
-}
+const perchProvider = ref<'google' | 'github'>('google')
 const genericAccountModes = computed(() => providerAccountModes(form.platform))
 // 按模型分流的供应商（OpenCode 等）：adaptive 账号携带 protocol_rules。
 const routesByModel = computed(() => providerRoutesByModel(form.platform))
@@ -5132,6 +5106,9 @@ const isOAuthFlow = computed(() => {
   if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
     return false
   }
+  if (form.platform === 'perch') {
+    return true
+  }
   return accountCategory.value === 'oauth-based'
 })
 
@@ -5161,6 +5138,9 @@ const canExchangeCode = computed(() => {
   }
   if (form.platform === 'grok') {
     return authCode.trim() && grokOAuth.sessionId.value && !grokOAuth.loading.value
+  }
+  if (form.platform === 'perch') {
+    return authCode.trim() && perchOAuth.sessionId.value && !perchOAuth.loading.value
   }
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
 })
@@ -5703,10 +5683,7 @@ const resetForm = () => {
   form.platform = 'anthropic'
   form.type = 'oauth'
   form.credentials = {}
-  perchSessionInput.value = ''
-  perchAccessToken.value = ''
-  perchRefreshToken.value = ''
-  perchAppUrl.value = ''
+  perchOAuth.resetState()
   form.proxy_id = null
   form.concurrency = 10
   form.load_factor = null
@@ -5815,6 +5792,7 @@ const resetForm = () => {
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
   grokOAuth.resetState()
+  perchOAuth.resetState()
   oauthFlowRef.value?.reset()
   antigravityMixedChannelConfirmed.value = false
   upstreamModelsPreviewed.value = false
@@ -6192,20 +6170,6 @@ const handleSubmit = async () => {
     return
   }
 
-  if (form.platform === 'perch') {
-    if (!perchAccessToken.value.trim()) {
-      appStore.showError(t('admin.accounts.perch.accessTokenRequired'))
-      return
-    }
-    const perchCredentialsPayload = perchCredentials({
-      accessToken: perchAccessToken.value,
-      refreshToken: perchRefreshToken.value,
-      appUrl: perchAppUrl.value
-    })
-    await createAccountAndFinish('perch', 'apikey', perchCredentialsPayload)
-    return
-  }
-
   // For apikey type, create directly
   if (!apiKeyValue.value.trim()) {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
@@ -6340,6 +6304,7 @@ const goBackToBasicInfo = () => {
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
   grokOAuth.resetState()
+  perchOAuth.resetState()
   oauthFlowRef.value?.reset()
 }
 
@@ -6357,6 +6322,8 @@ const handleGenerateUrl = async () => {
     await antigravityOAuth.generateAuthUrl(form.proxy_id)
   } else if (form.platform === 'grok') {
     await grokOAuth.generateAuthUrl(form.proxy_id)
+  } else if (form.platform === 'perch') {
+    await perchOAuth.generateAuthUrl(perchProvider.value)
   } else {
     await oauth.generateAuthUrl(addMethod.value, form.proxy_id)
   }
@@ -7424,6 +7391,14 @@ const handleAnthropicExchange = async (authCode: string) => {
   }
 }
 
+const handlePerchExchange = async (authCode: string) => {
+  if (!perchOAuth.sessionId.value) return
+  const tokenInfo = await perchOAuth.exchangeAuthCode(authCode)
+  if (!tokenInfo) return
+  const credentials = perchOAuth.buildCredentials(tokenInfo)
+  await createAccountAndFinish('perch', 'apikey' as AccountType, credentials)
+}
+
 // 主入口：根据平台路由到对应处理函数
 const handleExchangeCode = async () => {
   const authCode = oauthFlowRef.value?.authCode || ''
@@ -7437,6 +7412,8 @@ const handleExchangeCode = async () => {
       return handleAntigravityExchange(authCode)
     case 'grok':
       return handleGrokExchange(authCode)
+    case 'perch':
+      return handlePerchExchange(authCode)
     default:
       return handleAnthropicExchange(authCode)
   }

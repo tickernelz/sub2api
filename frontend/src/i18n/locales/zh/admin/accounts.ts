@@ -1,17 +1,6 @@
 export default {
     accounts: {
-      perch: {
-        sessionLabel: 'Perch CLI 会话 JSON（可选）',
-        sessionPlaceholder: 'accessToken … refreshToken … expiresAt …',
-        sessionHint: '粘贴 ~/.perch/cli-auth-session.json 的内容即可一次填好下面的字段。',
-        accessToken: 'Supabase access token',
-        refreshToken: 'Supabase refresh token',
-        refreshTokenHint: '适配器每次刷新都会轮换该 token 并写回账号。',
-        appUrl: 'Perch 应用地址',
-        limits:
-          'Perch 不提供 API key：账号直接使用 Perch 会话，仅服务 /v1/chat/completions；/v1/responses 返回 unsupported_protocol。',
-        accessTokenRequired: '请填写 Perch access token'
-      },
+
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',
@@ -1332,7 +1321,29 @@ export default {
         pleaseEnterApiKey: '请输入上游 API Key'
       },
       // OAuth flow
+
       oauth: {
+      perch: {
+        loginProvider: '登录方式',
+        title: 'Perch 账号授权',
+        followSteps: '按以下步骤授权你的 Perch 账号：',
+        step1GenerateUrl: '生成 Perch 登录地址',
+        generateAuthUrl: '生成登录地址',
+        generating: '生成中…',
+        step2OpenUrl: '打开地址并用 Google 或 GitHub 登录',
+        openUrlDesc: '在新标签页打开登录地址，并用该 Perch 账号使用的登录方式登录。',
+        step3EnterCode: '粘贴回调地址',
+        authCodeDesc:
+          'Perch 会把浏览器带回 http://127.0.0.1:45999/callback?code=… —— 该端口没有服务，页面会显示连接错误。请复制地址栏中的完整地址并粘贴到下面：',
+        authCode: '回调地址',
+        authCodePlaceholder: 'http://127.0.0.1:45999/callback?code=…',
+        authCodeHint: '即使页面打不开，授权码仍在地址栏里。',
+        importantNotice:
+          '登录后的页面打不开是正常的：127.0.0.1:45999 是 Perch CLI 使用的本地回环地址，授权码在地址栏里。请复制完整地址。',
+        failedToGenerateUrl: '生成 Perch 登录地址失败',
+        failedToExchange: 'Perch 拒绝了该回调地址',
+        missingCode: '请粘贴浏览器地址栏中的回调地址'
+      },
         title: 'Claude 账号授权',
         authMethod: '授权方式',
         manualAuth: '手动授权',

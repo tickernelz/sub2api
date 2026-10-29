@@ -4,6 +4,7 @@ package perch
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -12,15 +13,18 @@ import (
 
 func liveCredentials(t *testing.T) (string, Credentials) {
 	t.Helper()
-	path := strings.TrimSpace(os.Getenv("PERCH_SESSION_FILE"))
-	if path == "" {
-		path = DefaultSessionPath()
+	raw := strings.TrimSpace(os.Getenv("PERCH_SESSION_JSON"))
+	if raw == "" {
+		t.Skip("no live Perch session: set PERCH_SESSION_JSON")
 	}
-	creds, err := LoadCredentialsFile(path)
-	if err != nil {
-		t.Skipf("no live Perch session: %v", err)
+	var creds Credentials
+	if err := json.Unmarshal([]byte(raw), &creds); err != nil {
+		t.Skipf("PERCH_SESSION_JSON is not a perch session: %v", err)
 	}
-	return path, creds
+	if err := creds.Validate(); err != nil {
+		t.Skipf("PERCH_SESSION_JSON is incomplete: %v", err)
+	}
+	return strings.TrimSpace(os.Getenv("PERCH_SESSION_PATH")), creds
 }
 
 func TestLivePerchHealth(t *testing.T) {
@@ -42,11 +46,9 @@ func TestLivePerchHealth(t *testing.T) {
 }
 
 func TestLivePerchModelCall(t *testing.T) {
-	path, creds := liveCredentials(t)
+	_, creds := liveCredentials(t)
 	session := NewSession(creds, WithCredentialsPersist(func(next Credentials) {
-		if err := SaveCredentialsFile(path, next); err != nil {
-			t.Logf("persist refreshed session: %v", err)
-		}
+		t.Logf("session rotated in memory: has_access=%v has_refresh=%v expires_at=%d", next.AccessToken != "", next.RefreshToken != "", next.ExpiresAt)
 	}))
 	client := NewClient(session)
 
