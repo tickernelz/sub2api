@@ -266,25 +266,22 @@
         </div>
 
         <div
-          v-if="extraCatalogPlatforms.length"
           class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700"
           data-testid="platform-row-catalog"
         >
           <button
-            v-for="spec in extraCatalogPlatforms"
-            :key="spec.id"
             type="button"
-            :data-testid="`platform-button-${spec.id}`"
-            @click="selectCatalogPlatform(spec.id)"
+            data-testid="platform-button-perch"
+            @click="selectPerchPlatform()"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
-              form.platform === spec.id
+              form.platform === 'perch'
                 ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
             ]"
           >
-            <PlatformIcon :platform="spec.id" size="sm" />
-            {{ spec.display_name }}
+            <PlatformIcon platform="perch" size="sm" />
+            Perch
           </button>
         </div>
       </div>
@@ -4498,33 +4495,17 @@ const isGenericMultiProtocolPlatform = computed(
 const extraMultiProtocolPlatforms = computed(() =>
   listPlatforms().filter(spec => !!spec.multi_protocol && !isCNProviderPlatform(spec.id) && spec.id !== 'opencode_go')
 )
-const DEDICATED_PLATFORM_IDS = new Set([
-  'anthropic',
-  'openai',
-  'gemini',
-  'antigravity',
-  'grok',
-  'kimi',
-  'zhipu',
-  'deepseek',
-  'minimax',
-  'opencode_go',
-  'typesafe'
-])
-const extraCatalogPlatforms = computed(() =>
-  listPlatforms().filter(
-    spec => !spec.multi_protocol && !isCNProviderPlatform(spec.id) && !DEDICATED_PLATFORM_IDS.has(spec.id)
-  )
-)
 const perchSessionInput = ref('')
 const perchAccessToken = ref('')
 const perchRefreshToken = ref('')
 const perchAppUrl = ref('')
 function applyPerchSessionInput() {
   const parsed = parsePerchSession(perchSessionInput.value)
-  if (parsed.accessToken) perchAccessToken.value = parsed.accessToken
-  if (parsed.refreshToken) perchRefreshToken.value = parsed.refreshToken
-  if (parsed.appUrl) perchAppUrl.value = parsed.appUrl
+  if (!parsed.accessToken) return
+  perchAccessToken.value = parsed.accessToken
+  perchRefreshToken.value = parsed.refreshToken ?? ''
+  perchAppUrl.value = parsed.appUrl ?? ''
+  perchSessionInput.value = ''
 }
 const genericAccountModes = computed(() => providerAccountModes(form.platform))
 // 按模型分流的供应商（OpenCode 等）：adaptive 账号携带 protocol_rules。
@@ -4629,8 +4610,8 @@ function selectTypeSafePlatform() {
   apiKeyBaseUrl.value = 'https://api.typesafe.ai'
   allowedModels.value = ['jev-latest']
 }
-function selectCatalogPlatform(platform: string) {
-  form.platform = platform
+function selectPerchPlatform() {
+  form.platform = 'perch'
   form.type = 'apikey'
   accountCategory.value = 'apikey'
   apiKeyBaseUrl.value = ''
@@ -6219,8 +6200,7 @@ const handleSubmit = async () => {
     const perchCredentialsPayload = perchCredentials({
       accessToken: perchAccessToken.value,
       refreshToken: perchRefreshToken.value,
-      appUrl: perchAppUrl.value,
-      expiresAt: 0
+      appUrl: perchAppUrl.value
     })
     await createAccountAndFinish('perch', 'apikey', perchCredentialsPayload)
     return
@@ -6477,9 +6457,9 @@ const createAccountAndFinish = async (
     rate_multiplier: form.rate_multiplier,
     group_ids: form.group_ids,
     expires_at: form.expires_at,
-    // 上游倍率探测对全部 API-key 平台开放（antigravity upstream 走本 helper）；
-    // 非 apikey 类型（bedrock/oauth）不传，后端不动作。
-    upstream_billing_probe_enabled: type === 'apikey' ? upstreamBillingAutoProbeEnabled.value : undefined,
+    ...(type === 'apikey' && platform !== 'perch'
+      ? { upstream_billing_probe_enabled: upstreamBillingAutoProbeEnabled.value }
+      : {}),
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

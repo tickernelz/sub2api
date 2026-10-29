@@ -1108,5 +1108,39 @@ describe('CreateAccountModal Perch session accounts', () => {
     expect(createAccountMock).not.toHaveBeenCalled()
     wrapper.unmount()
   })
-})
 
+  it('does not send the upstream billing probe for a Perch account', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Perch')
+    await wrapper.get('[data-testid="perch-access-token"]').setValue(jwt(1893456000))
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Perch probe')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).not.toHaveProperty('upstream_billing_probe_enabled')
+    expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('clears the previous refresh token when the next pasted session has none', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Perch')
+    const sessionInput = wrapper.get('[data-testid="perch-session-input"]')
+    await sessionInput.setValue(JSON.stringify({ accessToken: jwt(1893456000), refreshToken: 'first-refresh' }))
+    await sessionInput.trigger('change')
+    expect((wrapper.get('[data-testid="perch-refresh-token"]').element as HTMLInputElement).value).toBe(
+      'first-refresh'
+    )
+    expect((sessionInput.element as HTMLTextAreaElement).value).toBe('')
+
+    await sessionInput.setValue(JSON.stringify({ accessToken: jwt(1893456000), refreshToken: null }))
+    await sessionInput.trigger('change')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Perch null refresh')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).not.toHaveProperty('refresh_token')
+    wrapper.unmount()
+  })
+})

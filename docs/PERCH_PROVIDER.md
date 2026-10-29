@@ -9,6 +9,8 @@ Perch has no API keys: the official CLI, Desktop app and web app all authenticat
 3. Either paste the whole `~/.perch/cli-auth-session.json` into the session field, or fill the access token, refresh token and app URL by hand. The form derives `expires_at` from the access token's `exp` claim, so the adapter refreshes before the token lapses.
 4. Create. The credential map sent to the API is `access_token`, `refresh_token`, `app_url`, `expires_at`; the adapter rewrites `refresh_token`/`expires_at` whenever Perch rotates the session.
 
+Pasting a session keeps a copy of the refresh token that the CLI on the source machine still holds; the first refresh by either side rotates the token and the other side's copy becomes stale, and Supabase reuse detection can revoke the whole session. Log in once with `perch login` for sub2api, paste that session, and stop using it in the CLI.
+
 The account answers `/v1/chat/completions` only. `/v1/responses` returns `unsupported_protocol` with HTTP 400, and the model name in a request is a Perch tier alias or catalogue id, not an OpenAI model name.
 
 ### Troubleshooting

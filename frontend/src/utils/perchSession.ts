@@ -2,12 +2,9 @@ export type PerchSessionFields = {
   accessToken: string
   refreshToken: string
   appUrl: string
-  expiresAt: number
 }
 
 export const PERCH_DEFAULT_APP_URL = 'https://app.perchai.app'
-
-const PERCH_TEXT_KEYS = ['accessToken', 'access_token', 'refreshToken', 'refresh_token', 'appUrl', 'app_url']
 
 function base64UrlDecode(segment: string): string {
   const padded = segment.replace(/-/g, '+').replace(/_/g, '/')
@@ -54,15 +51,10 @@ export function parsePerchSession(raw: string): Partial<PerchSessionFields> {
   for (const record of candidateObjects(parsed, 1)) {
     const accessToken = pickText(record, 'accessToken', 'access_token')
     if (!accessToken) continue
-    const refreshToken = pickText(record, 'refreshToken', 'refresh_token')
-    const appUrl = pickText(record, 'appUrl', 'app_url')
-    const rawExpiry = record.expiresAt ?? record.expires_at
-    const expiresAt = Number(rawExpiry)
     return {
       accessToken,
-      refreshToken,
-      appUrl,
-      expiresAt: Number.isFinite(expiresAt) && expiresAt > 0 ? Math.floor(expiresAt) : perchExpirySeconds(accessToken)
+      refreshToken: pickText(record, 'refreshToken', 'refresh_token'),
+      appUrl: pickText(record, 'appUrl', 'app_url')
     }
   }
   return {}
@@ -73,13 +65,7 @@ export function perchCredentials(fields: PerchSessionFields): Record<string, unk
   const refreshToken = fields.refreshToken.trim()
   if (refreshToken) credentials.refresh_token = refreshToken
   credentials.app_url = fields.appUrl.trim() || PERCH_DEFAULT_APP_URL
-  const expiresAt = fields.expiresAt > 0 ? fields.expiresAt : perchExpirySeconds(fields.accessToken)
+  const expiresAt = perchExpirySeconds(fields.accessToken)
   if (expiresAt > 0) credentials.expires_at = expiresAt
   return credentials
-}
-
-export function isPerchSessionText(value: string): boolean {
-  const text = value.trim()
-  if (!text || !PERCH_TEXT_KEYS.some((key) => text.includes(key))) return false
-  return Object.keys(parsePerchSession(text)).length > 0
 }
