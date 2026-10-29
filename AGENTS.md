@@ -311,7 +311,7 @@ Required behavior:
 
 Replay anchors:
 
-- `backend/internal/pkg/perch/` — handler, client, `wire.go`, `fingerprint.go`, chat translation, `testdata/wire/*.http`
+- `backend/internal/pkg/perch/` — handler, client, `wire.go`, `dialer.go`, chat translation, `surfacePromptText`, `testdata/wire/*.http`
 - `backend/internal/service/openai_gateway_perch.go`
 - `backend/internal/service/openai_gateway_chat_completions.go` — the `PlatformPerch` branch
 - `backend/internal/service/openai_gateway_forward.go` — the Responses guard
@@ -322,7 +322,7 @@ Replay anchors:
 
 Known replay hazards:
 
-- Perch refuses direct API access (`403 perch_surface_required`) for plan-gated accounts. The adapter mirrors the official CLI's client identity and TLS profile; a live probe against a real account is an owner decision, not a test.
+- Perch refuses a model call whose conversation carries no substantial system prompt (`403 perch_surface_required`). The gate is a length floor near 202 characters, measured with one account and one ticket (200 chars refused, 205 accepted, 3,000 filler characters accepted); it is not a persona check and not a transport check. `chat.go` therefore prepends `surfacePromptText` as the first message of every call, and `surface_test.go` fails if that text drops below `surfacePromptFloor`. Do not remove it or move it behind the caller's system messages.
 - The wire layer writes HTTP/1.1 itself because `net/http` always sorts headers. If upstream refactors transports, keep the byte fixtures and their CRLF attribute, or the round-trip tests pass in a warm worktree and fail in CI.
 - Idle connection reuse needs the TLS wrapper unwrapped with `NetConn` before the peek; a bare `*net.TCPConn` assertion silently disables reuse (five requests, five handshakes).
 - Perch refresh tokens rotate within one family: the adapter must own a copy of the session, never the CLI's live file.
