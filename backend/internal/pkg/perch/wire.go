@@ -138,19 +138,7 @@ func (w *WireDoer) connection(ctx context.Context, addr string, dial DialFunc) (
 }
 
 func wireConnAlive(conn net.Conn) bool {
-	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Millisecond)); err != nil {
-		return false
-	}
-	var probe [1]byte
-	_, err := conn.Read(probe[:])
-	if err := conn.SetReadDeadline(time.Time{}); err != nil {
-		return false
-	}
-	var timeout net.Error
-	if errors.As(err, &timeout) && timeout.Timeout() {
-		return true
-	}
-	return false
+	return wireConnIdle(conn)
 }
 
 func (w *WireDoer) ControlTimeout() time.Duration { return w.control }
@@ -212,35 +200,30 @@ type wireBody struct {
 	conn     net.Conn
 	addr     string
 	reusable bool
-	settled  bool
+	settle   sync.Once
 }
 
 func (b *wireBody) Read(p []byte) (int, error) {
 	n, err := b.body.Read(p)
 	if err != nil {
-		b.settle(err == io.EOF)
+		b.finish(err == io.EOF)
 	}
 	return n, err
 }
 
 func (b *wireBody) Close() error {
-	if b.settled {
-		return nil
-	}
-	b.settle(false)
+	b.finish(false)
 	return nil
 }
 
-func (b *wireBody) settle(complete bool) {
-	if b.settled {
-		return
-	}
-	b.settled = true
-	if complete && b.reusable && b.reader.Buffered() == 0 {
-		b.doer.release(b.addr, b.conn)
-		return
-	}
-	_ = b.conn.Close()
+func (b *wireBody) finish(complete bool) {
+	b.settle.Do(func() {
+		if complete && b.reusable && b.reader.Buffered() == 0 {
+			b.doer.release(b.addr, b.conn)
+			return
+		}
+		_ = b.conn.Close()
+	})
 }
 
 func buildWireRequest(req *http.Request, body []byte) ([]byte, error) {
@@ -248,6 +231,9 @@ func buildWireRequest(req *http.Request, body []byte) ([]byte, error) {
 	target := req.URL.RequestURI()
 	if target == "" {
 		target = "/"
+	}
+	if err := checkWireRequestLine(req.Method, target, req.URL.Host); err != nil {
+		return nil, err
 	}
 	_, _ = buf.WriteString(req.Method)
 	_, _ = buf.WriteString(" ")
@@ -266,6 +252,9 @@ func buildWireRequest(req *http.Request, body []byte) ([]byte, error) {
 		}
 		written[entry.key] = true
 		for _, value := range values {
+			if err := checkWireHeader(entry.name, value); err != nil {
+				return nil, err
+			}
 			_, _ = buf.WriteString(entry.name)
 			_, _ = buf.WriteString(": ")
 			_, _ = buf.WriteString(value)
@@ -288,6 +277,9 @@ func buildWireRequest(req *http.Request, body []byte) ([]byte, error) {
 		}
 		written[lower] = true
 		for _, value := range req.Header.Values(key) {
+			if err := checkWireHeader(key, value); err != nil {
+				return nil, err
+			}
 			_, _ = buf.WriteString(key)
 			_, _ = buf.WriteString(": ")
 			_, _ = buf.WriteString(value)
@@ -314,6 +306,66 @@ func buildWireRequest(req *http.Request, body []byte) ([]byte, error) {
 	_, _ = buf.WriteString("\r\n")
 	_, _ = buf.Write(body)
 	return buf.Bytes(), nil
+}
+
+var (
+	errWireRequestLine = errors.New("perch: wire request line carries a forbidden byte")
+	errWireHeader      = errors.New("perch: wire header carries a forbidden byte")
+)
+
+func checkWireRequestLine(method, target, host string) error {
+	if method == "" || !wireToken(method) {
+		return fmt.Errorf("%w: method", errWireRequestLine)
+	}
+	if wireForbidden(target) || strings.ContainsAny(target, " \t") {
+		return fmt.Errorf("%w: target", errWireRequestLine)
+	}
+	if wireForbidden(host) || strings.ContainsAny(host, " \t") {
+		return fmt.Errorf("%w: host", errWireRequestLine)
+	}
+	return nil
+}
+
+func checkWireHeader(name, value string) error {
+	if name == "" || !wireToken(name) {
+		return fmt.Errorf("%w: name %q", errWireHeader, name)
+	}
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if c == '\t' {
+			continue
+		}
+		if c < 0x20 || c == 0x7f {
+			return fmt.Errorf("%w: value for %q", errWireHeader, name)
+		}
+	}
+	return nil
+}
+
+func wireToken(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if !wireTokenByte(s[i]) {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+func wireTokenByte(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	}
+	return strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0
+}
+
+func wireForbidden(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c < 0x20 || c == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 func wireOrderFor(req *http.Request) []wireHeaderName {
