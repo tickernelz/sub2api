@@ -148,6 +148,17 @@ The boundary sits between 200 and 205 characters. Content, key order, tools, `pr
 
 `chat.go` therefore sends `surfacePromptText` (898 chars, `surfacePromptFloor` 205 in `surface_test.go`) as the first message of every model call and keeps the caller's system messages behind it. `TestSurfacePromptSatisfiedByProviderText` fails if that text ever drops below the floor; `TestBuildModelCallRequestLeadsWithSurfacePrompt` asserts the first message on the wire is that system message and that the body starts with it. Negative control: truncating `surfacePromptText` to 22 characters fails both tests, and restoring it reproduces the byte-identical file.
 
+## Live proof
+
+Measured 2026-10-29 through the `sub2api` container serving `/v1/chat/completions` with a Perch account and a `perch` group:
+
+| Call | Status | TTFB | Total | Answer | Upstream model | Usage |
+| --- | --- | --- | --- | --- | --- | --- |
+| `stream:false` | 200 | 3.035 s | 3.035 s | `pong` | `deepseek/deepseek-v4.1-flash` | 293 prompt / 4 completion / 297 total |
+| `stream:true` | 200 | 0.981 s | 1.127 s | `pong` in `chat.completion.chunk` frames, ends with `[DONE]` | reported by the `done` event | same turn path |
+
+The upstream model that answered comes from Perch's `done` event, not from the request: the request named `wandb-kimi-k2-6` and Perch routed the turn to `deepseek/deepseek-v4.1-flash`.
+
 ## Tests
 
 ```bash
