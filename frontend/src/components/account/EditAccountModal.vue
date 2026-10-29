@@ -5726,6 +5726,7 @@ const handleSubmit = async () => {
         }
       }
       newCredentials.app_url = editPerchAppUrl.value.trim() || PERCH_DEFAULT_APP_URL
+      delete newCredentials.base_url
       applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
       applyAccountSchedulingThresholdOverridePatch(newCredentials, currentCredentials)
       if (!applyTempUnschedConfig(newCredentials)) {

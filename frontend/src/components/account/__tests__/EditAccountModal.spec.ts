@@ -2142,6 +2142,20 @@ describe('EditAccountModal Perch session accounts', () => {
     wrapper.unmount()
   })
 
+  it('drops a base url left behind by the old edit path', async () => {
+    const account = buildPerchAccount()
+    account.credentials = { ...account.credentials, base_url: 'https://api.anthropic.com' }
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toEqual({
+      app_url: 'https://app.perchai.app',
+      expires_at: 1893456000
+    })
+    wrapper.unmount()
+  })
+
   it('refuses a new access token without its refresh token', async () => {
     const wrapper = mountModal(buildPerchAccount())
     await wrapper.get('[data-testid="perch-access-token"]').setValue(jwt(1893999999))
