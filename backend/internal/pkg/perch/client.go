@@ -33,6 +33,7 @@ type Client struct {
 	now        func() time.Time
 
 	mu         sync.Mutex
+	rotateMu   sync.Mutex
 	tickets    map[string]ticketEntry
 	ticketUses map[string]int
 
@@ -254,14 +255,35 @@ func (c *Client) reserveTicketUse(token string) bool {
 	return true
 }
 
-func (c *Client) invalidateTicket(surface, profile string) {
+func (c *Client) discardTicket(surface, profile, token string) {
 	if strings.TrimSpace(profile) == "" {
 		profile = DefaultProfile
 	}
 	c.mu.Lock()
 	delete(c.tickets, surface+"|"+profile)
-	c.ticketUses = make(map[string]int)
+	if token != "" {
+		delete(c.ticketUses, token)
+	}
 	c.mu.Unlock()
+}
+
+func (c *Client) nextTicket(ctx context.Context, exhausted string) (Ticket, error) {
+	c.rotateMu.Lock()
+	defer c.rotateMu.Unlock()
+
+	cached, err := c.TurnTicket(ctx, ClientSurfaceCLI, DefaultProfile)
+	if err == nil && cached.Ticket != exhausted && c.reserveTicketUse(cached.Ticket) {
+		return cached, nil
+	}
+	c.discardTicket(ClientSurfaceCLI, DefaultProfile, exhausted)
+	fresh, err := c.TurnTicket(ctx, ClientSurfaceCLI, DefaultProfile)
+	if err != nil {
+		return Ticket{}, err
+	}
+	if !c.reserveTicketUse(fresh.Ticket) {
+		return Ticket{}, &APIError{Status: http.StatusBadGateway, Code: CodeTicketUnavailable, Message: "perch: turn ticket budget exhausted"}
+	}
+	return fresh, nil
 }
 
 // OpenModelCall starts a streaming model call and returns the open SSE stream.
@@ -300,17 +322,13 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 			if _, refreshErr := c.session.Refresh(ctx); refreshErr != nil {
 				return nil, refreshErr
 			}
-			c.invalidateTicket(ClientSurfaceCLI, DefaultProfile)
+			c.discardTicket(ClientSurfaceCLI, DefaultProfile, "")
 			continue
 		}
 		if !c.reserveTicketUse(ticket.Ticket) {
-			c.invalidateTicket(ClientSurfaceCLI, DefaultProfile)
-			ticket, err = c.TurnTicket(ctx, ClientSurfaceCLI, DefaultProfile)
+			ticket, err = c.nextTicket(ctx, ticket.Ticket)
 			if err != nil {
 				return nil, err
-			}
-			if !c.reserveTicketUse(ticket.Ticket) {
-				return nil, &APIError{Status: http.StatusBadGateway, Code: CodeTicketUnavailable, Message: "perch: turn ticket budget exhausted"}
 			}
 		}
 
@@ -369,10 +387,10 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 			if _, err := c.session.Refresh(ctx); err != nil {
 				return nil, err
 			}
-			c.invalidateTicket(ClientSurfaceCLI, DefaultProfile)
+			c.discardTicket(ClientSurfaceCLI, DefaultProfile, ticket.Ticket)
 			continue
 		}
-		c.invalidateTicket(ClientSurfaceCLI, DefaultProfile)
+		c.discardTicket(ClientSurfaceCLI, DefaultProfile, ticket.Ticket)
 	}
 }
 

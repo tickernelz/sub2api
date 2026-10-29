@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
 // CredentialSource resolves the Perch session the handler should use for a request.
@@ -53,7 +53,10 @@ type clientEntry struct {
 	pinned int
 }
 
-const maxCachedClients = 64
+const (
+	maxCachedClients    = 64
+	controlPlaneTimeout = 60 * time.Second
+)
 
 type HandlerOption func(*Handler)
 
@@ -293,27 +296,30 @@ func (h *Handler) client(ctx context.Context) (*Client, func(), error) {
 			persistCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			if storeErr := store.StorePerchCredentials(persistCtx, next); storeErr != nil {
-				log.Printf("perch: persist refreshed credentials: %v", storeErr)
+				logger.LegacyPrintf("perch.handler", "persist refreshed credentials failed: %v", storeErr)
 			}
 		}))
 	}
+	controlHTTP, streamHTTP := doer, Doer(nil)
 	switch {
 	case doer != nil:
-		opts = append(opts, WithHTTPClient(doer))
+		streamHTTP = streamingClient(doer)
 	case h.fingerprint:
 		fingerprinted := FingerprintHTTPClient(nil)
-		opts = append(opts, WithHTTPClient(fingerprinted))
+		fingerprinted.Timeout = controlPlaneTimeout
+		controlHTTP = fingerprinted
+		streamHTTP = streamingClient(fingerprinted)
+	}
+	if controlHTTP != nil {
+		opts = append(opts, WithHTTPClient(controlHTTP))
 	}
 	session := NewSession(creds, opts...)
 	client := NewClient(session, WithClientClock(now))
-	switch {
-	case doer != nil:
-		client.http = doer
-		client.streamHTTP = streamingClient(doer)
-	case h.fingerprint:
-		fingerprinted := FingerprintHTTPClient(nil)
-		client.http = fingerprinted
-		client.streamHTTP = fingerprinted
+	if controlHTTP != nil {
+		client.http = controlHTTP
+	}
+	if streamHTTP != nil {
+		client.streamHTTP = streamHTTP
 	}
 
 	h.seq++

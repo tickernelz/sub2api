@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -68,7 +69,7 @@ func TestOpenModelCallSendsProtocolHeaders(t *testing.T) {
 	if got := server.lastHeaders.Get("authorization"); got != "Bearer access-token" {
 		t.Fatalf("authorization = %q", got)
 	}
-	if got := server.lastHeaders.Get("x-perch-turn-ticket"); got != "ticket-value" {
+	if got := server.lastHeaders.Get("x-perch-turn-ticket"); !strings.HasPrefix(got, "ticket-") {
 		t.Fatalf("turn ticket header = %q", got)
 	}
 	if got := server.lastHeaders.Get("accept"); got != "text/event-stream" {

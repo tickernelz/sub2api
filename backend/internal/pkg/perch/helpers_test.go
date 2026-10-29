@@ -2,6 +2,7 @@ package perch
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -154,7 +155,7 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 		ts.mu.Unlock()
 		payload, err := json.Marshal(map[string]any{
 			"ok":        true,
-			"ticket":    "ticket-value",
+			"ticket":    fmt.Sprintf("ticket-%d", ticketHits),
 			"ticketId":  "44444444-4444-4444-8444-444444444444",
 			"runId":     "tkt-cli-1793207619077-1li5qu4h",
 			"surface":   "cli",

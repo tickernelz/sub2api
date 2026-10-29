@@ -76,7 +76,13 @@ Perch only serves hosted models to its own surfaces, so the adapter presents the
 
 `chat.go` prepends a synthetic `user` message wrapped in `<perch_turn_context>` that states today's date and that its content carries system-prompt authority, matching what the official CLI sends. That changes the meaning of the caller's own prompt, so it is a switch: `perch.WithTurnContext(false)` on the handler disables it and passes the conversation through untouched. Default is on, because parity with the CLI is the goal.
 
+## Body shape
+
+The model-call body follows the captured CLI byte shape rather than the spec table: `request` always carries `messages`, `tools`, `temperature`, `maxTokens` and `toolChoice` (an empty tool list stays `[]`, an unset choice stays `null`), `preferredModelId` and `attribution` are emitted as explicit `null` when unset, and `resendAfterOutput: true` is sent on every call. `TestModelCallBodyKeyOrderMatchesRecordedCLI` decodes the marshalled JSON and checks the key order, so a struct reorder cannot silently change the wire shape.
+
 ## Concurrency
+
+Control-plane calls (`cli-auth/config`, `turn-ticket`, `acct`) keep a 60s total deadline even when the fingerprint transport is active; only the model-call client runs without a total timeout and relies on the 60s idle read instead.
 
 One `Client` (and one `Session`) exists per account: the handler creates it under its own mutex, so two cold-start requests cannot mint two sessions that refresh with the same rotated token. Cached clients are reference-counted while a request uses them, and eviction only removes unpinned entries. The turn-ticket budget is reserved under the client mutex, so the 40-call limit and the reuse counter cannot be raced.
 
