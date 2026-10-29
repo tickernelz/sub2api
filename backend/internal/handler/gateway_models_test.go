@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/perch"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -1889,4 +1890,63 @@ func TestGatewayModels_CompositeCodexRouteLookupErrorKeepsFallback(t *testing.T)
 			}
 		})
 	}
+}
+
+func TestGatewayModels_PerchGroupFallsBackToPerchCatalog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(21)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{
+			byGroup: map[int64][]service.Account{
+				groupID: {
+					{ID: 1, Platform: service.PlatformPerch, Type: service.AccountTypeAPIKey},
+				},
+			},
+		},
+	)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformPerch},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	ids := modelIDsForTest(got.Data)
+	require.Equal(t, perch.DefaultModelIDs(), ids)
+	for _, id := range ids {
+		require.NotContains(t, strings.ToLower(id), "claude")
+	}
+}
+
+func TestGatewayModels_CompositeAdvertisesPerchCatalog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(66)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {{ID: 1, Platform: service.PlatformPerch, Type: service.AccountTypeAPIKey}},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformComposite},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Contains(t, modelIDsForTest(got.Data), perch.DefaultModelIDs()[0])
 }

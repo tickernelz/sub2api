@@ -55,7 +55,7 @@ func (c *Client) Health(ctx context.Context) (Health, error) {
 
 // ModelIDs returns the model identifiers the account may request.
 func (c *Client) ModelIDs(ctx context.Context) ([]string, error) {
-	account, err := c.Account(ctx)
+	account, err := c.AccountCached(ctx)
 	if err != nil {
 		return nil, err
 	}
