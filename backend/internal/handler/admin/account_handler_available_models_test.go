@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/perch"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -603,4 +604,45 @@ func TestAccountHandlerGetAvailableModels_TypeSafeOnlyReturnsJev(t *testing.T) {
 		require.Len(t, resp.Data, 1)
 		require.Equal(t, "jev-latest", resp.Data[0].ID)
 	}
+}
+
+func TestAccountHandlerGetAvailableModels_PerchUsesPerchCatalog(t *testing.T) {
+	svc := &availableModelsAdminService{
+		stubAdminService: newStubAdminService(),
+		account: service.Account{
+			ID:       47,
+			Name:     "perch-apikey",
+			Platform: service.PlatformPerch,
+			Type:     service.AccountTypeAPIKey,
+			Status:   service.StatusActive,
+			Credentials: map[string]any{
+				"app_url":      "https://app.perchai.app",
+				"access_token": "perch-access-token",
+			},
+		},
+	}
+	router := setupAvailableModelsRouter(svc)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/47/models", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NotEmpty(t, resp.Data)
+
+	ids := make([]string, 0, len(resp.Data))
+	for _, model := range resp.Data {
+		require.NotContains(t, strings.ToLower(model.ID), "claude")
+		require.Equal(t, model.ID, model.DisplayName)
+		ids = append(ids, model.ID)
+	}
+	require.Equal(t, perch.DefaultModelIDs(), ids)
 }

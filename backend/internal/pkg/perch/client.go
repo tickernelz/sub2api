@@ -655,7 +655,7 @@ func (c *Client) prepareAttribution(ctx context.Context, req *ModelCallRequest) 
 	if req == nil || req.Attribution != nil {
 		return
 	}
-	c.cachedAccount(ctx)
+	_, _ = c.AccountCached(ctx)
 }
 
 func (c *Client) waitRetry(ctx context.Context, attempt int) {
@@ -679,8 +679,8 @@ func (c *Client) waitRetry(ctx context.Context, attempt int) {
 }
 
 func (c *Client) attribution(ctx context.Context, runID, lane string) *Attribution {
-	info, ok := c.cachedAccount(ctx)
-	if !ok {
+	info, err := c.AccountCached(ctx)
+	if err != nil {
 		return nil
 	}
 	if strings.TrimSpace(info.UserID) == "" && strings.TrimSpace(info.WorkspaceID) == "" {
@@ -695,22 +695,23 @@ func (c *Client) attribution(ctx context.Context, runID, lane string) *Attributi
 	}
 }
 
-func (c *Client) cachedAccount(ctx context.Context) (AccountInfo, bool) {
+// AccountCached returns the account projection, reusing a fetch younger than accountTTL.
+func (c *Client) AccountCached(ctx context.Context) (AccountInfo, error) {
 	c.mu.Lock()
 	info, fetchedAt := c.account, c.accountAt
 	ok := c.accountOK
 	c.mu.Unlock()
 	if ok && c.now().Sub(fetchedAt) < accountTTL {
-		return info, true
+		return info, nil
 	}
 	fresh, err := c.Account(ctx)
 	if err != nil {
-		return AccountInfo{}, false
+		return AccountInfo{}, err
 	}
 	c.mu.Lock()
 	c.account, c.accountAt, c.accountOK = fresh, c.now(), true
 	c.mu.Unlock()
-	return fresh, true
+	return fresh, nil
 }
 
 // NewRunID mints a Perch-shaped run id.

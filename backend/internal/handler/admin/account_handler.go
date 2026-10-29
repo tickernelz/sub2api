@@ -25,6 +25,7 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/perch"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
@@ -2977,6 +2978,17 @@ func (h *AccountHandler) respondAvailableModels(c *gin.Context, account *service
 	// TypeSafe accounts serve only the native System One model.
 	if account.IsTypeSafe() {
 		response.Success(c, []claude.Model{{ID: typesafe.JevLatestModel, Type: "model", DisplayName: typesafe.JevLatestModel}})
+		return
+	}
+
+	if account.Platform == service.PlatformPerch {
+		if h.accountTestService != nil {
+			if models, fetchErr := h.accountTestService.PerchAvailableModels(c.Request.Context(), account); fetchErr == nil && len(models) > 0 {
+				response.Success(c, models)
+				return
+			}
+		}
+		response.Success(c, service.PerchModelEntries(perch.DefaultModelIDs()))
 		return
 	}
 

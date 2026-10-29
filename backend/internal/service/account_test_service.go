@@ -415,6 +415,10 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.routeAntigravityTest(c, account, modelID, prompt)
 	}
 
+	if account.Platform == PlatformPerch {
+		return s.testPerchAccountConnection(c, account, modelID, prompt)
+	}
+
 	// 按模型分流的多模型聚合平台（OpenCode、Command Code 等）。
 	if account.routesByModel() {
 		return s.testModelRoutedAccountConnection(c, account, modelID, prompt)
