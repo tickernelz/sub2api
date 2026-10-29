@@ -43,7 +43,9 @@ func TestTurnTicketWaitIsCancellableByTheWaiter(t *testing.T) {
 	elapsed := time.Since(started)
 
 	close(release)
-	<-minted
+	if mintErr := <-minted; mintErr != nil {
+		t.Fatalf("first mint: %v", mintErr)
+	}
 
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want the waiter's own deadline", err)
