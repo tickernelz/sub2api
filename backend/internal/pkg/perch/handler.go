@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -35,13 +36,20 @@ func (f CredentialSourceFunc) PerchCredentials(ctx context.Context) (Credentials
 
 // Handler serves OpenAI-compatible chat completions and model lists on top of Perch.
 type Handler struct {
-	source CredentialSource
-	http   Doer
-	now    func() time.Time
+	source      CredentialSource
+	http        Doer
+	now         func() time.Time
+	turnContext bool
 
 	mu      sync.Mutex
-	clients map[string]*Client
-	order   []string
+	clients map[string]*clientEntry
+	seq     int64
+}
+
+type clientEntry struct {
+	client *Client
+	order  int64
+	pinned int
 }
 
 const maxCachedClients = 64
@@ -56,6 +64,12 @@ func WithHandlerHTTP(doer Doer) HandlerOption {
 	}
 }
 
+func WithTurnContext(enabled bool) HandlerOption {
+	return func(h *Handler) {
+		h.turnContext = enabled
+	}
+}
+
 func WithHandlerClock(now func() time.Time) HandlerOption {
 	return func(h *Handler) {
 		if now != nil {
@@ -66,9 +80,10 @@ func WithHandlerClock(now func() time.Time) HandlerOption {
 
 func NewHandler(source CredentialSource, opts ...HandlerOption) *Handler {
 	h := &Handler{
-		source:  source,
-		now:     time.Now,
-		clients: make(map[string]*Client),
+		source:      source,
+		now:         time.Now,
+		turnContext: true,
+		clients:     make(map[string]*clientEntry),
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -89,11 +104,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) serveModels(w http.ResponseWriter, r *http.Request) {
-	client, err := h.client(r.Context())
+	client, release, err := h.client(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+	defer release()
 	models, err := client.ModelIDs(r.Context())
 	if err != nil {
 		writeError(w, err)
@@ -124,13 +140,14 @@ func (h *Handler) serveChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := h.client(r.Context())
+	client, release, err := h.client(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+	defer release()
 
-	call, err := BuildModelCallRequest(&req, CallOptions{})
+	call, err := BuildModelCallRequest(&req, CallOptions{DisableTurnContext: !h.turnContext})
 	if err != nil {
 		writeError(w, &APIError{Status: http.StatusBadRequest, Code: "invalid_request", Message: err.Error()})
 		return
@@ -236,14 +253,14 @@ func (h *Handler) streamResponse(w http.ResponseWriter, stream *ModelCallStream,
 	}
 }
 
-func (h *Handler) client(ctx context.Context) (*Client, error) {
+func (h *Handler) client(ctx context.Context) (*Client, func(), error) {
 	creds, err := h.source.PerchCredentials(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	creds = creds.normalized()
 	if err := creds.Validate(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	key := firstNonEmpty(creds.AppURL, DefaultAppURL) + "|" + clientIdentityKey(creds)
@@ -251,14 +268,15 @@ func (h *Handler) client(ctx context.Context) (*Client, error) {
 	now := h.now
 
 	h.mu.Lock()
-	cached, ok := h.clients[key]
-	h.mu.Unlock()
-	if ok {
-		current := cached.session.Credentials()
+	if entry, ok := h.clients[key]; ok {
+		entry.pinned++
+		current := entry.client.session.Credentials()
 		if current.AccessToken == "" || creds.ExpiresAt > current.ExpiresAt {
-			cached.session.SetCredentials(creds)
+			entry.client.session.SetCredentials(creds)
 		}
-		return cached, nil
+		client := entry.client
+		h.mu.Unlock()
+		return client, func() { h.unpin(key) }, nil
 	}
 
 	opts := []SessionOption{WithClock(now)}
@@ -266,7 +284,9 @@ func (h *Handler) client(ctx context.Context) (*Client, error) {
 		opts = append(opts, WithCredentialsPersist(func(next Credentials) {
 			persistCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			_ = store.StorePerchCredentials(persistCtx, next)
+			if storeErr := store.StorePerchCredentials(persistCtx, next); storeErr != nil {
+				log.Printf("perch: persist refreshed credentials: %v", storeErr)
+			}
 		}))
 	}
 	if doer != nil {
@@ -279,18 +299,39 @@ func (h *Handler) client(ctx context.Context) (*Client, error) {
 		client.streamHTTP = streamingClient(doer)
 	}
 
+	h.seq++
+	h.clients[key] = &clientEntry{client: client, order: h.seq, pinned: 1}
+	h.evictLocked()
+	h.mu.Unlock()
+	return client, func() { h.unpin(key) }, nil
+}
+
+func (h *Handler) unpin(key string) {
 	h.mu.Lock()
-	h.clients[key] = client
-	h.order = append(h.order, key)
-	for len(h.clients) > maxCachedClients {
-		oldest := h.order[0]
-		h.order = h.order[1:]
-		if oldest != key {
-			delete(h.clients, oldest)
-		}
+	if entry, ok := h.clients[key]; ok && entry.pinned > 0 {
+		entry.pinned--
 	}
 	h.mu.Unlock()
-	return client, nil
+}
+
+func (h *Handler) evictLocked() {
+	for len(h.clients) > maxCachedClients {
+		var oldestKey string
+		var oldestOrder int64
+		for key, entry := range h.clients {
+			if entry.pinned > 0 {
+				continue
+			}
+			if oldestKey == "" || entry.order < oldestOrder {
+				oldestKey = key
+				oldestOrder = entry.order
+			}
+		}
+		if oldestKey == "" {
+			return
+		}
+		delete(h.clients, oldestKey)
+	}
 }
 
 func clientIdentityKey(creds Credentials) string {

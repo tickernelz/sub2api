@@ -64,6 +64,14 @@ Perch only serves hosted models to its own surfaces, so the adapter presents the
 
 `identity.go` resolves the version once per process, so the header cannot change between requests. All outbound Perch calls go through one header applier; the turn ticket request deliberately omits delta mode.
 
+## Turn context
+
+`chat.go` prepends a synthetic `user` message wrapped in `<perch_turn_context>` that states today's date and that its content carries system-prompt authority, matching what the official CLI sends. That changes the meaning of the caller's own prompt, so it is a switch: `perch.WithTurnContext(false)` on the handler disables it and passes the conversation through untouched. Default is on, because parity with the CLI is the goal.
+
+## Concurrency
+
+One `Client` (and one `Session`) exists per account: the handler creates it under its own mutex, so two cold-start requests cannot mint two sessions that refresh with the same rotated token. Cached clients are reference-counted while a request uses them, and eviction only removes unpinned entries. The turn-ticket budget is reserved under the client mutex, so the 40-call limit and the reuse counter cannot be raced.
+
 ## Streaming limits
 
 Model calls get their own HTTP client with no total timeout: `net/http` measures `Client.Timeout` across the body, which would cut any turn longer than a minute. The 60s budget is applied per read instead — an idle body is closed and reported as `stream_interrupted` — and the transport keeps a 60s `ResponseHeaderTimeout` for the header phase. When Perch restarts a stream after output already reached the client, the response ends as `stream_interrupted` rather than replaying the resent text.

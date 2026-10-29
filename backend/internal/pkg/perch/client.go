@@ -53,6 +53,7 @@ func WithClientHTTP(doer Doer) ClientOption {
 	return func(c *Client) {
 		if doer != nil {
 			c.http = doer
+			c.streamHTTP = streamingClient(doer)
 		}
 	}
 }
@@ -237,13 +238,20 @@ func (c *Client) TurnTicket(ctx context.Context, surface, profile string) (Ticke
 	return ticket, nil
 }
 
-func (c *Client) recordTicketUse(token string) {
+func (c *Client) reserveTicketUse(token string) bool {
 	if token == "" {
-		return
+		return true
 	}
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.ticketUses == nil {
+		c.ticketUses = make(map[string]int)
+	}
+	if c.ticketUses[token] >= ticketCallLimit {
+		return false
+	}
 	c.ticketUses[token]++
-	c.mu.Unlock()
+	return true
 }
 
 func (c *Client) invalidateTicket(surface, profile string) {
@@ -295,14 +303,16 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 			c.invalidateTicket(ClientSurfaceCLI, DefaultProfile)
 			continue
 		}
-		if c.ticketUses[ticket.Ticket] >= ticketCallLimit {
+		if !c.reserveTicketUse(ticket.Ticket) {
 			c.invalidateTicket(ClientSurfaceCLI, DefaultProfile)
 			ticket, err = c.TurnTicket(ctx, ClientSurfaceCLI, DefaultProfile)
 			if err != nil {
 				return nil, err
 			}
+			if !c.reserveTicketUse(ticket.Ticket) {
+				return nil, &APIError{Status: http.StatusBadGateway, Code: CodeTicketUnavailable, Message: "perch: turn ticket budget exhausted"}
+			}
 		}
-		c.recordTicketUse(ticket.Ticket)
 
 		if strings.TrimSpace(req.RunID) == "" {
 			req.RunID = firstNonEmpty(ticket.RunID, NewRunID(c.now()))

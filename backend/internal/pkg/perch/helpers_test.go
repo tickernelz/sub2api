@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -69,6 +70,7 @@ type perchTestServer struct {
 	lastTicketHeaders http.Header
 	lastHeaders       http.Header
 	stall             chan struct{}
+	mu                sync.Mutex
 }
 
 type perchTestOptions struct {
@@ -107,7 +109,9 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 	}
 
 	mux.HandleFunc("/api/perch-terminal/cli-auth/config", func(w http.ResponseWriter, r *http.Request) {
+		ts.mu.Lock()
 		ts.configHits++
+		ts.mu.Unlock()
 		payload, err := json.Marshal(map[string]any{
 			"ok":              true,
 			"appUrl":          ts.URL,
@@ -117,12 +121,14 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 			"redirectHost":    "127.0.0.1",
 		})
 		if err != nil {
-			t.Fatalf("encode config: %v", err)
+			t.Errorf("encode config: %v", err)
 		}
 		writeFixtureJSON(t, w, http.StatusOK, payload)
 	})
 	mux.HandleFunc("/auth/v1/token", func(w http.ResponseWriter, r *http.Request) {
+		ts.mu.Lock()
 		ts.refreshHits++
+		ts.mu.Unlock()
 		if got := r.URL.Query().Get("grant_type"); got != "refresh_token" {
 			t.Errorf("grant_type = %q, want refresh_token", got)
 		}
@@ -132,15 +138,20 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 		writeFixtureJSON(t, w, refreshStatus, freshExpiry(t, refreshBody))
 	})
 	mux.HandleFunc("/api/perch-terminal/turn-ticket", func(w http.ResponseWriter, r *http.Request) {
+		ts.mu.Lock()
 		ts.ticketHits++
-		if opts.TicketAlwaysFails || (opts.FirstTicketFails && ts.ticketHits == 1) {
+		ticketHits := ts.ticketHits
+		ts.mu.Unlock()
+		if opts.TicketAlwaysFails || (opts.FirstTicketFails && ticketHits == 1) {
 			writeFixtureJSON(t, w, http.StatusUnauthorized, []byte(`{"ok":false,"error":"not_authenticated","errorCode":"not_authenticated"}`))
 			return
 		}
 		body := map[string]string{}
 		decodeBody(t, r, &body)
+		ts.mu.Lock()
 		ts.lastTicket = body
 		ts.lastTicketHeaders = r.Header.Clone()
+		ts.mu.Unlock()
 		payload, err := json.Marshal(map[string]any{
 			"ok":        true,
 			"ticket":    "ticket-value",
@@ -152,15 +163,20 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 			"expiresAt": time.Now().Add(5 * time.Minute).UTC().Format(time.RFC3339),
 		})
 		if err != nil {
-			t.Fatalf("encode ticket: %v", err)
+			t.Errorf("encode ticket: %v", err)
 		}
 		writeFixtureJSON(t, w, http.StatusOK, payload)
 	})
 	mux.HandleFunc("/api/perch-terminal/model-call", func(w http.ResponseWriter, r *http.Request) {
+		var modelReq ModelCallRequest
+		decodeBody(t, r, &modelReq)
+		ts.mu.Lock()
 		ts.modelHits++
-		decodeBody(t, r, &ts.lastModelReq)
+		modelHits := ts.modelHits
+		ts.lastModelReq = modelReq
 		ts.lastHeaders = r.Header.Clone()
-		if opts.FirstModelFails && ts.modelHits == 1 {
+		ts.mu.Unlock()
+		if opts.FirstModelFails && modelHits == 1 {
 			writeFixtureJSON(t, w, http.StatusUnauthorized, []byte(`{"ok":false,"error":"Unauthorized","errorCode":"not_authenticated"}`))
 			return
 		}
@@ -197,7 +213,9 @@ func newPerchTestServer(t *testing.T, opts perchTestOptions) *perchTestServer {
 		}
 	})
 	mux.HandleFunc("/api/perchai/account", func(w http.ResponseWriter, r *http.Request) {
+		ts.mu.Lock()
 		ts.accountHits++
+		ts.mu.Unlock()
 		writeFixtureJSON(t, w, http.StatusOK, accountBody)
 	})
 

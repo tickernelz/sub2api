@@ -11,13 +11,14 @@ import (
 
 // CallOptions are the per-request fields Perch needs beyond the conversation.
 type CallOptions struct {
-	RunID            string
-	Now              time.Time
-	Lane             string
-	ClientSurface    string
-	Attribution      *Attribution
-	AvoidModelIDs    []string
-	PreferredModelID string
+	DisableTurnContext bool
+	RunID              string
+	Now                time.Time
+	Lane               string
+	ClientSurface      string
+	Attribution        *Attribution
+	AvoidModelIDs      []string
+	PreferredModelID   string
 }
 
 // BuildModelCallRequest converts an OpenAI Chat Completions request into a Perch model call.
@@ -50,7 +51,9 @@ func BuildModelCallRequest(req *apicompat.ChatCompletionsRequest, opts CallOptio
 	if now.IsZero() {
 		now = time.Now()
 	}
-	messages = attachTurnContext(messages, now)
+	if !opts.DisableTurnContext {
+		messages = attachTurnContext(messages, now)
+	}
 
 	tools := make([]json.RawMessage, 0, len(req.Tools))
 	for _, tool := range req.Tools {
