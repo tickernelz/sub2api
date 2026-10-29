@@ -138,3 +138,16 @@ func ja3Hash(version string, ciphers, extensions, curves, formats []string) stri
 	sum := md5.Sum([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
+
+func TestFingerprintProfileCarriesServerName(t *testing.T) {
+	profile := FingerprintProfile()
+	if len(profile.Extensions) < 2 || profile.Extensions[0] != 65281 || profile.Extensions[1] != 0 {
+		t.Fatalf("extensions = %v, want server_name second", profile.Extensions)
+	}
+	if len(profile.SignatureAlgorithms) != 26 || profile.SignatureAlgorithms[0] != 2309 {
+		t.Fatalf("signature algorithms = %v, want the captured 26 starting at 2309", profile.SignatureAlgorithms)
+	}
+	if len(profile.ALPNProtocols) != 1 || profile.ALPNProtocols[0] != "http/1.1" {
+		t.Fatalf("alpn = %v, want http/1.1 only", profile.ALPNProtocols)
+	}
+}
