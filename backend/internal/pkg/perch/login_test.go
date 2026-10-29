@@ -52,7 +52,7 @@ func TestParseCallback(t *testing.T) {
 	if err != nil || code != "abc-123" {
 		t.Fatalf("bare code parse: code=%q err=%v", code, err)
 	}
-	code, err = ParseCallback("http://127.0.0.1:45999/callback?error=access_denied&error_description=User%20denied")
+	_, err = ParseCallback("http://127.0.0.1:45999/callback?error=access_denied&error_description=User%20denied")
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) || apiErr.Code != "oauth_callback_error" {
 		t.Fatalf("error callback must surface oauth_callback_error, got %v", err)
