@@ -23,9 +23,14 @@ const (
 	ProviderGoogle = "google"
 	ProviderGitHub = "github"
 
-	authorizePath  = "/auth/v1/authorize"
-	tokenPath      = "/auth/v1/token"
-	loginStoreName = "oauth:session:perch"
+	authorizePath     = "/auth/v1/authorize"
+	tokenPath         = "/auth/v1/token"
+	supabaseTokenPath = "/auth/v1/token"
+	loginStoreName    = "oauth:session:perch"
+
+	supabaseClientInfo = "FIXTURE_CLIENT_INFO_24CH"
+	supabaseAPIVersion = "2024-01-01"
+	supabaseUserAgent  = "node"
 
 	LoginSessionTTL          = 10 * time.Minute
 	DefaultLoginRedirectHost = "127.0.0.1"
@@ -139,7 +144,11 @@ type LoginClient struct {
 }
 
 func NewLoginClient(opts ...SessionOption) *LoginClient {
-	session := &Session{http: &http.Client{Timeout: defaultHTTPTimeout}, now: time.Now}
+	dialer := FingerprintDialer(nil)
+	session := &Session{
+		http: NewWireDoer(dialer.DialTLSContext, controlPlaneTimeout, responseHeaderTimeout),
+		now:  time.Now,
+	}
 	for _, opt := range opts {
 		opt(session)
 	}
@@ -221,9 +230,16 @@ func NewExchangeRequest(ctx context.Context, flow LoginFlow, code string) (*http
 	if err != nil {
 		return nil, fmt.Errorf("perch: build pkce exchange: %w", err)
 	}
-	req.Header.Set("content-type", "application/json")
+	req.Header.Set("Content-Type", "application/json;charset=UTF-8")
+	req.Header.Set("Authorization", "Bearer "+flow.SupabaseAnonKey)
 	req.Header.Set("apikey", flow.SupabaseAnonKey)
-	req.Header.Set("authorization", "Bearer "+flow.SupabaseAnonKey)
+	req.Header.Set("X-Client-Info", supabaseClientInfo)
+	req.Header.Set("X-Supabase-Api-Version", supabaseAPIVersion)
+	req.Header.Set("accept", "*/*")
+	req.Header.Set("accept-language", "*")
+	req.Header.Set("sec-fetch-mode", "cors")
+	req.Header.Set("user-agent", supabaseUserAgent)
+	req.Header.Set("accept-encoding", "br, gzip, deflate")
 	return req, nil
 }
 
@@ -262,11 +278,14 @@ func (c *LoginClient) Exchange(ctx context.Context, flow LoginFlow, code string)
 		ErrorDescription string `json:"error_description"`
 	}
 	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return Credentials{}, &APIError{Status: resp.StatusCode, Code: StatusToCode(resp.StatusCode), Message: truncateBody(payload)}
+		return Credentials{}, &APIError{Status: resp.StatusCode, Code: StatusToCode(resp.StatusCode), Message: "unexpected token response"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 || parsed.AccessToken == "" {
 		code := firstNonEmpty(parsed.ErrorCode, parsed.Error, StatusToCode(resp.StatusCode))
-		message := firstNonEmpty(parsed.ErrorDescription, parsed.Msg, parsed.Error, truncateBody(payload))
+		message := firstNonEmpty(parsed.ErrorDescription, parsed.Msg, parsed.Error)
+		if message == "" {
+			message = "unexpected token response"
+		}
 		return Credentials{}, &APIError{Status: resp.StatusCode, Code: code, Message: message}
 	}
 	creds := Credentials{
@@ -284,14 +303,15 @@ func (c *LoginClient) Exchange(ctx context.Context, flow LoginFlow, code string)
 }
 
 type LoginStore struct {
-	mu     sync.Mutex
-	items  map[string]LoginSession
-	remote *redissession.Store
-	now    func() time.Time
+	mu        sync.Mutex
+	items     map[string]LoginSession
+	localOnly map[string]struct{}
+	remote    *redissession.Store
+	now       func() time.Time
 }
 
 func NewLoginStore() *LoginStore {
-	return &LoginStore{items: make(map[string]LoginSession), now: time.Now}
+	return &LoginStore{items: make(map[string]LoginSession), localOnly: make(map[string]struct{}), now: time.Now}
 }
 
 func NewRedisLoginStore(rdb *redis.Client) *LoginStore {
@@ -310,12 +330,22 @@ func (s *LoginStore) Put(ctx context.Context, id string, session LoginSession) e
 	if session.CreatedAt.IsZero() {
 		session.CreatedAt = s.now()
 	}
+	remoteOK := false
 	if s.remote != nil {
-		_ = s.remote.Set(ctx, id, session)
+		remoteOK = s.remote.Set(ctx, id, session) == nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	for key, existing := range s.items {
+		if s.now().Sub(existing.CreatedAt) > LoginSessionTTL {
+			delete(s.items, key)
+			delete(s.localOnly, key)
+		}
+	}
 	s.items[id] = session
+	if s.remote != nil && !remoteOK {
+		s.localOnly[id] = struct{}{}
+	}
 	return nil
 }
 
@@ -324,14 +354,14 @@ func (s *LoginStore) Take(ctx context.Context, id string, adminID int64) (LoginS
 	if id == "" {
 		return LoginSession{}, ErrLoginSessionNotFound
 	}
+	if s.remote != nil && !s.isLocalOnly(id) {
+		return s.takeRemote(ctx, id, adminID)
+	}
 	session, found, err := s.takeLocal(id, adminID)
 	if err != nil {
 		return LoginSession{}, err
 	}
 	if found {
-		if s.remote != nil {
-			_ = s.remote.Delete(ctx, id)
-		}
 		return session, nil
 	}
 	if s.remote == nil {
@@ -356,6 +386,40 @@ func (s *LoginStore) Take(ctx context.Context, id string, adminID int64) (LoginS
 		return LoginSession{}, ErrLoginSessionNotFound
 	}
 	_ = s.remote.Delete(ctx, id)
+	return remote, nil
+}
+
+func (s *LoginStore) isLocalOnly(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.localOnly[id]
+	return ok
+}
+
+func (s *LoginStore) takeRemote(ctx context.Context, id string, adminID int64) (LoginSession, error) {
+	var remote LoginSession
+	exists, err := s.remote.Get(ctx, id, &remote)
+	if err != nil {
+		return LoginSession{}, fmt.Errorf("perch: read login session: %w", err)
+	}
+	if !exists {
+		return LoginSession{}, ErrLoginSessionNotFound
+	}
+	if remote.AdminID != adminID {
+		return LoginSession{}, ErrLoginSessionAdmin
+	}
+	consumed, err := s.remote.TryConsume(ctx, id)
+	if err != nil {
+		return LoginSession{}, fmt.Errorf("perch: consume login session: %w", err)
+	}
+	if !consumed {
+		return LoginSession{}, ErrLoginSessionNotFound
+	}
+	_ = s.remote.Delete(ctx, id)
+	s.mu.Lock()
+	delete(s.items, id)
+	delete(s.localOnly, id)
+	s.mu.Unlock()
 	return remote, nil
 }
 

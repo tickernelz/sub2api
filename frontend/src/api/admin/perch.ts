@@ -2,8 +2,6 @@ import { apiClient } from '../client'
 
 export interface PerchAuthUrlRequest {
   provider?: 'google' | 'github'
-  app_url?: string
-  redirect_uri?: string
 }
 
 export interface PerchAuthUrlResponse {

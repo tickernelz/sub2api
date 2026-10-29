@@ -46,10 +46,8 @@ func (s *PerchOAuthService) WithLoginStore(store *perch.LoginStore) *PerchOAuthS
 }
 
 type PerchAuthURLInput struct {
-	AdminID     int64
-	Provider    string
-	AppURL      string
-	RedirectURI string
+	AdminID  int64
+	Provider string
 }
 
 type PerchAuthURLResult struct {
@@ -79,11 +77,7 @@ type PerchExchangeResult struct {
 }
 
 func (s *PerchOAuthService) GenerateAuthURL(ctx context.Context, input PerchAuthURLInput) (*PerchAuthURLResult, error) {
-	appURL := perch.NormalizeAppURL(input.AppURL)
-	if appURL == "" {
-		appURL = s.appURL
-	}
-	flow, providers, err := s.login.Begin(ctx, appURL, input.Provider, input.RedirectURI)
+	flow, providers, err := s.login.Begin(ctx, s.appURL, input.Provider, "")
 	if err != nil {
 		return nil, perchOAuthError(err, "PERCH_OAUTH_START_FAILED")
 	}
@@ -145,16 +139,37 @@ func perchOAuthError(err error, fallbackReason string) error {
 	var apiErr *perch.APIError
 	if errors.As(err, &apiErr) {
 		status := apiErr.Status
+		if status == http.StatusUnauthorized || status == http.StatusForbidden || status >= 500 {
+			status = http.StatusBadGateway
+		}
 		if status < 400 || status > 599 {
 			status = http.StatusBadGateway
 		}
-		reason := strings.ToUpper(strings.TrimSpace(apiErr.Code))
+		reason := normalizePerchReason(apiErr.Code)
 		if reason == "" {
 			reason = fallbackReason
 		}
 		return infraerrors.New(status, "PERCH_OAUTH_"+reason, apiErr.Message)
 	}
 	return infraerrors.Newf(http.StatusBadGateway, fallbackReason, "%v", err)
+}
+
+func normalizePerchReason(code string) string {
+	upper := strings.ToUpper(strings.TrimSpace(code))
+	var out strings.Builder
+	lastUnderscore := false
+	for _, r := range upper {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			out.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if out.Len() > 0 && !lastUnderscore {
+			out.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	return strings.Trim(out.String(), "_")
 }
 
 func newPerchLoginSessionID() (string, error) {

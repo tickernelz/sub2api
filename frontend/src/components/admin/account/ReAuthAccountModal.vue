@@ -120,6 +120,20 @@
         </div>
       </div>
 
+      <div v-if="isPerch" class="space-y-2" data-testid="perch-provider">
+        <label class="input-label">{{ t('admin.accounts.oauth.perch.loginProvider') }}</label>
+        <div class="flex gap-4">
+          <label class="flex cursor-pointer items-center">
+            <input v-model="perchProvider" type="radio" value="google" class="mr-2 text-primary-600" />
+            <span class="text-sm text-gray-700 dark:text-gray-300">Google</span>
+          </label>
+          <label class="flex cursor-pointer items-center">
+            <input v-model="perchProvider" type="radio" value="github" class="mr-2 text-primary-600" />
+            <span class="text-sm text-gray-700 dark:text-gray-300">GitHub</span>
+          </label>
+        </div>
+      </div>
+
       <OAuthAuthorizationFlow
         ref="oauthFlowRef"
         :add-method="addMethod"
@@ -269,6 +283,7 @@ const isAnthropic = computed(() => props.account?.platform === 'anthropic')
 const isAntigravity = computed(() => props.account?.platform === 'antigravity')
 const isGrok = computed(() => props.account?.platform === 'grok')
 const isPerch = computed(() => props.account?.platform === 'perch')
+const perchProvider = ref<'google' | 'github'>('google')
 
 /**
  * Grok reauth default tab (password auth is hidden):
@@ -402,7 +417,7 @@ const handleGenerateUrl = async () => {
   } else if (isGrok.value) {
     await grokOAuth.generateAuthUrl(props.account.proxy_id)
   } else if (isPerch.value) {
-    await perchOAuth.generateAuthUrl('google')
+    await perchOAuth.generateAuthUrl(perchProvider.value)
   } else {
     await claudeOAuth.generateAuthUrl(addMethod.value, props.account.proxy_id)
   }
@@ -522,11 +537,11 @@ const handleExchangeCode = async () => {
     if (!tokenInfo) return
     const credentials = perchOAuth.buildCredentials(tokenInfo)
     try {
-      const updatedAccount = await adminAPI.accounts.update(props.account.id, {
+      await adminAPI.accounts.update(props.account.id, {
         type: 'apikey',
         credentials
       })
-      await adminAPI.accounts.clearError(props.account.id)
+      const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
       appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
       emit('reauthorized', updatedAccount)
       handleClose()

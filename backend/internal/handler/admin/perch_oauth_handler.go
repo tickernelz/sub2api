@@ -16,9 +16,7 @@ func NewPerchOAuthHandler(perchOAuthService *service.PerchOAuthService) *PerchOA
 }
 
 type PerchGenerateAuthURLRequest struct {
-	Provider    string `json:"provider"`
-	AppURL      string `json:"app_url"`
-	RedirectURI string `json:"redirect_uri"`
+	Provider string `json:"provider"`
 }
 
 func (h *PerchOAuthHandler) GenerateAuthURL(c *gin.Context) {
@@ -32,10 +30,8 @@ func (h *PerchOAuthHandler) GenerateAuthURL(c *gin.Context) {
 		return
 	}
 	result, err := h.perchOAuthService.GenerateAuthURL(c.Request.Context(), service.PerchAuthURLInput{
-		AdminID:     subject.UserID,
-		Provider:    req.Provider,
-		AppURL:      req.AppURL,
-		RedirectURI: req.RedirectURI,
+		AdminID:  subject.UserID,
+		Provider: req.Provider,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)

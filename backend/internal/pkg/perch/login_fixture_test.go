@@ -13,13 +13,18 @@ import (
 	"time"
 )
 
-func loginFixture(t *testing.T, name string) string {
+func loginFixtureRaw(t *testing.T, name string) string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("testdata", "login", name))
 	if err != nil {
 		t.Fatalf("read fixture %s: %v", name, err)
 	}
-	return strings.TrimRight(string(raw), "\n")
+	return string(raw)
+}
+
+func loginFixture(t *testing.T, name string) string {
+	t.Helper()
+	return strings.TrimRight(loginFixtureRaw(t, name), "\r\n")
 }
 
 func TestAuthorizeURLMatchesCLIFixture(t *testing.T) {
@@ -59,17 +64,13 @@ func TestExchangeRequestMatchesCLIFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read body: %v", err)
 	}
-	got := strings.Join([]string{
-		req.Method + " " + req.URL.Path + "?" + req.URL.RawQuery,
-		"content-type: " + req.Header.Get("content-type"),
-		"apikey: " + req.Header.Get("apikey"),
-		"authorization: " + req.Header.Get("authorization"),
-		"",
-		string(body),
-	}, "\n")
-	want := loginFixture(t, "exchange-pkce.txt")
-	if got != want {
-		t.Fatalf("exchange request byte mismatch\n got %q\nwant %q", got, want)
+	wire, err := buildWireRequest(req, body)
+	if err != nil {
+		t.Fatalf("build wire request: %v", err)
+	}
+	want := []byte(loginFixtureRaw(t, "exchange-pkce.txt"))
+	if string(wire) != string(want) {
+		t.Fatalf("exchange wire bytes mismatch\n got %q\nwant %q", string(wire), string(want))
 	}
 	if req.Method != http.MethodPost {
 		t.Fatalf("method: %s", req.Method)

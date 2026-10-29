@@ -22,3 +22,4 @@ backend/migrations/*.sql text eol=lf
 Dockerfile text eol=lf
 
 backend/internal/pkg/perch/testdata/wire/*.http -text
+backend/internal/pkg/perch/testdata/login/*.txt -text

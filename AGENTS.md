@@ -314,7 +314,7 @@ Replay anchors:
 
 - `backend/internal/pkg/perch/` — handler, client, `wire.go`, `fingerprint.go`, login (`login.go`), chat translation, `surfacePromptText`, `testdata/wire/*.http`
 - `backend/internal/service/perch_oauth_service.go`, `backend/internal/handler/admin/perch_oauth_handler.go`
-- `frontend/src/components/account/PerchLoginPanel.vue`, `frontend/src/api/admin/perch.ts`, `frontend/src/utils/perchSession.ts`
+- `frontend/src/composables/usePerchOAuth.ts`, `frontend/src/api/admin/perch.ts`, `frontend/src/components/admin/account/ReAuthAccountModal.vue`
 - `backend/internal/service/openai_gateway_perch.go`
 - `backend/internal/service/openai_gateway_chat_completions.go` — the `PlatformPerch` branch
 - `backend/internal/service/openai_gateway_forward.go` — the Responses guard

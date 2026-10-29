@@ -8,7 +8,7 @@ Perch has no API keys: the official CLI, Desktop app and web app all authenticat
 2. Choose the sign-in provider the Perch account uses (Google or GitHub) and press **Next**.
 3. Press **Generate Login URL**. The admin API asks Perch for its auth config, builds the same authorization URL the official CLI builds and returns it; the flow panel shows it.
 4. Open the URL and sign in. The browser lands on `http://127.0.0.1:45999/callback?code=…`. That page shows a connection error on purpose: nothing listens on that port outside the CLI. The authorization code is in the address bar.
-5. Copy the whole address, paste it into **Authorization Code**, press **Complete Authorization**. The server exchanges the code with PKCE, creates the account and shows it in the account list.
+5. Copy the whole address, paste it into **Callback URL**, press **Complete Authorization**. The server exchanges the code with PKCE, creates the account and shows it in the account list.
 
 The credential map stored on the account is `access_token`, `refresh_token`, `app_url`, `expires_at`; the adapter rewrites `refresh_token`/`expires_at` whenever Perch rotates the session. No file from the Perch CLI, and no token typed by hand, is part of this flow: the form carries no token, session-JSON or app-URL field. `app_url` is a server setting (`PERCH_APP_URL`, default `https://app.perchai.app`).
 
@@ -16,7 +16,7 @@ Groups work exactly like the other OAuth platforms: the account joins whatever g
 
 ### Editing an account
 
-Edit on a Perch row shows the session panel in place of the API-key panel. The access token and refresh token inputs start empty and mean "keep the stored value": the backend preserves sensitive credential keys the payload does not carry (`MergePreservingSensitiveCreds`), so name, group, concurrency, priority and status save without a token. Paste both tokens from one fresh CLI login to replace the session; `expires_at` is re-derived from the new JWT. The app URL field carries the stored value.
+Edit on a Perch row carries no token or app-URL field: the session stays exactly as stored (the backend preserves sensitive credential keys the payload does not carry), so name, group, concurrency, priority and status save without touching credentials. To replace a session, use **Re-authorize** in the account action menu, which runs the same login steps and writes the new credentials onto that account instead of creating a second one.
 
 Editing never writes `api_key`, `base_url`, `upstream_billing_probe_enabled` or `upstream_billing_rate_sync_enabled` for a Perch account, because the adapter reads none of them and a probe without an api key would reschedule forever.
 
@@ -66,19 +66,27 @@ Sessions come from the login endpoints below, not from a file on disk. Keep any 
 
 ## Login endpoints
 
-`POST /api/v1/admin/perch/auth-url` (admin) — body `{provider?, app_url?, redirect_uri?}`, response `{auth_url, session_id, provider, providers, app_url, redirect_uri, expires_in}`. The provider must be one Perch advertises in `cli-auth/config` (`google`, `github`); the default is the first advertised one. `code_verifier` stays server-side, in a session store with a 10-minute TTL that is single-use and bound to the admin who started it (Redis through `redissession` when the deployment has it, process memory otherwise).
+`POST /api/v1/admin/perch/auth-url` (admin) — body `{provider?}`, response `{auth_url, session_id, provider, providers, app_url, redirect_uri, expires_in}`. The provider must be one Perch advertises in `cli-auth/config` (`google`, `github`); the default is the first advertised one. App URL and redirect target come from the server (`PERCH_APP_URL` and the loopback redirect), never from the request. `code_verifier` stays server-side, in a session store with a 10-minute TTL that is single-use and bound to the admin who started it; with Redis configured (`redissession`) the consume is authoritative in Redis, and the process map is only a fallback for sessions whose Redis write failed.
 
 `POST /api/v1/admin/perch/exchange-code` (admin) — body `{session_id, callback_url | code}`, response `{access_token, refresh_token, app_url, expires_at, user_id, email}`. The callback URL or a bare code is accepted; `error`/`error_description` in the callback is reported as `oauth_callback_error` before any network call. The verifier is consumed before the exchange, so a second attempt with the same `session_id` answers `PERCH_OAUTH_SESSION_NOT_FOUND`.
 
-Wire shape, pinned by `login_test.go`:
+Wire shape, pinned byte for byte by `login_fixture_test.go` against `testdata/login/*`:
 
 ```
 GET {supabaseUrl}/auth/v1/authorize?provider=<google|github>&redirect_to=<encoded>&code_challenge=<S256>&code_challenge_method=s256[&prompt=select_account]
 POST {supabaseUrl}/auth/v1/token?grant_type=pkce   {"auth_code":"…","code_verifier":"…"}
-    headers: content-type: application/json, apikey: <publishable key>, authorization: Bearer <publishable key>
+    host, connection: keep-alive
+    Content-Type: application/json;charset=UTF-8
+    Authorization: Bearer <publishable key>
+    apikey: <publishable key>
+    X-Client-Info: <supabase-js client tag, 24 chars as captured>
+    X-Supabase-Api-Version: 2024-01-01
+    accept, accept-language, sec-fetch-mode, user-agent: node, accept-encoding, content-length
 ```
 
-`prompt=select_account` is sent for Google only, matching the CLI. The publishable key is fetched per login from `cli-auth/config`, never hardcoded.
+The header set and its order come from the CLI capture (`~/re/perchai/captures/raw/flows.jsonl`, flow 2); `wire.go` emits that order through `supabaseTokenWireHeaders`, and the login client dials Supabase through `NewWireDoer(FingerprintDialer(nil))` exactly like the gateway and refresh paths, so the TLS hello and header order match the CLI instead of Go's defaults. The captured `X-Client-Info` value is redacted, so the constant matches the recorded 24-character length and is documented here rather than guessed silently.
+
+`prompt=select_account` is sent for Google only, matching the CLI. The publishable key is fetched per login from `cli-auth/config`, never hardcoded. Upstream 401/403/5xx are reported to the admin API as 502 with a `PERCH_OAUTH_*` reason, so the panel's own 401 handling never treats an upstream refusal as an expired admin session.
 
 ## Flow
 
@@ -230,7 +238,7 @@ The login endpoints are covered by fixtures and a local Supabase mock, not by a 
 | Check | Where it is proven |
 | --- | --- |
 | authorize URL shape (parameters, order, `prompt=select_account` only for Google) | `login_fixture_test.go` compares against `testdata/login/authorize-{google,github}.txt` byte for byte |
-| PKCE exchange request (method, path, `grant_type`, headers, body) | `testdata/login/exchange-pkce.txt`, byte for byte |
+| PKCE exchange request (method, path, `grant_type`, header names/order/values, body) | `testdata/login/exchange-pkce.txt` compared against `buildWireRequest` output, byte for byte |
 | used code, expired code | local mock answers `invalid flow state` / `invalid_grant`; the service maps them and no token reaches the message |
 | single use, admin binding, TTL | store and service tests, plus a mutation control on the delete |
 
@@ -240,7 +248,7 @@ Not measured live: a real browser login through Perch and one gateway request wi
 
 ```bash
 cd backend && go test -tags unit ./internal/pkg/perch/   # fixtures captured from the real proxy
-cd backend && PERCH_SESSION_FILE=/path/to/session.json go test -tags 'unit perchlive' -run TestLivePerchGatewayModelCall -v ./internal/pkg/perch/   # one live turn through the production wiring
+cd backend && PERCH_SESSION_JSON="$(cat /path/to/session.json)" go test -tags 'unit perchlive' -run TestLivePerchGatewayModelCall -v ./internal/pkg/perch/   # one live turn through the production wiring
 ```
 
 Fixtures under `internal/pkg/perch/testdata` keep the captured wire shapes with synthetic content; no session token, ticket or vendor prompt text is stored.

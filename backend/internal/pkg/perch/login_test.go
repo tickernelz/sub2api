@@ -142,7 +142,7 @@ func TestLoginExchangeSendsCLIShape(t *testing.T) {
 	if want := `{"auth_code":"CODE-1","code_verifier":"VER"}`; rawBody != want {
 		t.Fatalf("exchange body\n got %s\nwant %s", rawBody, want)
 	}
-	if apikey != "anon-key" || authorization != "Bearer anon-key" || contentType != "application/json" {
+	if apikey != "anon-key" || authorization != "Bearer anon-key" || contentType != "application/json;charset=UTF-8" {
 		t.Fatalf("exchange headers apikey=%q authorization=%q content-type=%q", apikey, authorization, contentType)
 	}
 	if creds.AccessToken != "AT" || creds.RefreshToken != "RT" || creds.Email != "ops@example.com" || creds.ExpiresAt != 1793266236 {
