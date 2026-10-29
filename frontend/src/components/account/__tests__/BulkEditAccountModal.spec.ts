@@ -784,6 +784,24 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
+  it('Perch API Key 目标不显示上游倍率自动探测批量开关', () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['perch'],
+      selectedTypes: ['apikey']
+    })
+
+    expect(wrapper.find('#bulk-edit-upstream-billing-auto-probe-enabled').exists()).toBe(false)
+  })
+
+  it('含 Perch 的混合 API Key 选择同样隐藏上游倍率自动探测批量开关', () => {
+    const wrapper = mountModal({
+      selectedPlatforms: ['openai', 'perch'],
+      selectedTypes: ['apikey']
+    })
+
+    expect(wrapper.find('#bulk-edit-upstream-billing-auto-probe-enabled').exists()).toBe(false)
+  })
+
   it('非 OpenAI API Key 目标不显示上游倍率自动探测批量开关', () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],

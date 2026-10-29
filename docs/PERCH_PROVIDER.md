@@ -19,6 +19,8 @@ Editing never writes `api_key`, `base_url`, `upstream_billing_probe_enabled` or 
 
 The account answers `/v1/chat/completions` only. `/v1/responses` returns `unsupported_protocol` with HTTP 400, and the model name in a request is a Perch tier alias or catalogue id, not an OpenAI model name.
 
+Perch accounts are never upstream-billing-probe targets. They are stored as `type=apikey` but hold no `credentials.api_key`, so a probe can only record `missing_api_key` and reschedule forever; `IsUpstreamBillingProbeIdentity` rejects the platform, the admin rate cell and the bulk-edit probe toggle hide it, and `249_clear_perch_upstream_billing_probe_flags.sql` clears flags left on older rows.
+
 ### Troubleshooting
 
 | Symptom | Cause | Fix |

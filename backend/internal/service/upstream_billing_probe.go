@@ -1007,9 +1007,13 @@ func decodeUpstreamBillingProbeSnapshot(extra map[string]any) *UpstreamBillingPr
 // a base_url plus a static api_key, but it is deliberately left out of the
 // current supported set. New antigravity relay accounts are created with
 // type=apikey by the admin form, so only pre-existing type=upstream rows
-// cannot turn the probe on.
+// cannot turn the probe on. Perch is excluded for the same reason: its rows are
+// type=apikey but authenticate with a session token, so a probe could only
+// record missing_api_key and reschedule forever.
 func IsUpstreamBillingProbeIdentity(platform, accountType string) bool {
-	return accountType == AccountTypeAPIKey && domain.IsConcretePlatform(platform)
+	return accountType == AccountTypeAPIKey &&
+		domain.IsConcretePlatform(platform) &&
+		platform != domain.PlatformPerch
 }
 
 func isUpstreamBillingProbeAccount(account *Account) bool {
