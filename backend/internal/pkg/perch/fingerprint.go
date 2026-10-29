@@ -3,7 +3,6 @@ package perch
 import (
 	"context"
 	"net"
-	"net/http"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -51,39 +50,4 @@ func FingerprintDialer(base BaseDialer) *tlsfingerprint.Dialer {
 		base = dialer.DialContext
 	}
 	return tlsfingerprint.NewDialer(FingerprintProfile(), base)
-}
-
-func FingerprintTransport(base *http.Transport) *http.Transport {
-	transport := base
-	if transport == nil {
-		defaultTransport, ok := http.DefaultTransport.(*http.Transport)
-		if !ok {
-			return nil
-		}
-		transport = defaultTransport.Clone()
-	}
-	dialer := FingerprintDialer(transport.DialContext)
-	transport.DialTLSContext = dialer.DialTLSContext
-	transport.ForceAttemptHTTP2 = false
-	return transport
-}
-
-func FingerprintHTTPClient(base *http.Client) *http.Client {
-	client := &http.Client{}
-	if base != nil {
-		client.Jar = base.Jar
-		client.Timeout = base.Timeout
-		client.CheckRedirect = base.CheckRedirect
-	}
-	client.Transport = FingerprintTransport(transportOf(base))
-	return client
-}
-
-func transportOf(base *http.Client) *http.Transport {
-	if base != nil {
-		if transport, ok := base.Transport.(*http.Transport); ok {
-			return transport.Clone()
-		}
-	}
-	return nil
 }

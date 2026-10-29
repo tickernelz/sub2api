@@ -2,7 +2,6 @@ package perch
 
 import (
 	"context"
-	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -18,19 +17,19 @@ func TestHandlerFingerprintKeepsControlPlaneDeadline(t *testing.T) {
 	}
 	defer release()
 
-	control, ok := client.http.(*http.Client)
+	control, ok := client.http.(*WireDoer)
 	if !ok {
 		t.Fatalf("control client = %T", client.http)
 	}
-	if control.Timeout != controlPlaneTimeout {
-		t.Fatalf("control timeout = %v, want %v", control.Timeout, controlPlaneTimeout)
+	if control.ControlTimeout() != controlPlaneTimeout {
+		t.Fatalf("control timeout = %v, want %v", control.ControlTimeout(), controlPlaneTimeout)
 	}
-	stream, ok := client.streamHTTP.(*http.Client)
+	stream, ok := client.streamHTTP.(*WireDoer)
 	if !ok {
 		t.Fatalf("stream client = %T", client.streamHTTP)
 	}
-	if stream.Timeout != 0 {
-		t.Fatalf("stream timeout = %v, want 0", stream.Timeout)
+	if stream.ControlTimeout() != 0 {
+		t.Fatalf("stream timeout = %v, want 0", stream.ControlTimeout())
 	}
 }
 

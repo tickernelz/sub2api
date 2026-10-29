@@ -51,11 +51,24 @@ A stream that closes without a `done` event is reported as `stream_interrupted` 
 
 ## Transport fingerprint
 
-`fingerprint.go` reproduces the TLS ClientHello of the official CLI 2.4.120, measured offline against a local capture listener: JA3 `fe1a22af39881f8613c4834b2a568a00` (`fingerprint.go` keeps the full parameter string in `PerchJA3Raw`), 52 cipher suites in the recorded order, extensions `65281,11,10,35,16,22,23,13,43,45,51`, curves `4588,29,23,30,24,25,256,257`, point formats `0,1,2`, and ALPN `http/1.1` — the CLI does not speak HTTP/2, so `FingerprintTransport` leaves `ForceAttemptHTTP2` off.
+`fingerprint.go` reproduces the TLS ClientHello of the official CLI 2.4.120, measured offline against a local capture listener: JA3 `fe1a22af39881f8613c4834b2a568a00` (`fingerprint.go` keeps the full parameter string in `PerchJA3Raw`), 52 cipher suites in the recorded order, extensions `65281,11,10,35,16,22,23,13,43,45,51`, curves `4588,29,23,30,24,25,256,257`, point formats `0,1,2`, and ALPN `http/1.1` — the CLI does not speak HTTP/2, so the fingerprint transport leaves HTTP/2 off.
 
 `TestFingerprintProfileMatchesRecordedJA3` listens on a loopback socket, dials with the profile, parses the produced ClientHello and asserts both the JA3 hash and the raw parameter string. `WithFingerprintTransport(false)` switches the profile off for a plain transport.
 
-Still open for full parity: HTTP/1.1 header order and the request body key order, plus the per-turn request sequence (`public-model-default`, `account`, `cli-context`, `turn-ticket`, `model-call`).
+Still open for full parity: the per-turn request sequence. The CLI also emits `public-model-default`, `account` and three `cli-context` calls around each turn; the adapter fetches `account` and the ticket but does not replicate `public-model-default` or `cli-context`, because `cli-context` reports the CLI's own context-assembly statistics and sending fabricated telemetry would be worse than omitting it.
+
+## Wire layer
+
+`net/http` always sorts request headers, so the adapter cannot reproduce the CLI's wire order through `http.Client`. `wire.go` therefore writes HTTP/1.1 itself over the fingerprinted TLS connection and parses the response with `http.ReadResponse`.
+
+Header order is the one the CLI's own client (undici, as shipped in `perchai-cli`'s dependency tree) puts on the wire: request line, `host`, `connection: keep-alive`, the headers the CLI sets in its own insertion order (`Content-Type`, `x-perch-call-delta`, `Accept`, `Authorization`, `User-Agent`, `x-perch-locale`, `x-perch-turn-ticket` for model calls; `Content-Type`, `Authorization`, `User-Agent`, `x-perch-locale` for JSON control calls), then the defaults undici appends (`accept: */*` when absent, `accept-language: *`, `sec-fetch-mode: cors`, `accept-encoding: br, gzip, deflate`), and finally `content-length`.
+
+Kept from `net/http`: response parsing, chunked decoding, connection reuse. A connection returns to the pool only when the body was read to EOF, the response allows reuse and no buffered bytes remain; an SSE stream closed early drops its connection. Idle pooled connections are probed with a 2ms read before reuse, so a connection the server already closed is replaced instead of failing a request. Two doers cover the two deadlines: control calls get a 60s whole-exchange timeout, model calls get a response-header timeout and no total timeout (an idle reader still trips the 60s stream guard).
+
+Evidence, all offline against a local capture listener with zero traffic to Perch:
+
+- `testdata/wire/model-call.http` and `testdata/wire/turn-ticket.http` are the bytes the CLI's undici stack produced for the same requests; `TestWireDoerMatchesRecordedModelCallBytes` and `TestWireDoerMatchesRecordedTurnTicketBytes` compare them byte for byte.
+- End to end through the fingerprint dialer, the two requests the Go adapter sent were byte-identical to those recordings, and the recorded ClientHello carried JA3 `fe1a22af39881f8613c4834b2a568a00` with ALPN `http/1.1`.
 
 ## Client identity
 
@@ -70,7 +83,7 @@ Perch only serves hosted models to its own surfaces, so the adapter presents the
 | `Accept-Encoding` | `br, gzip, deflate` on model calls, decoded by `encoding.go` |
 | turn context | a `<perch_turn_context>` user message with today's date, inserted after any system messages |
 
-`identity.go` resolves the version once per process, so the header cannot change between requests. All outbound Perch calls go through one header applier; the turn ticket request deliberately omits delta mode.
+`identity.go` resolves the version once per process, so the header cannot change between requests. All outbound Perch calls go through one header applier; the turn ticket request deliberately omits delta mode. `wire.go` decides where each header lands on the wire, so no call site can reorder them.
 
 ## Turn context
 

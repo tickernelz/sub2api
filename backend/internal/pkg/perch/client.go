@@ -381,7 +381,6 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 		httpReq.Header.Set("accept", "text/event-stream")
 		httpReq.Header.Set("authorization", "Bearer "+token)
 		applyIdentityHeaders(httpReq, true)
-		httpReq.Header.Set("accept-encoding", "br, gzip, deflate")
 		httpReq.Header.Set("x-perch-turn-ticket", ticket.Ticket)
 
 		resp, err := c.streamHTTP.Do(httpReq)

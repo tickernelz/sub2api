@@ -305,10 +305,9 @@ func (h *Handler) client(ctx context.Context) (*Client, func(), error) {
 	case doer != nil:
 		streamHTTP = streamingClient(doer)
 	case h.fingerprint:
-		fingerprinted := FingerprintHTTPClient(nil)
-		fingerprinted.Timeout = controlPlaneTimeout
-		controlHTTP = fingerprinted
-		streamHTTP = streamingClient(fingerprinted)
+		dialer := FingerprintDialer(nil)
+		controlHTTP = NewWireDoer(dialer.DialTLSContext, controlPlaneTimeout, responseHeaderTimeout)
+		streamHTTP = NewWireDoer(dialer.DialTLSContext, 0, responseHeaderTimeout)
 	}
 	if controlHTTP != nil {
 		opts = append(opts, WithHTTPClient(controlHTTP))

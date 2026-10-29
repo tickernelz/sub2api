@@ -138,13 +138,3 @@ func ja3Hash(version string, ciphers, extensions, curves, formats []string) stri
 	sum := md5.Sum([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
-
-func TestFingerprintTransportSetsDialer(t *testing.T) {
-	transport := FingerprintTransport(nil)
-	if transport.DialTLSContext == nil {
-		t.Fatalf("fingerprint transport must own the TLS dialer")
-	}
-	if transport.ForceAttemptHTTP2 {
-		t.Fatalf("perch traffic is HTTP/1.1, so HTTP/2 must stay off")
-	}
-}

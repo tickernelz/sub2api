@@ -16,8 +16,6 @@ func TestDefaultHeadersCarryCLIClientIdentity(t *testing.T) {
 		"user-agent":         "perchai-cli/" + CLIVersion(),
 		"x-perch-locale":     "en",
 		"x-perch-call-delta": "1",
-		"accept-language":    "*",
-		"sec-fetch-mode":     "cors",
 	}
 	for key, value := range want {
 		if headers[key] != value {
@@ -56,9 +54,6 @@ func TestModelCallSendsCLIIdentityAndKeepsTicketRequestClean(t *testing.T) {
 		"user-agent":         "perchai-cli/" + CLIVersion(),
 		"x-perch-locale":     "en",
 		"x-perch-call-delta": "1",
-		"accept-language":    "*",
-		"sec-fetch-mode":     "cors",
-		"accept-encoding":    "br, gzip, deflate",
 	} {
 		if got := headers.Get(key); got != value {
 			t.Fatalf("model call header %s = %q, want %q", key, got, value)

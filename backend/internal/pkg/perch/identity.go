@@ -49,8 +49,6 @@ func DefaultHeaders() map[string]string {
 		"user-agent":         DefaultUserAgent(),
 		"x-perch-locale":     "en",
 		"x-perch-call-delta": "1",
-		"accept-language":    "*",
-		"sec-fetch-mode":     "cors",
 	}
 }
 
