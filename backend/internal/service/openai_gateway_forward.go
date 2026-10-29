@@ -22,8 +22,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if account.Platform == PlatformPerch {
-		writeResponsesError(c, http.StatusBadRequest, "unsupported_protocol", "perch accounts serve /v1/chat/completions only")
-		return nil, fmt.Errorf("perch accounts do not implement the responses api")
+		return perchUnsupported(c, "/v1/responses")
 	}
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")

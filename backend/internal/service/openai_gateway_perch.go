@@ -55,6 +55,22 @@ func (s perchAccountCredentialStore) StorePerchCredentials(ctx context.Context, 
 	return persistAccountCredentials(ctx, s.service.accountRepo, s.account, next)
 }
 
+func perchUnsupported(c *gin.Context, endpoint string) (*OpenAIForwardResult, error) {
+	if c != nil && c.Writer != nil && !c.Writer.Written() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+			"type":    "unsupported_protocol",
+			"code":    "unsupported_protocol",
+			"message": "perch accounts serve /v1/chat/completions only, not " + endpoint,
+		}})
+	}
+	return nil, fmt.Errorf("perch accounts do not implement %s", endpoint)
+}
+
+func perchUnsupportedError(c *gin.Context, endpoint string) error {
+	_, err := perchUnsupported(c, endpoint)
+	return err
+}
+
 func perchCredentialValue(account *Account, keys ...string) string {
 	if account == nil {
 		return ""
@@ -167,13 +183,12 @@ func perchUsage(u *perch.Usage) OpenAIUsage {
 	}
 }
 
-func (s *OpenAIGatewayService) writePerchError(c *gin.Context, err error) error {
+func perchFailoverError(err error) error {
 	status := http.StatusBadGateway
-	code := perchCredentialMissingCode
+	code := "upstream_error"
 	message := err.Error()
 	var apiErr *perch.APIError
 	if errors.As(err, &apiErr) {
-		status = http.StatusBadGateway
 		if apiErr.Status >= 400 && apiErr.Status <= 599 {
 			status = apiErr.Status
 		}
@@ -184,10 +199,11 @@ func (s *OpenAIGatewayService) writePerchError(c *gin.Context, err error) error 
 			message = apiErr.Message
 		}
 	}
-	if c != nil && c.Writer != nil && !c.Writer.Written() {
-		writeChatCompletionsError(c, status, code, message)
+	body, marshalErr := json.Marshal(map[string]any{"error": map[string]any{"type": code, "code": code, "message": message}})
+	if marshalErr != nil {
+		body = nil
 	}
-	return err
+	return &UpstreamFailoverError{StatusCode: status, ResponseBody: body}
 }
 
 func (s *OpenAIGatewayService) forwardPerchChatCompletions(
@@ -231,7 +247,7 @@ func (s *OpenAIGatewayService) forwardPerchChatCompletions(
 
 	stream, err := client.OpenModelCall(ctx, call)
 	if err != nil {
-		return nil, s.writePerchError(c, err)
+		return nil, perchFailoverError(err)
 	}
 	defer func() { _ = stream.Close() }()
 
@@ -248,7 +264,7 @@ func (s *OpenAIGatewayService) forwardPerchChatCompletions(
 
 	outcome, err := perch.CollectOutcome(stream)
 	if err != nil {
-		return nil, s.writePerchError(c, err)
+		return nil, perchFailoverError(err)
 	}
 	settledModel := model
 	if outcome.Model != "" {
@@ -273,17 +289,25 @@ func (s *OpenAIGatewayService) streamPerchChatCompletions(
 	includeUsage bool,
 ) (*OpenAIForwardResult, error) {
 	writer := c.Writer
-	header := writer.Header()
-	header.Set("content-type", "text/event-stream")
-	header.Set("cache-control", "no-cache")
-	header.Set("connection", "keep-alive")
-	writer.WriteHeader(http.StatusOK)
+	wroteOutput := false
+	startStream := func() {
+		if wroteOutput {
+			return
+		}
+		header := writer.Header()
+		header.Set("content-type", "text/event-stream")
+		header.Set("cache-control", "no-cache")
+		header.Set("connection", "keep-alive")
+		writer.WriteHeader(http.StatusOK)
+		wroteOutput = true
+	}
 
 	outcome, err := perch.StreamChat(stream, model, responseID, time.Now().Unix(), includeUsage, func(chunk apicompat.ChatCompletionsChunk) error {
 		payload, marshalErr := json.Marshal(chunk)
 		if marshalErr != nil {
 			return marshalErr
 		}
+		startStream()
 		if _, writeErr := fmt.Fprintf(writer, "data: %s\n\n", payload); writeErr != nil {
 			return writeErr
 		}
@@ -291,6 +315,9 @@ func (s *OpenAIGatewayService) streamPerchChatCompletions(
 		return nil
 	})
 	if err != nil {
+		if !wroteOutput {
+			return nil, perchFailoverError(err)
+		}
 		code := "upstream_error"
 		message := err.Error()
 		var apiErr *perch.APIError

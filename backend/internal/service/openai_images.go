@@ -609,6 +609,9 @@ func (s *OpenAIGatewayService) ForwardImages(
 	parsed *OpenAIImagesRequest,
 	channelMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	if account.Platform == PlatformPerch {
+		return perchUnsupported(c, "/v1/images")
+	}
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}
