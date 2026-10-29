@@ -278,6 +278,26 @@ describe('UpstreamBillingRateCell', () => {
     expect(wrapper.text()).toBe('-')
   })
 
+  it('renders no probe action or rate for a Perch account that still stores the flag', async () => {
+    const wrapper = mount(UpstreamBillingRateCell, {
+      props: {
+        account: makeAccount({
+          platform: 'perch',
+          extra: {
+            upstream_billing_probe_enabled: true,
+            upstream_billing_probe: { status: 'failed', last_error: 'missing_api_key' }
+          }
+        }),
+        now: Date.now()
+      }
+    })
+
+    expect(wrapper.findAll('button')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="upstream-billing-rate"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="upstream-billing-probe-state"]').exists()).toBe(false)
+    expect(wrapper.text()).toBe('-')
+  })
+
   it('fails neutral for malformed data and timestamps', async () => {
     const malformedAccount = (
       dataOverrides: Partial<typeof billingData> = {},

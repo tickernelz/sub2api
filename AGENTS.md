@@ -308,6 +308,7 @@ Required behavior:
 - Account-scoped Perch refusals (401, 429, 5xx, transport, 403 `perch_surface_required`) must become `*UpstreamFailoverError` with the upstream status, and SSE headers must stay unwritten until the first chunk, so they fail over instead of sticking to the same account. Request-scoped refusals (400 `context_overflow` or `invalid_request`, `plan_required`, `model_blocked`) are the opposite: write them to the client with their own status and never fail over, or every account burns a ticket and the client receives 502 instead of 400.
 - Usage must be asserted on the billed buckets (`openAIUsageBilledBuckets`: input minus cache read/write), not on Perch's summed `inputTokens`.
 - The wire fixtures stay CRLF (`.gitattributes` `-text`) because the tests compare raw bytes.
+- A perch account is never an upstream-billing-probe target. It is stored as `type=apikey` but holds no `credentials.api_key`, so a probe there can only record `missing_api_key` and reschedule forever. `IsUpstreamBillingProbeIdentity` excludes the platform for every caller (create, edit, bulk edit, CRS sync, scheduler), the admin rate cell and the bulk-edit probe toggle refuse it, and `249_clear_perch_upstream_billing_probe_flags.sql` clears flags left on rows created before the guard.
 
 Replay anchors:
 
@@ -318,6 +319,9 @@ Replay anchors:
 - `backend/internal/domain/constants.go`, `backend/internal/domain/platforms.go`
 - `backend/internal/service/domain_constants.go`
 - `docs/PERCH_PROVIDER.md`, the `.gitignore` allowlist row, and the `.gitattributes` CRLF rule
+- `backend/internal/service/upstream_billing_probe.go` — the `PlatformPerch` exclusion inside `IsUpstreamBillingProbeIdentity`
+- `backend/migrations/249_clear_perch_upstream_billing_probe_flags.sql` — one-shot cleanup of probe flags stored on perch rows
+- `frontend/src/utils/upstreamBillingProbe.ts` — the matching `isUpstreamBillingProbeCapable` guard used by the rate cell and bulk edit
 - `frontend/src/api/__tests__/settings.authSourceDefaults.spec.ts` — carries the `perch` entry in the platform quota map; a replay that starts from upstream drops the entry and the spec fails
 - `backend/go.mod` — `golang.org/x/sys` direct, already in the module graph
 
