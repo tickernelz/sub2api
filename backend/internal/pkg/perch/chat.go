@@ -86,6 +86,13 @@ func BuildModelCallRequest(req *apicompat.ChatCompletionsRequest, opts CallOptio
 	if call.AvoidModelIDs == nil {
 		call.AvoidModelIDs = []string{}
 	}
+	if call.Request.Tools == nil {
+		call.Request.Tools = []json.RawMessage{}
+	}
+	if len(call.Request.ToolChoice) == 0 {
+		call.Request.ToolChoice = json.RawMessage("null")
+	}
+	call.ResendAfterOutput = true
 	applyModelSelection(&call, strings.TrimSpace(opts.PreferredModelID), strings.TrimSpace(req.Model))
 	return call, nil
 }
@@ -127,7 +134,7 @@ func applyModelSelection(call *ModelCallRequest, preferred, requested string) {
 		return
 	}
 	if preferred != "" {
-		call.PreferredModelID = preferred
+		call.PreferredModelID = &preferred
 		return
 	}
 	if tier, ok := roostTierFor(requested); ok {

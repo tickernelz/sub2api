@@ -31,21 +31,22 @@ type ModelCallRequest struct {
 	RunID               string       `json:"runId"`
 	Lane                string       `json:"lane"`
 	StrictManual        bool         `json:"strictManual"`
-	PreferredModelID    string       `json:"preferredModelId,omitempty"`
+	PreferredModelID    *string      `json:"preferredModelId"`
+	AvoidModelIDs       []string     `json:"avoidModelIds"`
+	Attribution         *Attribution `json:"attribution"`
+	ClientSurface       string       `json:"clientSurface"`
+	ResendAfterOutput   bool         `json:"resendAfterOutput"`
 	RoostModelChoice    string       `json:"roostModelChoice,omitempty"`
 	ManualModelOptionID string       `json:"manualModelOptionId,omitempty"`
-	AvoidModelIDs       []string     `json:"avoidModelIds"`
-	Attribution         *Attribution `json:"attribution,omitempty"`
-	ClientSurface       string       `json:"clientSurface,omitempty"`
 }
 
 // ChatRequest carries the conversation the Perch router should answer.
 type ChatRequest struct {
 	Messages    []json.RawMessage `json:"messages"`
-	Tools       []json.RawMessage `json:"tools,omitempty"`
-	Temperature *float64          `json:"temperature,omitempty"`
-	MaxTokens   *int              `json:"maxTokens,omitempty"`
-	ToolChoice  json.RawMessage   `json:"toolChoice,omitempty"`
+	Tools       []json.RawMessage `json:"tools"`
+	Temperature *float64          `json:"temperature"`
+	MaxTokens   *int              `json:"maxTokens"`
+	ToolChoice  json.RawMessage   `json:"toolChoice"`
 }
 
 // Attribution identifies the Perch user, workspace and run behind a model call.

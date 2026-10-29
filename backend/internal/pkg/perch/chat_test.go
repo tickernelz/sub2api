@@ -42,8 +42,8 @@ func TestBuildModelCallRequestCarriesConversationAndOptions(t *testing.T) {
 	if call.ManualModelOptionID != "wandb-kimi-k2-6" || !call.StrictManual {
 		t.Fatalf("manualModelOptionId = %q strictManual = %v", call.ManualModelOptionID, call.StrictManual)
 	}
-	if call.RoostModelChoice != "" || call.PreferredModelID != "" {
-		t.Fatalf("tier = %q preferred = %q", call.RoostModelChoice, call.PreferredModelID)
+	if call.RoostModelChoice != "" || call.PreferredModelID != nil {
+		t.Fatalf("tier = %q preferred = %v", call.RoostModelChoice, call.PreferredModelID)
 	}
 	if call.Attribution == nil || call.Attribution.UserID != "user-1" {
 		t.Fatalf("attribution = %#v", call.Attribution)
