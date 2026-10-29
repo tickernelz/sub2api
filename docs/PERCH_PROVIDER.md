@@ -69,7 +69,7 @@ A stream that closes without a `done` event is reported as `stream_interrupted` 
 
 The transport first failed every handshake (`remote error: tls: handshake failure`) because the profile omitted `server_name`; Cloudflare rejects a hello without SNI before the application sees it. With the extension list and the signature algorithms taken from a captured CLI hello the handshake completes and the request reaches Perch. The surface gate below is still content-based, so this layer is parity, not the gate. `WithWireTransport(false)` falls back to plain `net/http`.
 
-Still open for full parity: the per-turn request sequence. The CLI also emits `public-model-default`, `account` and three `cli-context` calls around each turn; the adapter fetches `account` and the ticket but does not replicate `public-model-default` or `cli-context`, because `cli-context` reports the CLI's own context-assembly statistics and sending fabricated telemetry would be worse than omitting it.
+The per-turn request sequence is deliberately not replicated. The CLI also emits `public-model-default`, `account` and three `cli-context` calls around each turn; measured 2026-10-29, a model call that skips `public-model-default` and `cli-context` still answers 200, and `cli-context` reports the CLI's own context-assembly statistics, so replaying it would send fabricated telemetry for no benefit.
 
 ## Wire layer
 
