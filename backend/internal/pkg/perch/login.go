@@ -261,8 +261,13 @@ func (c *LoginClient) Exchange(ctx context.Context, flow LoginFlow, code string)
 	if err != nil {
 		return Credentials{}, fmt.Errorf("perch: pkce exchange: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	decoded, err := decodeResponseBody(resp)
+	if err != nil {
+		_ = resp.Body.Close()
+		return Credentials{}, fmt.Errorf("perch: decode pkce exchange: %w", err)
+	}
+	defer func() { _ = decoded.Close() }()
+	payload, err := io.ReadAll(io.LimitReader(decoded, 1<<20))
 	if err != nil {
 		return Credentials{}, fmt.Errorf("perch: read pkce exchange: %w", err)
 	}
