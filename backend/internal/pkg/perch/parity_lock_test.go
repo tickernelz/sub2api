@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,10 +34,11 @@ type parityLockServer struct {
 }
 
 type recordedRequest struct {
-	method string
-	path   string
-	body   []byte
-	at     time.Time
+	method  string
+	path    string
+	body    []byte
+	headers http.Header
+	at      time.Time
 }
 
 func newParityLockServer(t *testing.T) *parityLockServer {
@@ -62,7 +65,12 @@ func (s *parityLockServer) defaults(t *testing.T) {
 	t.Helper()
 	s.json("/api/perch-terminal/public-model-default", `{"ok":true,"view":"public","selection":{"chatModelId":"wandb-kimi-k2-6"},"source":"database"}`)
 	s.json("/api/perchai/account", `{"ok":true,"profile":{"id":"11111111-1111-4111-8111-111111111111","email":"sample@example.com"},"session":{"userId":"11111111-1111-4111-8111-111111111111","workspaceId":"22222222-2222-4222-8222-222222222222","orgId":"33333333-3333-4333-8333-333333333333","planCode":"pilot"}}`)
-	s.json("/api/perch-terminal/turn-ticket", `{"ok":true,"ticket":"header.payload.signature","ticketId":"44444444-4444-4444-8444-444444444444","runId":"tkt-cli-1793207619077-1li5qu4h","profile":"standard","expiresAt":"`+time.Now().Add(time.Hour).UTC().Format(time.RFC3339)+`"}`)
+	var mints int32
+	s.respond["/api/perch-terminal/turn-ticket"] = func(w io.Writer, _ string) {
+		n := atomic.AddInt32(&mints, 1)
+		body := fmt.Sprintf(`{"ok":true,"ticket":"header.payload.signature-%d","ticketId":"44444444-4444-4444-8444-444444444444","runId":"tkt-cli-1793207619077-1li5qu4h","profile":"standard","expiresAt":"%s"}`, n, time.Now().Add(time.Hour).UTC().Format(time.RFC3339))
+		_, _ = io.WriteString(w, "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: "+strconv.Itoa(len(body))+"\r\n\r\n"+body)
+	}
 }
 
 func (s *parityLockServer) stream(path, body string) {
@@ -93,7 +101,7 @@ func (s *parityLockServer) handleConn(conn net.Conn) {
 		body, _ := io.ReadAll(req.Body)
 		_ = req.Body.Close()
 		s.mu.Lock()
-		s.requests = append(s.requests, recordedRequest{method: req.Method, path: req.URL.Path, body: body, at: time.Now()})
+		s.requests = append(s.requests, recordedRequest{method: req.Method, path: req.URL.Path, body: body, headers: req.Header.Clone(), at: time.Now()})
 		s.active++
 		if s.active > s.peak {
 			s.peak = s.active
@@ -311,6 +319,39 @@ func TestParityGateSpacesRequestStarts(t *testing.T) {
 		if gap := starts[i].Sub(starts[i-1]); gap < 35*time.Millisecond {
 			t.Fatalf("gap %d = %v, want at least the configured 40ms spacing", i, gap)
 		}
+	}
+}
+
+func TestParityTicketUnavailableRetryRemints(t *testing.T) {
+	server := newParityLockServer(t)
+	server.defaults(t)
+	var calls int32
+	server.respond["/api/perch-terminal/model-call"] = func(w io.Writer, _ string) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			body := `{"ok":false,"error":"ticket gone","errorCode":"turn_ticket_unavailable"}`
+			_, _ = io.WriteString(w, "HTTP/1.1 502 Bad Gateway\r\ncontent-type: application/json\r\ncontent-length: "+strconv.Itoa(len(body))+"\r\n\r\n"+body)
+			return
+		}
+		_, _ = io.WriteString(w, "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: "+strconv.Itoa(len(parityDoneStream))+"\r\n\r\n"+parityDoneStream)
+	}
+	client := lockClient(server)
+
+	if _, err := client.CallModel(context.Background(), lockCall(t)); err != nil {
+		t.Fatalf("CallModel: %v", err)
+	}
+	server.mu.Lock()
+	tickets := make([]string, 0, 2)
+	for _, entry := range server.requests {
+		if entry.path == "/api/perch-terminal/model-call" {
+			tickets = append(tickets, entry.headers.Get("x-perch-turn-ticket"))
+		}
+	}
+	server.mu.Unlock()
+	if len(tickets) != 2 {
+		t.Fatalf("model calls = %d, want 2", len(tickets))
+	}
+	if tickets[0] == tickets[1] {
+		t.Fatalf("retry reused ticket %q after ticket_unavailable", tickets[0])
 	}
 }
 
