@@ -30,6 +30,30 @@ func TestUpstreamBillingProbeIdentityCoversAllAPIKeyPlatforms(t *testing.T) {
 	require.False(t, isUpstreamBillingProbeAccount(nil))
 }
 
+func TestUpstreamBillingProbeRejectsPerchAPIKeyAccounts(t *testing.T) {
+	require.False(t, IsUpstreamBillingProbeIdentity(PlatformPerch, AccountTypeAPIKey))
+	require.False(t, isUpstreamBillingProbeAccount(&Account{Platform: PlatformPerch, Type: AccountTypeAPIKey}))
+
+	perch := &Account{
+		ID:          161,
+		Platform:    PlatformPerch,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Credentials: map[string]any{"access_token": "perch-session", "app_url": "https://app.perchai.app"},
+	}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{perch.ID: perch}}
+	upstream := &upstreamBillingProbeHTTPStub{}
+	svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+
+	err := svc.SetAccountEnabled(context.Background(), perch.ID, true)
+	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
+	require.NotContains(t, perch.Extra, UpstreamBillingProbeEnabledExtraKey)
+
+	_, err = svc.ProbeAccount(context.Background(), perch.ID)
+	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
+	require.Zero(t, upstream.calls.Load())
+}
+
 func TestBuildUpstreamBillingRateSnapshotItemsPreservesAllAPIKeyPlatforms(t *testing.T) {
 	makeAccount := func(id int64, platform, accountType string, snapshot any) Account {
 		return Account{
@@ -279,6 +303,18 @@ func TestUpstreamBillingProbeSetAccountEnabledAcceptsGrokAPIKey(t *testing.T) {
 	require.Equal(t, true, repo.accounts[grokAPIKey.ID].Extra[UpstreamBillingProbeEnabledExtraKey])
 
 	err := svc.SetAccountEnabled(context.Background(), grokOAuth.ID, true)
+	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
+}
+
+func TestBuildAccountForCreateRejectsProbeEnabledForPerch(t *testing.T) {
+	enabled := true
+	_, err := buildAccountForCreate(&CreateAccountInput{
+		Name:         "perch",
+		Platform:     PlatformPerch,
+		Type:         AccountTypeAPIKey,
+		Credentials:  map[string]any{"access_token": "perch-session", "app_url": "https://app.perchai.app"},
+		ProbeEnabled: &enabled,
+	}, map[string]any{})
 	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
 }
 

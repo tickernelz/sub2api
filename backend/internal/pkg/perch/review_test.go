@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -171,42 +169,6 @@ func TestHandlerEndsStreamWhenServerRestartsAfterOutput(t *testing.T) {
 	}
 	if strings.Count(body, "partial again") != 0 {
 		t.Fatalf("resent content must not reach the client: %s", body)
-	}
-}
-
-func TestSaveCredentialsFileReplacesAtomically(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "session.json")
-	creds := testCredentials("https://app.example.com")
-	creds.AccessToken = "access-first"
-	if err := SaveCredentialsFile(path, creds); err != nil {
-		t.Fatalf("SaveCredentialsFile: %v", err)
-	}
-	creds.AccessToken = "access-second"
-	if err := SaveCredentialsFile(path, creds); err != nil {
-		t.Fatalf("SaveCredentialsFile second: %v", err)
-	}
-
-	loaded, err := LoadCredentialsFile(path)
-	if err != nil {
-		t.Fatalf("LoadCredentialsFile: %v", err)
-	}
-	if loaded.AccessToken != "access-second" {
-		t.Fatalf("access token = %q, want the second write", loaded.AccessToken)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat session file: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Fatalf("session file mode = %o, want 600", perm)
-	}
-	leftovers, err := filepath.Glob(filepath.Join(dir, ".perch-session-*"))
-	if err != nil {
-		t.Fatalf("glob temp files: %v", err)
-	}
-	if len(leftovers) != 0 {
-		t.Fatalf("temp files left behind: %v", leftovers)
 	}
 }
 

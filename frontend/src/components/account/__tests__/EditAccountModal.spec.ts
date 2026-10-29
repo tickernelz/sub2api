@@ -2059,13 +2059,7 @@ describe('EditAccountModal temp-unschedulable rule scope', () => {
   })
 })
 
-describe('EditAccountModal Perch session accounts', () => {
-  const jwt = (exp: number) => {
-    const encode = (value: unknown) =>
-      btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-    return `${encode({ alg: 'HS256' })}.${encode({ exp, sub: 'perch-user' })}.signature`
-  }
-
+describe('EditAccountModal Perch accounts', () => {
   function buildPerchAccount() {
     return {
       ...buildAccount(),
@@ -2091,22 +2085,21 @@ describe('EditAccountModal Perch session accounts', () => {
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
   })
 
-  it('shows the Perch session panel and hides the API-key fields', () => {
+  it('offers no token, session or app-url field for a Perch account', () => {
     const wrapper = mountModal(buildPerchAccount())
 
-    expect(wrapper.find('[data-testid="perch-credentials"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="perch-access-token"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="perch-refresh-token"]').exists()).toBe(true)
-    expect((wrapper.get('[data-testid="perch-app-url"]').element as HTMLInputElement).value).toBe(
-      'https://app.perchai.app'
-    )
+    expect(wrapper.find('[data-testid="perch-credentials"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="perch-access-token"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="perch-refresh-token"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="perch-app-url"]').exists()).toBe(false)
+    expect(wrapper.findAll('input[type="password"]')).toHaveLength(0)
     expect(wrapper.find('input[placeholder="https://api.anthropic.com"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
-    expect(wrapper.findAll('input[type="password"]')).toHaveLength(2)
+    expect(wrapper.text()).not.toContain('cli-auth-session')
     wrapper.unmount()
   })
 
-  it('saves the account fields without an api key or base url', async () => {
+  it('saves the account fields and keeps the stored session untouched', async () => {
     const wrapper = mountModal(buildPerchAccount())
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
@@ -2124,24 +2117,6 @@ describe('EditAccountModal Perch session accounts', () => {
     wrapper.unmount()
   })
 
-  it('writes a pasted session pair and its app url', async () => {
-    const wrapper = mountModal(buildPerchAccount())
-    const exp = 1893999999
-    await wrapper.get('[data-testid="perch-access-token"]').setValue(jwt(exp))
-    await wrapper.get('[data-testid="perch-refresh-token"]').setValue('fresh-refresh')
-    await wrapper.get('[data-testid="perch-app-url"]').setValue('https://perch.example.com/')
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-
-    expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toEqual({
-      access_token: jwt(exp),
-      refresh_token: 'fresh-refresh',
-      app_url: 'https://perch.example.com/',
-      expires_at: exp
-    })
-    wrapper.unmount()
-  })
-
   it('drops a base url left behind by the old edit path', async () => {
     const account = buildPerchAccount()
     account.credentials = { ...account.credentials, base_url: 'https://api.anthropic.com' }
@@ -2153,15 +2128,6 @@ describe('EditAccountModal Perch session accounts', () => {
       app_url: 'https://app.perchai.app',
       expires_at: 1893456000
     })
-    wrapper.unmount()
-  })
-
-  it('refuses a new access token without its refresh token', async () => {
-    const wrapper = mountModal(buildPerchAccount())
-    await wrapper.get('[data-testid="perch-access-token"]').setValue(jwt(1893999999))
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-
-    expect(updateAccountMock).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

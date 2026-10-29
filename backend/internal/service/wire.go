@@ -12,6 +12,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/perch"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
@@ -23,6 +24,14 @@ func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthCli
 	// wire.go is depguard-exempt for redis; construct the Redis session store here.
 	if redisClient != nil {
 		svc = svc.WithSessionStore(xai.NewRedisSessionStore(redisClient))
+	}
+	return svc
+}
+
+func ProvidePerchOAuthService(redisClient *redis.Client) *PerchOAuthService {
+	svc := NewPerchOAuthService()
+	if redisClient != nil {
+		svc = svc.WithLoginStore(perch.NewRedisLoginStore(redisClient))
 	}
 	return svc
 }
@@ -891,6 +900,7 @@ var ProviderSet = wire.NewSet(
 	ProvideClaudeResetCreditService,
 	ProvideOpenAIOAuthService,
 	ProvideGrokOAuthService,
+	ProvidePerchOAuthService,
 	wire.Bind(new(GrokOAuthTokenService), new(*GrokOAuthService)),
 	NewGeminiOAuthService,
 	ProvideGeminiCachedContentService,

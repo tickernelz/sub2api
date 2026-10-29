@@ -1517,6 +1517,7 @@ import {
   resolveOpenAIWSModeHintKey
 } from '@/utils/openaiWsMode'
 import type { OpenAIWSMode } from '@/utils/openaiWsMode'
+import { isUpstreamBillingProbeCapable } from '@/utils/upstreamBillingProbe'
 interface Props {
   show: boolean
   accountIds: number[]
@@ -1592,12 +1593,13 @@ const allOpenAIAPIKey = computed(() => {
   )
 })
 
-// 上游倍率自动探测已放宽到全部 API-key 平台：只要求所选类型全为 apikey，
-// 平台不限（sub2api 上游即可应答 /v1/sub2api/billing）。
+// 上游倍率自动探测已放宽到全部 API-key 平台，但 Perch 没有静态 api_key，服务端已排除。
 const allBillingProbeCapable = computed(() => {
   return (
     targetSelectedTypes.value.length > 0 &&
-    targetSelectedTypes.value.every(t => t === 'apikey')
+    targetSelectedPlatforms.value.every(p =>
+      targetSelectedTypes.value.every(t => isUpstreamBillingProbeCapable(p, t))
+    )
   )
 })
 

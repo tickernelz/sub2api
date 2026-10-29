@@ -308,16 +308,23 @@ Required behavior:
 - Account-scoped Perch refusals (401, 429, 5xx, transport, 403 `perch_surface_required`) must become `*UpstreamFailoverError` with the upstream status, and SSE headers must stay unwritten until the first chunk, so they fail over instead of sticking to the same account. Request-scoped refusals (400 `context_overflow` or `invalid_request`, `plan_required`, `model_blocked`) are the opposite: write them to the client with their own status and never fail over, or every account burns a ticket and the client receives 502 instead of 400.
 - Usage must be asserted on the billed buckets (`openAIUsageBilledBuckets`: input minus cache read/write), not on Perch's summed `inputTokens`.
 - The wire fixtures stay CRLF (`.gitattributes` `-text`) because the tests compare raw bytes.
+- Account creation is a server-side login, not a pasted session: `POST /api/v1/admin/perch/auth-url` builds the same Supabase PKCE authorization URL the CLI builds (verifier kept server-side in a single-use, admin-bound session with a 10-minute TTL), and `POST /api/v1/admin/perch/exchange-code` trades the callback code for the session. `redirect_to` must stay loopback (`http://127.0.0.1:45999/callback`): Perch's Supabase allowlist rejects every other host and falls back to the Perch site URL, which was measured 2026-10-29 and is why the UI asks for the pasted callback URL.
+- A perch account is never an upstream-billing-probe target. It is stored as `type=apikey` but holds no `credentials.api_key`, so a probe there can only record `missing_api_key` and reschedule forever. `IsUpstreamBillingProbeIdentity` excludes the platform for every caller (create, edit, bulk edit, CRS sync, scheduler), the admin rate cell and the bulk-edit probe toggle refuse it, and `249_clear_perch_upstream_billing_probe_flags.sql` clears flags left on rows created before the guard.
 
 Replay anchors:
 
-- `backend/internal/pkg/perch/` — handler, client, `wire.go`, `fingerprint.go`, chat translation, `surfacePromptText`, `testdata/wire/*.http`
+- `backend/internal/pkg/perch/` — handler, client, `wire.go`, `fingerprint.go`, login (`login.go`), chat translation, `surfacePromptText`, `testdata/wire/*.http`
+- `backend/internal/service/perch_oauth_service.go`, `backend/internal/handler/admin/perch_oauth_handler.go`
+- `frontend/src/composables/usePerchOAuth.ts`, `frontend/src/api/admin/perch.ts`, `frontend/src/components/admin/account/ReAuthAccountModal.vue`
 - `backend/internal/service/openai_gateway_perch.go`
 - `backend/internal/service/openai_gateway_chat_completions.go` — the `PlatformPerch` branch
 - `backend/internal/service/openai_gateway_forward.go` — the Responses guard
 - `backend/internal/domain/constants.go`, `backend/internal/domain/platforms.go`
 - `backend/internal/service/domain_constants.go`
 - `docs/PERCH_PROVIDER.md`, the `.gitignore` allowlist row, and the `.gitattributes` CRLF rule
+- `backend/internal/service/upstream_billing_probe.go` — the `PlatformPerch` exclusion inside `IsUpstreamBillingProbeIdentity`
+- `backend/migrations/249_clear_perch_upstream_billing_probe_flags.sql` — one-shot cleanup of probe flags stored on perch rows
+- `frontend/src/utils/upstreamBillingProbe.ts` — the matching `isUpstreamBillingProbeCapable` guard used by the rate cell and bulk edit
 - `frontend/src/api/__tests__/settings.authSourceDefaults.spec.ts` — carries the `perch` entry in the platform quota map; a replay that starts from upstream drops the entry and the spec fails
 - `backend/go.mod` — `golang.org/x/sys` direct, already in the module graph
 
@@ -326,7 +333,7 @@ Known replay hazards:
 - Perch refuses a model call whose conversation carries no substantial system prompt (`403 perch_surface_required`). The gate is a length floor near 202 characters, measured with one account and one ticket (200 chars refused, 205 accepted, 3,000 filler characters accepted); it is not a persona check and not a transport check. `chat.go` therefore prepends `surfacePromptText` as the first message of every call, and `surface_test.go` fails if that text drops below `surfacePromptFloor`. Do not remove it or move it behind the caller's system messages.
 - The wire layer writes HTTP/1.1 itself because `net/http` always sorts headers. If upstream refactors transports, keep the byte fixtures and their CRLF attribute, or the round-trip tests pass in a warm worktree and fail in CI.
 - Idle connection reuse needs the TLS wrapper unwrapped with `NetConn` before the peek; a bare `*net.TCPConn` assertion silently disables reuse (five requests, five handshakes).
-- Perch refresh tokens rotate within one family: the adapter must own a copy of the session, never the CLI's live file.
+- Perch refresh tokens rotate within one family: the adapter must be the only refresh client for a session. A second client refreshing the same token revokes the family (`401 not_authenticated`).
 
 ## 3. Upstream and workflow divergence
 
