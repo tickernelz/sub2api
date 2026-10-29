@@ -213,6 +213,15 @@ func perchClientStatus(code string, status int) int {
 	return http.StatusBadRequest
 }
 
+// perchClientMessage hides upstream detail for account-level failures.
+func perchClientMessage(code, message string) string {
+	switch code {
+	case perch.CodeContextOverflow, perchCodeInvalidRequest, perch.CodeProviderNotConfigured, perchCodeUnsupportedProtocol, perch.CodePlanRequired, perch.CodeModelBlocked:
+		return message
+	}
+	return "perch upstream rejected the request"
+}
+
 func (s *OpenAIGatewayService) perchUpstreamError(c *gin.Context, err error) error {
 	status := http.StatusBadGateway
 	code := "upstream_error"
@@ -233,7 +242,7 @@ func (s *OpenAIGatewayService) perchUpstreamError(c *gin.Context, err error) err
 		return perchFailoverError(err)
 	}
 	if c != nil && c.Writer != nil && !c.Writer.Written() {
-		writeChatCompletionsError(c, perchClientStatus(code, status), code, message)
+		writeChatCompletionsError(c, perchClientStatus(code, status), code, perchClientMessage(code, message))
 	}
 	return err
 }

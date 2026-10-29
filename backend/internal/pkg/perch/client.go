@@ -477,6 +477,9 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 		if !retryableModelCall(apiErr) || attempt >= c.maxAttempts {
 			return nil, apiErr
 		}
+		if apiErr.Code == CodeTicketUnavailable {
+			c.discardTicket(ClientSurfaceCLI, DefaultProfile)
+		}
 		c.waitRetry(ctx, attempt)
 	}
 }

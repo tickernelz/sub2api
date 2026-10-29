@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,9 @@ type parityLockServer struct {
 	active   int
 	peak     int
 	hold     time.Duration
+	holdPath string
+	barrier  chan struct{}
+	waiting  chan struct{}
 	respond  map[string]func(w io.Writer, path string)
 }
 
@@ -95,10 +99,21 @@ func (s *parityLockServer) handleConn(conn net.Conn) {
 			s.peak = s.active
 		}
 		hold := s.hold
+		holdPath := s.holdPath
+		barrier := s.barrier
+		waiting := s.waiting
 		handler := s.respond[req.URL.Path]
 		s.mu.Unlock()
-		if hold > 0 {
-			time.Sleep(hold)
+		if holdPath == "" || req.URL.Path == holdPath {
+			if hold > 0 {
+				time.Sleep(hold)
+			}
+			if barrier != nil {
+				if waiting != nil {
+					waiting <- struct{}{}
+				}
+				<-barrier
+			}
 		}
 		if handler != nil {
 			handler(conn, req.URL.Path)
@@ -295,6 +310,72 @@ func TestParityGateSpacesRequestStarts(t *testing.T) {
 	for i := 1; i < len(starts); i++ {
 		if gap := starts[i].Sub(starts[i-1]); gap < 35*time.Millisecond {
 			t.Fatalf("gap %d = %v, want at least the configured 40ms spacing", i, gap)
+		}
+	}
+}
+
+type gateProbeDoer struct {
+	mu      sync.Mutex
+	starts  []time.Time
+	release chan struct{}
+}
+
+func (d *gateProbeDoer) Do(req *http.Request) (*http.Response, error) {
+	d.mu.Lock()
+	d.starts = append(d.starts, time.Now())
+	d.mu.Unlock()
+	select {
+	case <-d.release:
+	case <-req.Context().Done():
+		return nil, req.Context().Err()
+	}
+	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok")), Header: http.Header{}}, nil
+}
+
+func TestParityGateSpacesQueuedCallers(t *testing.T) {
+	probe := &gateProbeDoer{release: make(chan struct{})}
+	doer := newGatedDoer(probe, newAccountGate(40*time.Millisecond, 2))
+
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			resp, err := doer.Do(&http.Request{URL: &url.URL{Scheme: "http", Host: "probe"}})
+			if err != nil {
+				return
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}()
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		probe.mu.Lock()
+		started := len(probe.starts)
+		probe.mu.Unlock()
+		if started >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("only %d requests reached the wire while the cap held them", started)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
+	close(probe.release)
+	wg.Wait()
+
+	probe.mu.Lock()
+	starts := append([]time.Time(nil), probe.starts...)
+	probe.mu.Unlock()
+	if len(starts) != 4 {
+		t.Fatalf("wire requests = %d, want 4", len(starts))
+	}
+	for i := 1; i < len(starts); i++ {
+		if gap := starts[i].Sub(starts[i-1]); gap < 35*time.Millisecond {
+			t.Fatalf("gap %d = %v, want the 40ms floor even for callers queued behind the cap", i, gap)
 		}
 	}
 }

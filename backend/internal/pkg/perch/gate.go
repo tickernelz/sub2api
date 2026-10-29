@@ -113,15 +113,16 @@ func unwrapDoer(doer Doer) Doer {
 }
 
 func (d *gatedDoer) Do(req *http.Request) (*http.Response, error) {
-	releaseStart, err := d.gate.begin(req.Context())
-	if err != nil {
-		return nil, err
-	}
-	releaseStart()
 	releaseSlot, err := d.gate.acquire(req.Context())
 	if err != nil {
 		return nil, err
 	}
+	releaseStart, err := d.gate.begin(req.Context())
+	if err != nil {
+		releaseSlot()
+		return nil, err
+	}
+	releaseStart()
 	resp, err := d.inner.Do(req)
 	if err != nil {
 		releaseSlot()
