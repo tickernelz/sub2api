@@ -1,6 +1,7 @@
 package perch
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/binary"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
 
 func TestFingerprintProfileMatchesRecordedJA3(t *testing.T) {
@@ -149,5 +152,57 @@ func TestFingerprintProfileCarriesServerName(t *testing.T) {
 	}
 	if len(profile.ALPNProtocols) != 1 || profile.ALPNProtocols[0] != "http/1.1" {
 		t.Fatalf("alpn = %v, want http/1.1 only", profile.ALPNProtocols)
+	}
+}
+
+func captureHello(t *testing.T, profile *tlsfingerprint.Profile) []byte {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+	got := make(chan []byte, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			got <- nil
+			return
+		}
+		buf := make([]byte, 4096)
+		n, _ := conn.Read(buf)
+		_ = conn.Close()
+		got <- buf[:n]
+	}()
+	base := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "tcp", listener.Addr().String())
+	}
+	dialer := tlsfingerprint.NewDialer(profile, base)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if conn, err := dialer.DialTLSContext(ctx, "tcp", "app.perchai.app:443"); err == nil && conn != nil {
+		_ = conn.Close()
+	}
+	select {
+	case hello := <-got:
+		if hello == nil {
+			t.Fatalf("no client hello captured")
+		}
+		return hello
+	case <-time.After(5 * time.Second):
+		t.Fatalf("no client hello captured")
+		return nil
+	}
+}
+
+func TestFingerprintHelloCarriesServerName(t *testing.T) {
+	hello := captureHello(t, FingerprintProfile())
+	if !bytes.Contains(hello, []byte("app.perchai.app")) {
+		t.Fatalf("client hello carries no server_name for the dialled host")
+	}
+	without := FingerprintProfile()
+	without.Extensions = []uint16{65281, 11, 10, 35, 16, 22, 23, 13, 43, 45, 51}
+	if bytes.Contains(captureHello(t, without), []byte("app.perchai.app")) {
+		t.Fatalf("client hello still carries server_name without the extension")
 	}
 }

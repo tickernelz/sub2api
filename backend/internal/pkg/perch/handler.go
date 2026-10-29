@@ -264,17 +264,11 @@ func (h *Handler) client(ctx context.Context) (*Client, func(), error) {
 		controlHTTP = NewWireDoer(dialer.DialTLSContext, controlPlaneTimeout, responseHeaderTimeout)
 		streamHTTP = NewWireDoer(dialer.DialTLSContext, 0, responseHeaderTimeout)
 	}
-	if controlHTTP != nil {
-		opts = append(opts, WithHTTPClient(controlHTTP))
-	}
+	opts = append(opts, WithHTTPClient(controlHTTP))
 	session := NewSession(creds, opts...)
 	client := NewClient(session, WithClientClock(now))
-	if controlHTTP != nil {
-		client.http = controlHTTP
-	}
-	if streamHTTP != nil {
-		client.streamHTTP = streamHTTP
-	}
+	client.http = controlHTTP
+	client.streamHTTP = streamHTTP
 
 	h.seq++
 	h.clients[key] = &clientEntry{client: client, order: h.seq, pinned: 1}

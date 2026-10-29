@@ -65,7 +65,7 @@ A stream that closes without a `done` event is reported as `stream_interrupted` 
 
 ## Transport
 
-`fingerprint.go` reproduces the CLI ClientHello through `internal/pkg/tlsfingerprint`: JA3 `fe1a22af39881f8613c4834b2a568a00`, 52 cipher suites in the recorded order, the captured 12-extension list (server_name second, ending 43/45/51), curves `4588,29,23,30,24,25,256,257`, point formats `0,1,2`, 26 signature algorithms starting at 2309, key-share groups X25519MLKEM768 and X25519, and ALPN `http/1.1` only. `wire.go` writes the HTTP/1.1 bytes over that connection.
+`fingerprint.go` reproduces the CLI ClientHello through `internal/pkg/tlsfingerprint`: 52 cipher suites in the recorded order, the captured 12-extension list (server_name second, ending 43/45/51), curves `4588,29,23,30,24,25,256,257`, point formats `0,1,2`, 26 signature algorithms starting at 2309, key-share groups X25519MLKEM768 and X25519, and ALPN `http/1.1` only. `wire.go` writes the HTTP/1.1 bytes over that connection. The JA3 of the hostname dial, the one production uses, is `505556100e8b8604b580554ebf5aaed5` (extensions `65281-0-11-10-35-16-22-23-13-43-45-51`); `PerchJA3` (`fe1a22af39881f8613c4834b2a568a00`) is the same profile dialled by IP, where uTLS sends no server_name.
 
 The transport first failed every handshake (`remote error: tls: handshake failure`) because the profile omitted `server_name`; Cloudflare rejects a hello without SNI before the application sees it. With the extension list and the signature algorithms taken from a captured CLI hello the handshake completes and the request reaches Perch. The surface gate below is still content-based, so this layer is parity, not the gate.
 
