@@ -20,7 +20,12 @@ func NewGatewayClient(creds Credentials, store CredentialStore) *Client {
 	}
 	dialer := FingerprintDialer(nil)
 	control := NewWireDoer(dialer.DialTLSContext, controlPlaneTimeout, responseHeaderTimeout)
-	stream := NewWireDoer(dialer.DialTLSContext, 0, responseHeaderTimeout)
+	stream := control.Share(0, responseHeaderTimeout)
 	session := NewSession(creds, append(options, WithHTTPClient(control))...)
-	return NewClient(session, WithClientClock(time.Now), WithClientHTTPStream(stream))
+	return NewClient(session,
+		WithClientClock(time.Now),
+		WithClientHTTPStream(stream),
+		WithMinRequestInterval(DefaultMinRequestInterval),
+		WithRetryPolicy(DefaultMaxAttempts, DefaultRetryDelays),
+	)
 }

@@ -24,6 +24,15 @@ func newPerchGatewayServer(t *testing.T, text string, modelStatus int, errorCode
 	fake := &perchFakeServer{}
 	fake.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/perch-terminal/public-model-default":
+			w.Header().Set("content-type", "application/json")
+			fmt.Fprint(w, `{"ok":true,"view":"public","selection":{"chatModelId":"wandb-kimi-k2-6"},"source":"database"}`)
+		case "/api/perch-terminal/cli-auth/config":
+			w.Header().Set("content-type", "application/json")
+			fmt.Fprintf(w, `{"ok":true,"appUrl":%q,"supabaseUrl":%q,"supabaseAnonKey":"sb_publishable_test"}`, fake.URL, fake.URL)
+		case "/auth/v1/token":
+			w.Header().Set("content-type", "application/json")
+			fmt.Fprint(w, `{"access_token":"access-after-refresh","refresh_token":"refresh-after","expires_in":3600}`)
 		case "/api/perch-terminal/turn-ticket":
 			w.Header().Set("content-type", "application/json")
 			fmt.Fprintf(w, `{"ok":true,"ticket":"tkt","ticketId":"tid","runId":"tkt-cli-test","profile":"standard","expiresAt":%q}`, time.Now().Add(time.Hour).UTC().Format(time.RFC3339))
@@ -60,9 +69,10 @@ func newPerchAccountForTest(server *httptest.Server) *Account {
 		Platform: PlatformPerch,
 		Type:     AccountTypeOAuth,
 		Credentials: map[string]any{
-			perchAppURLKey:      server.URL,
-			perchAccessTokenKey: "access-token",
-			perchExpiresAtKey:   time.Now().Add(time.Hour).Unix(),
+			perchAppURLKey:       server.URL,
+			perchAccessTokenKey:  "access-token",
+			perchRefreshTokenKey: "refresh-token",
+			perchExpiresAtKey:    time.Now().Add(time.Hour).Unix(),
 		},
 	}
 }
@@ -71,7 +81,10 @@ func withPerchTestFactory(t *testing.T, server *httptest.Server) {
 	t.Helper()
 	previous := perchClientFactory
 	perchClientFactory = func(creds perch.Credentials, store perch.CredentialStore) *perch.Client {
-		return perch.NewClient(perch.NewSession(creds, perch.WithHTTPClient(server.Client())))
+		return perch.NewClient(
+			perch.NewSession(creds, perch.WithHTTPClient(server.Client())),
+			perch.WithRetryPolicy(perch.DefaultMaxAttempts, []time.Duration{0, 0}),
+		)
 	}
 	t.Cleanup(func() { perchClientFactory = previous })
 }
@@ -138,7 +151,7 @@ func TestForwardPerchChatCompletionsStream(t *testing.T) {
 	}
 }
 
-func TestForwardPerchChatCompletionsFailsOverOnUpstreamRefusal(t *testing.T) {
+func TestForwardPerchChatCompletionsKeepsSurfaceRefusalOnTheAccount(t *testing.T) {
 	server := newPerchGatewayServer(t, "pong", http.StatusTooManyRequests, "perch_surface_required")
 	withPerchTestFactory(t, server.Server)
 	account := newPerchAccountForTest(server.Server)
@@ -151,14 +164,17 @@ func TestForwardPerchChatCompletionsFailsOverOnUpstreamRefusal(t *testing.T) {
 		t.Fatalf("result = %+v, want nil", result)
 	}
 	var failover *UpstreamFailoverError
-	if !errors.As(err, &failover) {
-		t.Fatalf("err = %v (%T), want *UpstreamFailoverError", err, err)
+	if errors.As(err, &failover) {
+		t.Fatalf("a surface refusal moved the request to another account: %+v", failover)
 	}
-	if failover.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("failover status = %d, want 429", failover.StatusCode)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", recorder.Code)
 	}
-	if recorder.Body.Len() != 0 {
-		t.Fatalf("client already received %q, failover must stay silent", recorder.Body.String())
+	if !strings.Contains(recorder.Body.String(), "perch_surface_required") {
+		t.Fatalf("body = %s, want the perch code", recorder.Body.String())
+	}
+	if server.modelCalls != 1 {
+		t.Fatalf("model calls = %d, want exactly 1", server.modelCalls)
 	}
 }
 
@@ -196,7 +212,7 @@ func TestForwardPerchChatCompletionsKeepsRequestErrors(t *testing.T) {
 	}
 }
 
-func TestForwardPerchChatCompletionsStreamFailsOverBeforeOutput(t *testing.T) {
+func TestForwardPerchChatCompletionsRetriesUpstreamOutageOnTheSameAccount(t *testing.T) {
 	server := newPerchGatewayServer(t, "pong", http.StatusServiceUnavailable, "upstream_unavailable")
 	withPerchTestFactory(t, server.Server)
 	account := newPerchAccountForTest(server.Server)
@@ -206,11 +222,14 @@ func TestForwardPerchChatCompletionsStreamFailsOverBeforeOutput(t *testing.T) {
 	c, recorder := newPerchGinContext(t, body)
 	_, err := service.forwardPerchChatCompletions(c.Request.Context(), c, account, []byte(body), "")
 	var failover *UpstreamFailoverError
-	if !errors.As(err, &failover) {
-		t.Fatalf("err = %v (%T), want *UpstreamFailoverError", err, err)
+	if errors.As(err, &failover) {
+		t.Fatalf("an upstream outage moved the request to another account: %+v", failover)
 	}
-	if recorder.Body.Len() != 0 {
-		t.Fatalf("client already received %q before failover", recorder.Body.String())
+	if server.modelCalls != perch.DefaultMaxAttempts {
+		t.Fatalf("model calls = %d, want %d attempts on one account", server.modelCalls, perch.DefaultMaxAttempts)
+	}
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", recorder.Code)
 	}
 }
 
@@ -219,6 +238,15 @@ func newPerchSSEErrorServer(t *testing.T, code string, viaDone bool) *perchFakeS
 	fake := &perchFakeServer{}
 	fake.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case "/api/perch-terminal/public-model-default":
+			w.Header().Set("content-type", "application/json")
+			fmt.Fprint(w, `{"ok":true,"view":"public","selection":{"chatModelId":"wandb-kimi-k2-6"},"source":"database"}`)
+		case "/api/perch-terminal/cli-auth/config":
+			w.Header().Set("content-type", "application/json")
+			fmt.Fprintf(w, `{"ok":true,"appUrl":%q,"supabaseUrl":%q,"supabaseAnonKey":"sb_publishable_test"}`, fake.URL, fake.URL)
+		case "/auth/v1/token":
+			w.Header().Set("content-type", "application/json")
+			fmt.Fprint(w, `{"access_token":"access-after-refresh","refresh_token":"refresh-after","expires_in":3600}`)
 		case "/api/perch-terminal/turn-ticket":
 			w.Header().Set("content-type", "application/json")
 			fmt.Fprintf(w, `{"ok":true,"ticket":"tkt","ticketId":"tid","runId":"tkt-cli-test","profile":"standard","expiresAt":%q}`, time.Now().Add(time.Hour).UTC().Format(time.RFC3339))
@@ -296,5 +324,61 @@ func TestPerchRejectsUnsupportedGatewayEntries(t *testing.T) {
 	}
 	if recorder2.Code != http.StatusBadRequest {
 		t.Fatalf("embeddings status = %d, want 400", recorder2.Code)
+	}
+}
+
+func TestPerchFailoverPolicyPerCode(t *testing.T) {
+	cases := []struct {
+		name         string
+		status       int
+		code         string
+		wantFailover bool
+		wantStatus   int
+		wantCalls    int
+	}{
+		{"not_authenticated", http.StatusUnauthorized, "not_authenticated", true, 0, 2},
+		{"invalid_grant", http.StatusUnauthorized, "invalid_grant", true, 0, 2},
+		{"turn_rate_limited", http.StatusTooManyRequests, "turn_rate_limited", false, http.StatusTooManyRequests, 1},
+		{"usage_limit_reached", http.StatusTooManyRequests, "usage_limit_reached", false, http.StatusTooManyRequests, 1},
+		{"surface_required", http.StatusTooManyRequests, "perch_surface_required", false, http.StatusForbidden, 1},
+		{"upstream_outage", http.StatusServiceUnavailable, "upstream_unavailable", false, http.StatusServiceUnavailable, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := newPerchGatewayServer(t, "pong", tc.status, tc.code)
+			withPerchTestFactory(t, server.Server)
+			account := newPerchAccountForTest(server.Server)
+			service := &OpenAIGatewayService{}
+
+			body := `{"model":"perch-standard","messages":[{"role":"user","content":"ping"}]}`
+			c, recorder := newPerchGinContext(t, body)
+			result, err := service.forwardPerchChatCompletions(c.Request.Context(), c, account, []byte(body), "")
+			if result != nil {
+				t.Fatalf("result = %+v, want nil", result)
+			}
+			var failover *UpstreamFailoverError
+			moved := errors.As(err, &failover)
+			if moved != tc.wantFailover {
+				t.Fatalf("failover = %v, want %v (err %v)", moved, tc.wantFailover, err)
+			}
+			if tc.wantFailover {
+				if recorder.Body.Len() != 0 {
+					t.Fatalf("client received %q, a failover must stay silent", recorder.Body.String())
+				}
+			} else {
+				if recorder.Code != tc.wantStatus {
+					t.Fatalf("status = %d, want %d", recorder.Code, tc.wantStatus)
+				}
+				if !strings.Contains(recorder.Body.String(), tc.code) {
+					t.Fatalf("body = %s, want the perch code %s", recorder.Body.String(), tc.code)
+				}
+				if tc.code != "context_overflow" && strings.Contains(recorder.Body.String(), "perch refused") {
+					t.Fatalf("body = %s, want a generic message instead of upstream detail", recorder.Body.String())
+				}
+			}
+			if server.modelCalls != tc.wantCalls {
+				t.Fatalf("model calls = %d, want %d", server.modelCalls, tc.wantCalls)
+			}
+		})
 	}
 }

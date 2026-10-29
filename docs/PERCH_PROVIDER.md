@@ -94,9 +94,11 @@ The header set and its order come from the CLI capture (`~/re/perchai/captures/r
 
 1. `GET {appUrl}/api/perch-terminal/cli-auth/config` returns `supabaseUrl` and the publishable `supabaseAnonKey` used for refresh.
 2. Refresh: `POST {supabaseUrl}/auth/v1/token?grant_type=refresh_token` with `apikey: <anonKey>`.
-3. `POST {appUrl}/api/perch-terminal/turn-ticket` `{"surface":"cli","profile":"standard"}` mints a short-lived run ticket; tickets are cached and renewed 30s before expiry.
-4. `POST {appUrl}/api/perch-terminal/model-call` with `Authorization: Bearer <access token>` and `x-perch-turn-ticket`. A 401 refreshes the session, re-mints the ticket and retries once.
-5. The upstream answer is an SSE stream of `answer_delta` / `reasoning_delta` / `tool_call_delta` / `done` events; `chat.go` converts them into `chat.completion.chunk` frames and aggregates them for non-streaming callers.
+3. `GET {appUrl}/api/perch-terminal/public-model-default` returns `selection.chatModelId`, the model the CLI itself would run. Cached ten minutes; its id becomes `preferredModelId` whenever the caller names no model or a tier alias.
+4. `GET {appUrl}/api/perchai/account` supplies identity and plan for attribution, cached ten minutes. It is fetched before the ticket so the on-wire order matches the CLI, which asks for defaults, then the account, then a ticket.
+5. `POST {appUrl}/api/perch-terminal/turn-ticket` `{"surface":"cli","profile":"standard"}` mints a short-lived run ticket; tickets are cached and renewed 30s before expiry.
+6. `POST {appUrl}/api/perch-terminal/model-call` with `Authorization: Bearer <access token>` and `x-perch-turn-ticket`. A 401 refreshes the session, re-mints the ticket and retries once.
+7. The upstream answer is an SSE stream of `answer_delta` / `reasoning_delta` / `tool_call_delta` / `done` events; `chat.go` converts them into `chat.completion.chunk` frames and aggregates them for non-streaming callers.
 
 Usage is camelCase (`inputTokens`, `outputTokens`, `cacheReadInputTokens`, `cacheCreationInputTokens`). `inputTokens` excludes cache traffic, so `prompt_tokens` is the sum of the three input counters and `cached_tokens` carries the cache-read share.
 
@@ -120,7 +122,7 @@ Account credentials (all optional except the access token):
 
 ## Model selection
 
-Perch does not take an OpenAI model name: the captured CLI keeps `preferredModelId` null and picks a model with `roostModelChoice` (`standard`, `standardMax`, `pro`, `proMax`; default `standardMax`) or `manualModelOptionId`, a catalogue id such as `wandb-kimi-k2-6`. `chat.go` maps tier aliases (`standard`, `standard_max`, `Standard 1M`, `pro`, `PRO_MAX`, ...), sends any other id as a manual pin with `strictManual: true`, and falls back to `standardMax` when the request names no model. Roost reroutes server-side, so the model that answers is taken from `done.model`; non-streaming responses report it as `model` and echo it in `x-perch-upstream-model` when it differs from the request. Attribution (`userId`, `workspaceId`, `runId`, `lane`, `source`) is filled from `/api/perchai/account` and cached for ten minutes.
+Perch does not take an OpenAI model name. `chat.go` sends a catalogue id such as `wandb-kimi-k2-6` as `manualModelOptionId` with `strictManual: true`, which is exactly what the recorded CLI does when a model is pinned. When the caller names no model, or names the `standard`/`standardMax` tier aliases, the adapter takes `selection.chatModelId` from `public-model-default` and sends it as `preferredModelId` with `strictManual: false` — the CLI's own default path. `pro` and `proMax` still travel as `roostModelChoice`, a field no recorded CLI request carries; that mapping is a convenience this gateway keeps and the live gate has not been measured for it. Roost reroutes server-side, so the model that answers is taken from `done.model`; non-streaming responses report it as `model` and echo it in `x-perch-upstream-model` when it differs from the request. Attribution (`userId`, `workspaceId`, `runId`, `lane`, `source`) is filled from `/api/perchai/account` and cached for ten minutes.
 
 ## Error mapping
 
@@ -133,9 +135,11 @@ Perch does not take an OpenAI model name: the captured CLI keeps `preferredModel
 | `plan_required` | 402 | never |
 | `model_blocked` | 403 | never |
 | `provider_not_configured` | 400 | never |
-| `stream_interrupted`, transport failures, upstream 5xx | 502 | once for 408/425/5xx |
+| `stream_interrupted`, transport failures, upstream 5xx | 502 | up to 3 attempts on the same account, 1s and 3s apart |
 
 A stream that closes without a `done` event is reported as `stream_interrupted` and never closed with `[DONE]`. A failed turn-ticket mint refreshes the session and mints again instead of calling the model proxy without a ticket.
+
+Failover: only a dead credential (`not_authenticated`, `invalid_grant`) leaves the account, because a broken session cannot serve anyone. Quota (`usage_limit_reached`), rate limiting (`turn_rate_limited`), the surface refusal, plan and model blocks, and upstream 5xx stay on the account that produced them and are returned to the client. The CLI has no notion of accounts at all; moving one client request across accounts is a pattern it never emits, and it is the pattern a multi-account quota bypass leaves behind.
 
 ## Transport
 
@@ -143,20 +147,56 @@ A stream that closes without a `done` event is reported as `stream_interrupted` 
 
 The transport first failed every handshake (`remote error: tls: handshake failure`) because the profile omitted `server_name`; Cloudflare rejects a hello without SNI before the application sees it. With the extension list and the signature algorithms taken from a captured CLI hello the handshake completes and the request reaches Perch. The surface gate below is still content-based, so this layer is parity, not the gate.
 
-The per-turn request sequence is deliberately not replicated. The CLI also emits `public-model-default`, `account` and three `cli-context` calls around each turn; measured 2026-10-29, a model call that skips `public-model-default` and `cli-context` still answers 200, and `cli-context` reports the CLI's own context-assembly statistics, so replaying it would send fabricated telemetry for no benefit.
+The per-turn sequence follows the CLI: `public-model-default`, `account`, `turn-ticket`, `model-call`, all on one keep-alive connection. Two CLI calls stay out: `cli-context` (three per turn) and `cli-turn`. Both carry the CLI's own thread state, and replaying them would send fabricated telemetry; measured 2026-10-29, a model call that skips them still answers 200. `~/re/perchai/tools/parity.sh` is what keeps the rest honest.
 
 ## Wire layer
 
 `net/http` always sorts request headers, so the adapter cannot reproduce the CLI's wire order through `http.Client`. `wire.go` therefore writes HTTP/1.1 itself over the TLS connection and parses the response with `http.ReadResponse`.
 
-Header order is the one the CLI's own client (undici, as shipped in `perchai-cli`'s dependency tree) puts on the wire: request line, `host`, `connection: keep-alive`, the headers the CLI sets in its own insertion order (`Content-Type`, `x-perch-call-delta`, `Accept`, `Authorization`, `User-Agent`, `x-perch-locale`, `x-perch-turn-ticket` for model calls; `Content-Type`, `Authorization`, `User-Agent`, `x-perch-locale` for JSON control calls), then the defaults undici appends (`accept: */*` when absent, `accept-language: *`, `sec-fetch-mode: cors`, `accept-encoding: br, gzip, deflate`), and finally `content-length`.
+Header order is the one the CLI's own client (undici, as shipped in `perchai-cli`'s dependency tree) puts on the wire: request line, `host`, `connection: keep-alive`, the headers the CLI sets in its own insertion order (`Content-Type`, `x-perch-call-delta`, `Accept`, `Authorization`, `User-Agent`, `x-perch-locale`, `x-perch-turn-ticket` for model calls; `Content-Type`, `Authorization`, `User-Agent`, `x-perch-locale` for JSON control calls), then the defaults undici appends (`accept: */*` when absent, `accept-language: *`, `sec-fetch-mode: cors`, `accept-encoding: gzip, deflate`), and finally `content-length`. `gzip, deflate` is what the recorded CLI turn carries; the `br, gzip, deflate` variant appears only in the synthetic undici harness, never in a recorded CLI request.
 
-Kept from `net/http`: response parsing, chunked decoding, connection reuse. Response bodies are decompressed for `gzip`, `deflate` and `br` because the CLI advertises all three and Perch answers compressed; without it the JSON and SSE readers see binary. A connection returns to the pool only when the body was read to EOF, the response allows reuse and no buffered bytes remain; an SSE stream closed early drops its connection. Before an idle connection is reused it is peeked without consuming bytes (`recvfrom` with `MSG_PEEK|MSG_DONTWAIT` on unix; the TLS wrapper is unwrapped with `NetConn` first, and platforms without the probe never reuse), so a pending byte or a queued EOF drops the connection instead of being read as the next response. A body settles exactly once through `sync.Once`, so a concurrent `Read` and `Close` cannot release and close the same socket. Header names and values go to the socket verbatim, so `checkWireHeader` rejects any name or value carrying a control byte (`errWireHeader`) before a byte leaves: a token, ticket or credential containing a newline cannot inject a header line. Two doers cover the two deadlines: control calls get a 60s whole-exchange timeout, model calls get a response-header timeout and no total timeout (an idle reader still trips the 60s stream guard).
+Kept from `net/http`: response parsing, chunked decoding, connection reuse. Response bodies are decompressed for `gzip`, `deflate` and `br` because the request advertises two of them and Perch may answer compressed with any of the three; without it the JSON and SSE readers see binary. A connection returns to the pool only when the body was read to EOF, the response allows reuse and no buffered bytes remain; an SSE stream closed early drops its connection. Before an idle connection is reused it is peeked without consuming bytes (`recvfrom` with `MSG_PEEK|MSG_DONTWAIT` on unix; the TLS wrapper is unwrapped with `NetConn` first, and platforms without the probe never reuse), so a pending byte or a queued EOF drops the connection instead of being read as the next response. A body settles exactly once through `sync.Once`, so a concurrent `Read` and `Close` cannot release and close the same socket. Header names and values go to the socket verbatim, so `checkWireHeader` rejects any name or value carrying a control byte (`errWireHeader`) before a byte leaves: a token, ticket or credential containing a newline cannot inject a header line. Two doers cover the two deadlines: control calls get a 60s whole-exchange timeout, model calls get a response-header timeout and no total timeout (an idle reader still trips the 60s stream guard). `WireDoer.Share` hands both doers one idle pool, so a turn keeps a single TCP connection across control and model calls, like the CLI.
 
 Evidence:
 
 - `testdata/wire/model-call.http` and `testdata/wire/turn-ticket.http` are the bytes the CLI's undici stack produced for the same requests; `TestWireDoerMatchesRecordedModelCallBytes` and `TestWireDoerMatchesRecordedTurnTicketBytes` compare them byte for byte.
 - Measured 2026-10-29 through one forwarding proxy, the official CLI and the Go adapter emit the same request line, the same 13 headers in the same order with the same casing and values. The only remaining differences are inside the body, and one of them gates the request (see the surface gate).
+
+## Request parity
+
+Every layer below is measured by `~/re/perchai/tools/parity.sh`, which drives this package against a loopback mock through the production wire doer and compares the captured bytes with the CLI 2.4.120 recording in `~/re/perchai/golden/`. It exits 0 only when every layer matches or is one of the accepted differences.
+
+| Layer | CLI 2.4.120 (recorded) | Adapter | Status |
+| --- | --- | --- | --- |
+| TLS ClientHello | JA3 `fe1a22af39881f8613c4834b2a568a00`, 52 suites, ALPN `http/1.1` | identical | match |
+| request sequence per turn | public-model-default, account, turn-ticket, model-call | identical | match |
+| keep-alive | one connection carries the turn | identical | match |
+| request line, header order and casing (model-call, turn-ticket) | exact | identical | match |
+| control-plane headers (account, public-model-default) | two CLI stacks: `node` UA on the fetch path, `perchai-cli/2.4.120` on the node:https path | `perchai-cli/2.4.120`, same header set | match inside the CLI's own variation |
+| accept-encoding | `gzip, deflate` | identical | match |
+| turn-ticket body | `{"surface":"cli","profile":"standard"}` | identical | match |
+| model-call key order, top level and `request` | exact | identical | match |
+| `temperature`, `maxTokens`, `toolChoice` | 0.6 / 32000 / `"auto"` | same defaults when the caller omits them | match |
+| `attribution` keys | userId, workspaceId, runId, lane, source, billingMultiplier | identical | match |
+| `lane`, `clientSurface`, `resendAfterOutput`, `strictManual` | chat / cli / true / false | identical | match |
+| pacing | tightest observed gap 314 ms | 300 ms floor | match |
+| concurrent model calls | at most 2 (`race2`) | at most 2, spaced | match |
+| retry budget | 3 attempts, 1 s and 3 s backoff, one account | identical | match |
+| `messages` | 53,561-char vendor persona + one user turn | own surface prompt + caller messages | accepted: the vendor prompt is not reproducible, and the gate only needs about 202 characters |
+| `tools` | 45 built-in schemas the CLI can execute | caller's tools, `[]` when none | accepted: advertising tools this gateway cannot execute would return tool calls it cannot answer |
+| `tools` + `toolChoice` together | 45 tools with `"auto"` | `[]` with `"auto"` | accepted but unmeasured: the CLI never sends an empty list, so the server's reading of that pair is unknown (see below) |
+| `avoidModelIds` | the CLI's saved avoid list (28 ids) | `[]` | accepted: the list belongs to the CLI's local model state |
+| `preferredModelId` source | the CLI's saved model | `selection.chatModelId` from public-model-default | accepted: same field, different source |
+| `cli-context` (3 per turn) | memory retrieval for the CLI's own thread | not sent | accepted: it reports the CLI's context assembly |
+| `cli-turn` | uploads the finished transcript (136 KB) | not sent | accepted: re-uploading the conversation is a privacy cost with no protocol role |
+
+Not measurable offline. Each needs one live turn, and none is in the table until then:
+
+- whether `perch_surface_required` reads anything past the ~202-character system prompt floor (messages, tools, model id);
+- whether an empty `tools` list combined with `toolChoice: "auto"` is treated like the CLI's 45 tools plus `"auto"`. The CLI always ships tools with `auto`, and the last recorded provider turn used `toolChoice: null`, so this exact combination has never been observed on the wire;
+- whether the server scores the presence of `cli-context` and `cli-turn`, or reads a missing pair as a client mismatch;
+- how a `race2` overlap compares with a single call in whatever signal the server keeps;
+- whether a login from the admin UI produces the same Supabase session shape as `perch login` (device, `signup_source`, token family).
 
 ## Client identity
 
@@ -168,7 +208,7 @@ Perch only serves hosted models to its own surfaces, so the adapter presents the
 | `x-perch-locale` | `en` |
 | `x-perch-call-delta` | `1` on model calls only |
 | `accept-language`, `sec-fetch-mode` | `*`, `cors` |
-| `Accept-Encoding` | `br, gzip, deflate` on model calls, decoded by `encoding.go` |
+| `Accept-Encoding` | `gzip, deflate`, the value every recorded CLI request carries, decoded by `encoding.go` |
 | turn context | a `<perch_turn_context>` user message with today's date, inserted after any system messages |
 | system prompt | `surfacePromptText` as the first message, ≥ `surfacePromptFloor` (205) characters, ahead of any caller system message (see the surface gate) |
 
@@ -180,13 +220,15 @@ Perch only serves hosted models to its own surfaces, so the adapter presents the
 
 ## Body shape
 
-The model-call body follows the captured CLI byte shape rather than the spec table: `request` always carries `messages`, `tools`, `temperature`, `maxTokens` and `toolChoice` (an empty tool list stays `[]`, an unset choice stays `null`), `preferredModelId` and `attribution` are emitted as explicit `null` when unset, and `resendAfterOutput: true` is sent on every call. `TestModelCallBodyKeyOrderMatchesRecordedCLI` decodes the marshalled JSON and checks the key order, so a struct reorder cannot silently change the wire shape.
+The model-call body follows the captured CLI byte shape rather than the spec table: `request` always carries `messages`, `tools`, `temperature`, `maxTokens` and `toolChoice`. An empty tool list stays `[]`; an unset `toolChoice` becomes `"auto"`; an omitted `temperature` or `maxTokens` takes the CLI's 0.6 and 32000. `preferredModelId` is `null` only when no public default could be read, `attribution` always carries the CLI's `billingMultiplier` key, and `resendAfterOutput: true` is sent on every call. `TestModelCallBodyKeyOrderMatchesRecordedCLI` decodes the marshalled JSON and checks the key order, so a struct reorder cannot silently change the wire shape.
 
 ## Concurrency
 
 Ticket minting is single-flight through a one-slot gate, so a caller waiting behind another goroutine's mint is released by its own context instead of the control-plane deadline. The per-ticket budget leaves a tombstone: a spent ticket keeps its counter until it expires, so workers that still hold it cannot re-acquire budget, while a rotation mints exactly one replacement that the other workers share.
 
 Control-plane calls (`cli-auth/config`, `turn-ticket`, `account`) keep a 60s total deadline even when the wire transport is active; only the model-call client runs without a total timeout and relies on the 60s idle read instead.
+
+Every request an account sends passes one gate: starts are serialised with a 300 ms floor between them, and at most two exchanges are in flight. Both numbers come from the recording rather than taste — the CLI's tightest observed gap in a turn is 314 ms, and `raceMode "race2"` in `perch.mjs` fires at most two model calls in parallel. Retries follow the CLI budget as well: three attempts with 1 s and 3 s backoff, always on the same account.
 
 One `Client` (and one `Session`) exists per account: the handler creates it under its own mutex, so two cold-start requests cannot mint two sessions that refresh with the same rotated token. Cached clients are reference-counted while a request uses them, and eviction only removes unpinned entries. The turn-ticket budget is reserved under the client mutex, so the 40-call limit and the reuse counter cannot be raced.
 
@@ -254,3 +296,11 @@ cd backend && PERCH_SESSION_JSON="$(cat /path/to/session.json)" go test -tags 'u
 ```
 
 Fixtures under `internal/pkg/perch/testdata` keep the captured wire shapes with synthetic content; no session token, ticket or vendor prompt text is stored.
+
+The byte-for-byte differential against the CLI recording is outside the repository (it needs the capture set):
+
+```bash
+bash ~/re/perchai/tools/parity.sh    # exits 0 only when every measured layer matches
+```
+
+It runs the `perchparity` harness against a loopback mock, captures the production wire bytes, and compares TLS ClientHello, request order, headers, body skeleton, pacing and keep-alive with `~/re/perchai/golden/`. No request leaves the box.

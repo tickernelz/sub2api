@@ -189,15 +189,10 @@ func perchUsage(u *perch.Usage) OpenAIUsage {
 	}
 }
 
-func perchAccountScopedFailure(code string, status int) bool {
+// perchAccountScopedFailure reports whether a failure may leave the account.
+func perchAccountScopedFailure(code string) bool {
 	switch code {
-	case perch.CodeContextOverflow, perchCodeInvalidRequest, perch.CodePlanRequired, perch.CodeModelBlocked, perch.CodeProviderNotConfigured, perchCodeUnsupportedProtocol:
-		return false
-	case perch.CodeSurfaceRequired, perchCodeInvalidGrant, perch.CodeNotAuthenticated:
-		return true
-	}
-	switch {
-	case status == http.StatusUnauthorized, status == http.StatusTooManyRequests, status >= 500:
+	case perch.CodeNotAuthenticated, perchCodeInvalidGrant:
 		return true
 	}
 	return false
@@ -209,13 +204,22 @@ func perchClientStatus(code string, status int) int {
 		return http.StatusBadRequest
 	case perch.CodePlanRequired:
 		return http.StatusPaymentRequired
-	case perch.CodeModelBlocked:
+	case perch.CodeModelBlocked, perch.CodeSurfaceRequired:
 		return http.StatusForbidden
 	}
 	if status >= 400 && status <= 599 {
 		return status
 	}
 	return http.StatusBadRequest
+}
+
+// perchClientMessage hides upstream detail for account-level failures.
+func perchClientMessage(code, message string) string {
+	switch code {
+	case perch.CodeContextOverflow, perchCodeInvalidRequest, perch.CodeProviderNotConfigured, perchCodeUnsupportedProtocol, perch.CodePlanRequired, perch.CodeModelBlocked:
+		return message
+	}
+	return "perch upstream rejected the request"
 }
 
 func (s *OpenAIGatewayService) perchUpstreamError(c *gin.Context, err error) error {
@@ -234,11 +238,11 @@ func (s *OpenAIGatewayService) perchUpstreamError(c *gin.Context, err error) err
 			message = apiErr.Message
 		}
 	}
-	if perchAccountScopedFailure(code, status) {
+	if perchAccountScopedFailure(code) {
 		return perchFailoverError(err)
 	}
 	if c != nil && c.Writer != nil && !c.Writer.Written() {
-		writeChatCompletionsError(c, perchClientStatus(code, status), code, message)
+		writeChatCompletionsError(c, perchClientStatus(code, status), code, perchClientMessage(code, message))
 	}
 	return err
 }

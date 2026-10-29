@@ -63,18 +63,21 @@ var wireDefaultHeaders = []wireDefaultHeader{
 	{"accept", "*/*"},
 	{"accept-language", "*"},
 	{"sec-fetch-mode", "cors"},
-	{"accept-encoding", "br, gzip, deflate"},
+	{"accept-encoding", "gzip, deflate"},
 }
 
 // WireDoer speaks HTTP/1.1 with the header order the official client emits.
+type wirePool struct {
+	mu   sync.Mutex
+	idle map[string]net.Conn
+}
+
 type WireDoer struct {
 	dial    DialFunc
 	plain   DialFunc
 	control time.Duration
 	header  time.Duration
-
-	mu   sync.Mutex
-	idle map[string]net.Conn
+	pool    *wirePool
 }
 
 func NewWireDoer(dial DialFunc, controlTimeout, headerTimeout time.Duration) *WireDoer {
@@ -86,8 +89,19 @@ func NewWireDoer(dial DialFunc, controlTimeout, headerTimeout time.Duration) *Wi
 		plain:   (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 		control: controlTimeout,
 		header:  headerTimeout,
-		idle:    make(map[string]net.Conn),
+		pool:    &wirePool{idle: make(map[string]net.Conn)},
 	}
+}
+
+// Share returns a doer that reuses this doer's idle connections.
+func (w *WireDoer) Share(controlTimeout, headerTimeout time.Duration) *WireDoer {
+	if w == nil {
+		return nil
+	}
+	if headerTimeout <= 0 {
+		headerTimeout = responseHeaderTimeout
+	}
+	return &WireDoer{dial: w.dial, plain: w.plain, control: controlTimeout, header: headerTimeout, pool: w.pool}
 }
 
 func (w *WireDoer) Do(req *http.Request) (*http.Response, error) {
@@ -136,10 +150,10 @@ func (w *WireDoer) dialFunc(u *url.URL) DialFunc {
 }
 
 func (w *WireDoer) connection(ctx context.Context, addr string, dial DialFunc) (net.Conn, error) {
-	w.mu.Lock()
-	idle := w.idle[addr]
-	delete(w.idle, addr)
-	w.mu.Unlock()
+	w.pool.mu.Lock()
+	idle := w.pool.idle[addr]
+	delete(w.pool.idle, addr)
+	w.pool.mu.Unlock()
 
 	if idle != nil {
 		if wireConnAlive(idle) {
@@ -157,13 +171,13 @@ func wireConnAlive(conn net.Conn) bool {
 func (w *WireDoer) ControlTimeout() time.Duration { return w.control }
 
 func (w *WireDoer) release(addr string, conn net.Conn) {
-	w.mu.Lock()
-	if existing, ok := w.idle[addr]; !ok || existing == nil {
-		w.idle[addr] = conn
-		w.mu.Unlock()
+	w.pool.mu.Lock()
+	if existing, ok := w.pool.idle[addr]; !ok || existing == nil {
+		w.pool.idle[addr] = conn
+		w.pool.mu.Unlock()
 		return
 	}
-	w.mu.Unlock()
+	w.pool.mu.Unlock()
 	_ = conn.Close()
 }
 
