@@ -1,5 +1,17 @@
 export default {
     accounts: {
+      perch: {
+        sessionLabel: 'Perch CLI 会话 JSON（可选）',
+        sessionPlaceholder: 'accessToken … refreshToken … expiresAt …',
+        sessionHint: '粘贴 ~/.perch/cli-auth-session.json 的内容即可一次填好下面的字段。',
+        accessToken: 'Supabase access token',
+        refreshToken: 'Supabase refresh token',
+        refreshTokenHint: '适配器每次刷新都会轮换该 token 并写回账号。',
+        appUrl: 'Perch 应用地址',
+        limits:
+          'Perch 不提供 API key：账号直接使用 Perch 会话，仅服务 /v1/chat/completions；/v1/responses 返回 unsupported_protocol。',
+        accessTokenRequired: '请填写 Perch access token'
+      },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',

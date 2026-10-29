@@ -264,6 +264,26 @@
             {{ spec.display_name }}
           </button>
         </div>
+
+        <div
+          class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700"
+          data-testid="platform-row-catalog"
+        >
+          <button
+            type="button"
+            data-testid="platform-button-perch"
+            @click="selectPerchPlatform()"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'perch'
+                ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="perch" size="sm" />
+            Perch
+          </button>
+        </div>
       </div>
 
       <!-- Account Type Selection (Anthropic) -->
@@ -1499,8 +1519,56 @@
         </div>
       </div>
 
+      <div v-if="form.platform === 'perch'" class="space-y-4" data-testid="perch-credentials">
+        <div>
+          <label class="input-label">{{ t('admin.accounts.perch.sessionLabel') }}</label>
+          <textarea
+            v-model="perchSessionInput"
+            rows="3"
+            class="input font-mono text-xs"
+            data-testid="perch-session-input"
+            :placeholder="t('admin.accounts.perch.sessionPlaceholder')"
+            @change="applyPerchSessionInput"
+          />
+          <p class="input-hint">{{ t('admin.accounts.perch.sessionHint') }}</p>
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.perch.accessToken') }}</label>
+          <input
+            v-model="perchAccessToken"
+            type="password"
+            class="input font-mono"
+            data-testid="perch-access-token"
+          />
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.perch.refreshToken') }}</label>
+          <input
+            v-model="perchRefreshToken"
+            type="password"
+            class="input font-mono"
+            data-testid="perch-refresh-token"
+          />
+          <p class="input-hint">{{ t('admin.accounts.perch.refreshTokenHint') }}</p>
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.perch.appUrl') }}</label>
+          <input
+            v-model="perchAppUrl"
+            type="text"
+            class="input font-mono"
+            :placeholder="PERCH_DEFAULT_APP_URL"
+            data-testid="perch-app-url"
+          />
+        </div>
+        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.perch.limits') }}</p>
+      </div>
+
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
-      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+      <div
+        v-if="form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'perch'"
+        class="space-y-4"
+      >
         <div v-if="!isMultiProtocolPlatform || apiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -4197,6 +4265,7 @@ import {
   type OpenCodeGoProtocolRule
 } from '@/components/account/credentialsBuilder'
 import { listPlatforms } from '@/constants/platformCatalog'
+import { PERCH_DEFAULT_APP_URL, parsePerchSession, perchCredentials } from '@/utils/perchSession'
 import {
   formatDateTimeLocalInput,
   getBrowserTimeZone,
@@ -4426,6 +4495,18 @@ const isGenericMultiProtocolPlatform = computed(
 const extraMultiProtocolPlatforms = computed(() =>
   listPlatforms().filter(spec => !!spec.multi_protocol && !isCNProviderPlatform(spec.id) && spec.id !== 'opencode_go')
 )
+const perchSessionInput = ref('')
+const perchAccessToken = ref('')
+const perchRefreshToken = ref('')
+const perchAppUrl = ref('')
+function applyPerchSessionInput() {
+  const parsed = parsePerchSession(perchSessionInput.value)
+  if (!parsed.accessToken) return
+  perchAccessToken.value = parsed.accessToken
+  perchRefreshToken.value = parsed.refreshToken ?? ''
+  perchAppUrl.value = parsed.appUrl ?? ''
+  perchSessionInput.value = ''
+}
 const genericAccountModes = computed(() => providerAccountModes(form.platform))
 // 按模型分流的供应商（OpenCode 等）：adaptive 账号携带 protocol_rules。
 const routesByModel = computed(() => providerRoutesByModel(form.platform))
@@ -4528,6 +4609,13 @@ function selectTypeSafePlatform() {
   accountCategory.value = 'apikey'
   apiKeyBaseUrl.value = 'https://api.typesafe.ai'
   allowedModels.value = ['jev-latest']
+}
+function selectPerchPlatform() {
+  form.platform = 'perch'
+  form.type = 'apikey'
+  accountCategory.value = 'apikey'
+  apiKeyBaseUrl.value = ''
+  apiKeyValue.value = ''
 }
 function selectGenericMultiProtocolPlatform(platform: string) {
   form.platform = platform
@@ -5615,6 +5703,10 @@ const resetForm = () => {
   form.platform = 'anthropic'
   form.type = 'oauth'
   form.credentials = {}
+  perchSessionInput.value = ''
+  perchAccessToken.value = ''
+  perchRefreshToken.value = ''
+  perchAppUrl.value = ''
   form.proxy_id = null
   form.concurrency = 10
   form.load_factor = null
@@ -6100,6 +6192,20 @@ const handleSubmit = async () => {
     return
   }
 
+  if (form.platform === 'perch') {
+    if (!perchAccessToken.value.trim()) {
+      appStore.showError(t('admin.accounts.perch.accessTokenRequired'))
+      return
+    }
+    const perchCredentialsPayload = perchCredentials({
+      accessToken: perchAccessToken.value,
+      refreshToken: perchRefreshToken.value,
+      appUrl: perchAppUrl.value
+    })
+    await createAccountAndFinish('perch', 'apikey', perchCredentialsPayload)
+    return
+  }
+
   // For apikey type, create directly
   if (!apiKeyValue.value.trim()) {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
@@ -6351,9 +6457,9 @@ const createAccountAndFinish = async (
     rate_multiplier: form.rate_multiplier,
     group_ids: form.group_ids,
     expires_at: form.expires_at,
-    // 上游倍率探测对全部 API-key 平台开放（antigravity upstream 走本 helper）；
-    // 非 apikey 类型（bedrock/oauth）不传，后端不动作。
-    upstream_billing_probe_enabled: type === 'apikey' ? upstreamBillingAutoProbeEnabled.value : undefined,
+    ...(type === 'apikey' && platform !== 'perch'
+      ? { upstream_billing_probe_enabled: upstreamBillingAutoProbeEnabled.value }
+      : {}),
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

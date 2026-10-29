@@ -2,6 +2,26 @@
 
 Perch has no API keys: the official CLI, Desktop app and web app all authenticate with a per-account Supabase session and then call a single model proxy endpoint. `internal/pkg/perch` implements that protocol so sub2api can expose Perch as an OpenAI-compatible provider.
 
+## Adding an account in the admin UI
+
+1. Create a group whose platform is `Perch` (Groups -> New group), so the OpenAI gateway scheduler can select perch accounts.
+2. Accounts -> Create account -> pick `Perch` in the platform row.
+3. Either paste the whole `~/.perch/cli-auth-session.json` into the session field, or fill the access token, refresh token and app URL by hand. The form derives `expires_at` from the access token's `exp` claim, so the adapter refreshes before the token lapses.
+4. Create. The credential map sent to the API is `access_token`, `refresh_token`, `app_url`, `expires_at`; the adapter rewrites `refresh_token`/`expires_at` whenever Perch rotates the session.
+
+Pasting a session keeps a copy of the refresh token that the CLI on the source machine still holds; the first refresh by either side rotates the token and the other side's copy becomes stale, and Supabase reuse detection can revoke the whole session. Log in once with `perch login` for sub2api, paste that session, and stop using it in the CLI.
+
+The account answers `/v1/chat/completions` only. `/v1/responses` returns `unsupported_protocol` with HTTP 400, and the model name in a request is a Perch tier alias or catalogue id, not an OpenAI model name.
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `perch_credentials_missing` | account row has no `access_token` | re-paste the session (the CLI session rotates; an old copy stops refreshing) |
+| 401 `not_authenticated` twice in a row | refresh token already consumed elsewhere | run `perch login` again and paste the fresh session |
+| 403 `perch_surface_required` | the model call did not lead with the surface system prompt | adapter bug, not a credential problem: check `surfacePromptText` and its floor test |
+| 429 `usage_limit_reached` / `turn_rate_limited` | Perch plan or ticket rate limit | wait for `Retry-After`, or use another perch account in the group |
+
 ## Account credentials
 
 Store the CLI session verbatim; the adapter owns refresh and writes rotated tokens back.
