@@ -1,0 +1,1 @@
+https://fixture.supabase.co/auth/v1/authorize?provider=github&redirect_to=http%3A%2F%2F127.0.0.1%3A45999%2Fcallback&code_challenge=FIXTURE_CHALLENGE&code_challenge_method=s256

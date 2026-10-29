@@ -54,6 +54,9 @@ func RegisterAdminRoutes(
 		// OpenAI OAuth
 		registerOpenAIOAuthRoutes(admin, h)
 
+		// Perch OAuth (Supabase PKCE, same flow as the Perch CLI)
+		registerPerchOAuthRoutes(admin, h)
+
 		// Gemini OAuth
 		registerGeminiOAuthRoutes(admin, h)
 
@@ -467,6 +470,14 @@ func registerOpenAIOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		openai.POST("/accounts/:id/reset-quota", h.Admin.OpenAIOAuth.ResetQuota)
 		openai.POST("/accounts/:id/referrals/refresh", h.Admin.OpenAIOAuth.RefreshReferrals)
 		openai.POST("/accounts/:id/referrals/invite", h.Admin.OpenAIOAuth.SendReferralInvite)
+	}
+}
+
+func registerPerchOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	perch := admin.Group("/perch")
+	{
+		perch.POST("/auth-url", h.Admin.PerchOAuth.GenerateAuthURL)
+		perch.POST("/exchange-code", h.Admin.PerchOAuth.ExchangeCode)
 	}
 }
 

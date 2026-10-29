@@ -1,21 +1,6 @@
 export default {
     accounts: {
-      perch: {
-        sessionLabel: 'Perch CLI session JSON (optional)',
-        sessionPlaceholder: 'accessToken … refreshToken … expiresAt …',
-        sessionHint: 'Paste the contents of ~/.perch/cli-auth-session.json to fill the fields below in one step.',
-        accessToken: 'Supabase access token',
-        refreshToken: 'Supabase refresh token',
-        refreshTokenHint: 'The adapter rotates this token on every refresh and writes the new value back to the account.',
-        appUrl: 'Perch app URL',
-        limits:
-          'Perch issues no API key: the account runs on the Perch session and serves /v1/chat/completions only; /v1/responses answers unsupported_protocol.',
-        accessTokenRequired: 'Paste a Perch access token',
-        keepStoredToken: 'Leave empty to keep the stored token',
-        editSessionHint:
-          'Leave both token fields empty to keep the stored session. To replace it, paste the access token and refresh token from one fresh CLI login; the adapter rotates the refresh token on every refresh.',
-        tokenPairRequired: 'Fill both the access token and the refresh token, or leave both empty'
-      },
+
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',
@@ -1235,6 +1220,28 @@ export default {
       },
       // OAuth flow
       oauth: {
+      perch: {
+        loginProvider: 'Sign in with',
+        title: 'Perch Account Authorization',
+        followSteps: 'Follow these steps to authorize your Perch account:',
+        step1GenerateUrl: 'Generate the Perch login URL',
+        generateAuthUrl: 'Generate Login URL',
+        generating: 'Generating…',
+        step2OpenUrl: 'Open the URL and sign in with Google or GitHub',
+        openUrlDesc:
+          'Open the login URL in a new tab and sign in with the provider your Perch account uses.',
+        step3EnterCode: 'Paste the callback URL',
+        authCodeDesc:
+          'Perch sends the browser back to http://127.0.0.1:45999/callback?code=… — nothing listens on that port, so the page shows a connection error. Copy the whole address from the address bar and paste it below:',
+        authCode: 'Callback URL',
+        authCodePlaceholder: 'http://127.0.0.1:45999/callback?code=…',
+        authCodeHint: 'The authorization code stays in the address bar even though the page failed to load.',
+        importantNotice:
+          'The page after sign-in fails to load on purpose: 127.0.0.1:45999 is the loopback address the Perch CLI uses, and the code lives in the address bar. Copy the whole URL.',
+        failedToGenerateUrl: 'Failed to generate the Perch login URL',
+        failedToExchange: 'Perch rejected the callback URL',
+        missingCode: 'Paste the callback URL from the browser address bar'
+      },
         title: 'Claude Account Authorization',
         authMethod: 'Authorization Method',
         manualAuth: 'Manual Authorization',

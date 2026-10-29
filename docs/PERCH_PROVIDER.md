@@ -4,12 +4,15 @@ Perch has no API keys: the official CLI, Desktop app and web app all authenticat
 
 ## Adding an account in the admin UI
 
-1. Create a group whose platform is `Perch` (Groups -> New group), so the OpenAI gateway scheduler can select perch accounts.
-2. Accounts -> Create account -> pick `Perch` in the platform row.
-3. Either paste the whole `~/.perch/cli-auth-session.json` into the session field, or fill the access token, refresh token and app URL by hand. The form derives `expires_at` from the access token's `exp` claim, so the adapter refreshes before the token lapses.
-4. Create. The credential map sent to the API is `access_token`, `refresh_token`, `app_url`, `expires_at`; the adapter rewrites `refresh_token`/`expires_at` whenever Perch rotates the session.
+1. Accounts -> Create account -> pick `Perch` in the platform row.
+2. Choose the sign-in provider the Perch account uses (Google or GitHub) and press **Next**.
+3. Press **Generate Login URL**. The admin API asks Perch for its auth config, builds the same authorization URL the official CLI builds and returns it; the flow panel shows it.
+4. Open the URL and sign in. The browser lands on `http://127.0.0.1:45999/callback?code=…`. That page shows a connection error on purpose: nothing listens on that port outside the CLI. The authorization code is in the address bar.
+5. Copy the whole address, paste it into **Authorization Code**, press **Complete Authorization**. The server exchanges the code with PKCE, creates the account and shows it in the account list.
 
-Pasting a session keeps a copy of the refresh token that the CLI on the source machine still holds; the first refresh by either side rotates the token and the other side's copy becomes stale, and Supabase reuse detection can revoke the whole session. Log in once with `perch login` for sub2api, paste that session, and stop using it in the CLI.
+The credential map stored on the account is `access_token`, `refresh_token`, `app_url`, `expires_at`; the adapter rewrites `refresh_token`/`expires_at` whenever Perch rotates the session. No file from the Perch CLI, and no token typed by hand, is part of this flow: the form carries no token, session-JSON or app-URL field. `app_url` is a server setting (`PERCH_APP_URL`, default `https://app.perchai.app`).
+
+Groups work exactly like the other OAuth platforms: the account joins whatever groups the form selects, and nothing is created implicitly.
 
 ### Editing an account
 
@@ -19,28 +22,63 @@ Editing never writes `api_key`, `base_url`, `upstream_billing_probe_enabled` or 
 
 The account answers `/v1/chat/completions` only. `/v1/responses` returns `unsupported_protocol` with HTTP 400, and the model name in a request is a Perch tier alias or catalogue id, not an OpenAI model name.
 
+### Re-authorizing an existing account
+
+Accounts created from an older session file keep working untouched: the adapter only needs the stored credentials. When the session is revoked upstream, open the account's **Re-authorize** action, run the same login steps, and the account's credentials are replaced instead of a second account being created.
+
+### Why the callback is pasted instead of caught
+
+Measured 2026-10-29 against the live Supabase project Perch uses (`GET {appUrl}/api/perch-terminal/cli-auth/config`):
+
+| redirect_to | accepted |
+| --- | --- |
+| `http://127.0.0.1:<port>/callback` (random or fixed port) | yes, the code arrives in the address bar |
+| `https://<sub2api host>/...` | no, Supabase silently falls back to the Perch site URL |
+
+The redirect allowlist belongs to Perch's Supabase project, so sub2api cannot add its own host. Loopback is the only destination that receives the code, which is why the flow asks for the pasted callback URL — the same shape the OpenAI/Codex loopback flow uses. The port is fixed at 45999 so the address the operator has to recognise does not change between logins.
+
 ### Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `perch_credentials_missing` | account row has no `access_token` | re-paste the session (the CLI session rotates; an old copy stops refreshing) |
-| 401 `not_authenticated` twice in a row | refresh token already consumed elsewhere | run `perch login` again and paste the fresh session |
+| `perch_credentials_missing` | account row has no `access_token` | run the login steps again for that account |
+| 401 `not_authenticated` twice in a row | session revoked upstream, or refreshed by another client with the same token | re-authorize the account |
 | 403 `perch_surface_required` | the model call did not lead with the surface system prompt | adapter bug, not a credential problem: check `surfacePromptText` and its floor test |
 | 429 `usage_limit_reached` / `turn_rate_limited` | Perch plan or ticket rate limit | wait for `Retry-After`, or use another perch account in the group |
+| `PERCH_OAUTH_SESSION_NOT_FOUND` | the login session expired (10 min) or was already used | start the login again |
+| `PERCH_OAUTH_SESSION_FORBIDDEN` | the login was started by another admin | start your own login; sessions are bound to the admin who began them |
+| `PERCH_OAUTH_CALLBACK_ERROR` | the provider returned `error=access_denied` (consent cancelled) | sign in again and allow access |
+| Perch web app answers `Access blocked` | Perch banned the account for serving another app or tool | the ban is vendor-side: the login still completes, but `turn-ticket` answers `401 not_authenticated` until Perch lifts it |
 
 ## Account credentials
 
-Store the CLI session verbatim; the adapter owns refresh and writes rotated tokens back.
+The adapter owns the session: it refreshes and writes rotated tokens back to the account row.
 
 | Field | Meaning |
 | --- | --- |
-| `appUrl` | Perch app origin, default `https://app.perchai.app` |
+| `appUrl` | Perch app origin, from `PERCH_APP_URL`, default `https://app.perchai.app` |
 | `accessToken` | Supabase access token (JWT) |
 | `refreshToken` | Supabase refresh token, rotated on every refresh |
 | `expiresAt` | Unix seconds; refresh when less than 90s remain |
 | `userId`, `email` | Account identity for logging and attribution |
 
-The session file written by `perch login` is `~/.perch/cli-auth-session.json` (mode 0600, or the macOS keychain entry `app.perchai.cli-auth`). `LoadDefaultCredentials` reads it; never copy a session into the repository or a migration.
+Sessions come from the login endpoints below, not from a file on disk. Keep any exported session out of the repository, a migration and a log.
+
+## Login endpoints
+
+`POST /api/v1/admin/perch/auth-url` (admin) — body `{provider?, app_url?, redirect_uri?}`, response `{auth_url, session_id, provider, providers, app_url, redirect_uri, expires_in}`. The provider must be one Perch advertises in `cli-auth/config` (`google`, `github`); the default is the first advertised one. `code_verifier` stays server-side, in a session store with a 10-minute TTL that is single-use and bound to the admin who started it (Redis through `redissession` when the deployment has it, process memory otherwise).
+
+`POST /api/v1/admin/perch/exchange-code` (admin) — body `{session_id, callback_url | code}`, response `{access_token, refresh_token, app_url, expires_at, user_id, email}`. The callback URL or a bare code is accepted; `error`/`error_description` in the callback is reported as `oauth_callback_error` before any network call. The verifier is consumed before the exchange, so a second attempt with the same `session_id` answers `PERCH_OAUTH_SESSION_NOT_FOUND`.
+
+Wire shape, pinned by `login_test.go`:
+
+```
+GET {supabaseUrl}/auth/v1/authorize?provider=<google|github>&redirect_to=<encoded>&code_challenge=<S256>&code_challenge_method=s256[&prompt=select_account]
+POST {supabaseUrl}/auth/v1/token?grant_type=pkce   {"auth_code":"…","code_verifier":"…"}
+    headers: content-type: application/json, apikey: <publishable key>, authorization: Bearer <publishable key>
+```
+
+`prompt=select_account` is sent for Google only, matching the CLI. The publishable key is fetched per login from `cli-auth/config`, never hardcoded.
 
 ## Flow
 
@@ -184,6 +222,19 @@ Measured 2026-10-29 through the `sub2api` container serving `/v1/chat/completion
 | `stream:true` | 200 | 0.981 s | 1.127 s | `pong` in `chat.completion.chunk` frames, ends with `[DONE]` | reported by the `done` event | same turn path |
 
 The upstream model that answered comes from Perch's `done` event, not from the request: the request named `wandb-kimi-k2-6` and Perch routed the turn to `deepseek/deepseek-v4.1-flash`.
+
+## Login proof status
+
+The login endpoints are covered by fixtures and a local Supabase mock, not by a live call:
+
+| Check | Where it is proven |
+| --- | --- |
+| authorize URL shape (parameters, order, `prompt=select_account` only for Google) | `login_fixture_test.go` compares against `testdata/login/authorize-{google,github}.txt` byte for byte |
+| PKCE exchange request (method, path, `grant_type`, headers, body) | `testdata/login/exchange-pkce.txt`, byte for byte |
+| used code, expired code | local mock answers `invalid flow state` / `invalid_grant`; the service maps them and no token reaches the message |
+| single use, admin binding, TTL | store and service tests, plus a mutation control on the delete |
+
+Not measured live: a real browser login through Perch and one gateway request with credentials from this flow. The two accounts used for the earlier rounds were banned by the vendor (`Access blocked` in the Perch web app), so the last mile needs an unbanned account. Procedure when one exists: start the login from the account form, complete it in a browser, confirm the account row carries `access_token`/`refresh_token`/`expires_at`, then call `/v1/chat/completions` twice (stream and non-stream) through a `perch` group and record status, TTFB, total and the model from the `done` event.
 
 ## Tests
 

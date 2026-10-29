@@ -1,0 +1,6 @@
+POST /auth/v1/token?grant_type=pkce
+content-type: application/json
+apikey: FIXTURE_ANON_KEY
+authorization: Bearer FIXTURE_ANON_KEY
+
+{"auth_code":"FIXTURE_CODE","code_verifier":"FIXTURE_VERIFIER"}
