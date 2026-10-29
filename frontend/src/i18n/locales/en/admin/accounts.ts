@@ -1,5 +1,17 @@
 export default {
     accounts: {
+      perch: {
+        sessionLabel: 'Perch CLI session JSON (optional)',
+        sessionPlaceholder: 'accessToken … refreshToken … expiresAt …',
+        sessionHint: 'Paste the contents of ~/.perch/cli-auth-session.json to fill the fields below in one step.',
+        accessToken: 'Supabase access token',
+        refreshToken: 'Supabase refresh token',
+        refreshTokenHint: 'The adapter rotates this token on every refresh and writes the new value back to the account.',
+        appUrl: 'Perch app URL',
+        limits:
+          'Perch issues no API key: the account runs on the Perch session and serves /v1/chat/completions only; /v1/responses answers unsupported_protocol.',
+        accessTokenRequired: 'Paste a Perch access token'
+      },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',

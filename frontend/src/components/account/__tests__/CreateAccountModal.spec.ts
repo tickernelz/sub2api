@@ -1041,3 +1041,72 @@ describe('CreateAccountModal Vertex API key auth', () => {
     expect(wrapper.find('[data-testid="vertex-api-key-input"]').exists()).toBe(false)
   })
 })
+
+describe('CreateAccountModal Perch session accounts', () => {
+  const jwt = (exp: number) => {
+    const encode = (value: unknown) =>
+      btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    return `${encode({ alg: 'HS256' })}.${encode({ exp, sub: 'perch-user' })}.signature`
+  }
+
+  beforeEach(() => {
+    authIsSimpleMode.value = true
+    createAccountMock.mockReset().mockResolvedValue({ id: 7, platform: 'perch', type: 'apikey' })
+    probeUpstreamBillingMock.mockReset().mockResolvedValue({})
+    syncUpstreamModelsMock.mockReset().mockResolvedValue({ models: [], metadata: {} })
+    showWarningMock.mockReset()
+    resetPlatformCatalog()
+  })
+
+  it('selects Perch from the platform catalog and shows the session fields only', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Perch')
+
+    expect(wrapper.find('[data-testid="perch-credentials"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="perch-access-token"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="perch-refresh-token"]').exists()).toBe(true)
+    expect(wrapper.find('form#create-account-form input[placeholder="https://api.anthropic.com"]').exists()).toBe(
+      false
+    )
+    wrapper.unmount()
+  })
+
+  it('derives the session expiry from the pasted CLI session and submits Perch credentials', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Perch')
+    const exp = 1893456000
+    await wrapper.get('[data-testid="perch-session-input"]').setValue(
+      JSON.stringify({ accessToken: jwt(exp), refreshToken: 'refresh-token', appUrl: 'https://app.perchai.app' })
+    )
+    await wrapper.get('[data-testid="perch-session-input"]').trigger('change')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Perch work')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      name: 'Perch work',
+      platform: 'perch',
+      type: 'apikey',
+      credentials: {
+        access_token: jwt(exp),
+        refresh_token: 'refresh-token',
+        app_url: 'https://app.perchai.app',
+        expires_at: exp
+      }
+    })
+    wrapper.unmount()
+  })
+
+  it('refuses to submit a Perch account without an access token', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Perch')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Perch empty')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
+
