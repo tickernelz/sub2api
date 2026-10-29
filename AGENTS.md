@@ -318,6 +318,7 @@ Replay anchors:
 - `backend/internal/domain/constants.go`, `backend/internal/domain/platforms.go`
 - `backend/internal/service/domain_constants.go`
 - `docs/PERCH_PROVIDER.md`, the `.gitignore` allowlist row, and the `.gitattributes` CRLF rule
+- `frontend/src/api/__tests__/settings.authSourceDefaults.spec.ts` — carries the `perch` entry in the platform quota map; a replay that starts from upstream drops the entry and the spec fails
 - `backend/go.mod` — `golang.org/x/sys` direct, already in the module graph
 
 Known replay hazards:
@@ -346,6 +347,8 @@ A `git reset --hard wei-shaw/main` plus a keep-set replay restores only what the
 | --- | --- | --- |
 | `.github/workflows/cla.yml` | Deleted on purpose. Upstream still ships it, so a reset reinstates it; the upstream guard (`github.repository == 'Wei-Shaw/sub2api'`) makes it inert in the fork, yet it still queues a skipped `CLA Assistant` run on every PR | `git rm .github/workflows/cla.yml` |
 | `AGENTS.md` | Fork-only doc, untracked and `.gitignore`d after the reset | `git checkout main -- AGENTS.md` then `git add -f AGENTS.md` |
+| `frontend/package.json` + `frontend/pnpm-lock.yaml` | `vue-i18n` is `^11.4.14` here while upstream still pins `^9.14.5`; 9.x carries GHSA-83rm-6c8r-g728 with no patch inside that major, so a replay would turn the `frontend-security` job red | Re-apply the two specifiers onto upstream's manifest instead of restoring the file, because upstream bumped `frontend/package.json` six times since 2026-07-29 and four of those were security updates a wholesale checkout would revert: `pnpm --dir frontend add vue-i18n@^11.4.14 && pnpm --dir frontend add -D @intlify/message-compiler@^11.4.14`, then `pnpm audit --prod`. Delete this row once upstream pins `^11.4.14`. |
+| `frontend/src/components/payment/__tests__/SubscriptionPlanCard.spec.ts` | Asserts the rendered plan strings; v11 resolves real messages where v9 returned raw keys, so the replayed upstream version fails 3 of its 9 assertions | `git checkout main -- <path>` |
 | `frontend/src/views/admin/__tests__/AccountsView.openaiReauthWarning.spec.ts` | Adapted to upstream `df64b5f36`'s `anchorRect` prop contract in a housekeeping commit, so the replay reinstates the stale `position:` version and the CI-critical spec fails | `git checkout main -- <path>` |
 
 Symptom when this is missed: the keep-set replays 15/15 with identical patch IDs, every backend gate is green, and `make test-frontend` still fails on a fork spec. Before re-deriving the fix, `grep` the probe's copy for the current upstream prop names — if it has the old ones, the file simply was not carried.
