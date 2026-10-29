@@ -293,20 +293,26 @@ func TestParityRetryBudgetStaysOnOneAccount(t *testing.T) {
 }
 
 func TestParityGateSpacesRequestStarts(t *testing.T) {
-	server := newParityLockServer(t)
-	server.defaults(t)
-	server.stream("/api/perch-terminal/model-call", parityDoneStream)
-	client := lockClient(server, WithMinRequestInterval(40*time.Millisecond))
+	release := make(chan struct{})
+	close(release)
+	probe := &gateProbeDoer{release: release}
+	doer := newGatedDoer(probe, newAccountGate(40*time.Millisecond, 2))
 
-	if _, err := client.CallModel(context.Background(), ModelCallRequest{Lane: LaneChat}); err != nil {
-		t.Fatalf("CallModel: %v", err)
+	for i := 0; i < 4; i++ {
+		resp, err := doer.Do(&http.Request{URL: &url.URL{Scheme: "http", Host: "probe"}})
+		if err != nil {
+			t.Fatalf("Do %d: %v", i, err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
 	}
-	server.mu.Lock()
-	starts := make([]time.Time, 0, len(server.requests))
-	for _, entry := range server.requests {
-		starts = append(starts, entry.at)
+
+	probe.mu.Lock()
+	starts := append([]time.Time(nil), probe.starts...)
+	probe.mu.Unlock()
+	if len(starts) != 4 {
+		t.Fatalf("wire requests = %d, want 4", len(starts))
 	}
-	server.mu.Unlock()
 	for i := 1; i < len(starts); i++ {
 		if gap := starts[i].Sub(starts[i-1]); gap < 35*time.Millisecond {
 			t.Fatalf("gap %d = %v, want at least the configured 40ms spacing", i, gap)
@@ -315,15 +321,26 @@ func TestParityGateSpacesRequestStarts(t *testing.T) {
 }
 
 type gateProbeDoer struct {
-	mu      sync.Mutex
-	starts  []time.Time
-	release chan struct{}
+	mu       sync.Mutex
+	starts   []time.Time
+	inflight int
+	peak     int
+	release  chan struct{}
 }
 
 func (d *gateProbeDoer) Do(req *http.Request) (*http.Response, error) {
 	d.mu.Lock()
 	d.starts = append(d.starts, time.Now())
+	d.inflight++
+	if d.inflight > d.peak {
+		d.peak = d.inflight
+	}
 	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		d.inflight--
+		d.mu.Unlock()
+	}()
 	select {
 	case <-d.release:
 	case <-req.Context().Done():
@@ -381,26 +398,43 @@ func TestParityGateSpacesQueuedCallers(t *testing.T) {
 }
 
 func TestParityGateCapsConcurrentExchanges(t *testing.T) {
-	server := newParityLockServer(t)
-	server.defaults(t)
-	server.stream("/api/perch-terminal/model-call", parityDoneStream)
-	server.hold = 120 * time.Millisecond
-	client := lockClient(server)
+	probe := &gateProbeDoer{release: make(chan struct{})}
+	doer := newGatedDoer(probe, newAccountGate(0, DefaultMaxConcurrentCalls))
 
 	var wg sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			stream, err := client.OpenModelCall(context.Background(), ModelCallRequest{Lane: LaneChat})
+			resp, err := doer.Do(&http.Request{URL: &url.URL{Scheme: "http", Host: "probe"}})
 			if err != nil {
 				return
 			}
-			_ = stream.Close()
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
 		}()
 	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		probe.mu.Lock()
+		settled := probe.inflight
+		probe.mu.Unlock()
+		if settled >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("only %d requests were in flight", settled)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	close(probe.release)
 	wg.Wait()
-	if peak := server.peakConcurrency(); peak > 2 {
+
+	probe.mu.Lock()
+	peak := probe.peak
+	probe.mu.Unlock()
+	if peak > 2 {
 		t.Fatalf("peak concurrency = %d, want at most 2, the CLI race2 width", peak)
 	}
 }
