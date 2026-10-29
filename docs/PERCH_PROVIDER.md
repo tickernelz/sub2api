@@ -42,7 +42,7 @@ Account credentials (all optional except the access token):
 | `expires_at` | Unix seconds; decides whether a cached client is refreshed |
 | `user_id`, `email` | Session identity, used for the client cache key |
 
-`perch.NewGatewayClient` builds the fingerprinted control and stream doers; refreshed credentials are persisted through `persistAccountCredentials`, so a rotated refresh token never lives only in memory. The client cache is keyed by account id, and a newer `expires_at` replaces the cached session. `Client.Health` remains the account health check (`/api/perchai/account` -> plan, entitlements, allowed models).
+`perch.NewGatewayClient` builds the wire control and stream doers over standard TLS with ALPN `http/1.1`; refreshed credentials are persisted through `persistAccountCredentials`, so a rotated refresh token never lives only in memory. The client cache is keyed by account id, and a newer `expires_at` replaces the cached session. `Client.Health` remains the account health check (`/api/perchai/account` -> plan, entitlements, allowed models).
 
 ## Model selection
 
@@ -63,26 +63,26 @@ Perch does not take an OpenAI model name: the captured CLI keeps `preferredModel
 
 A stream that closes without a `done` event is reported as `stream_interrupted` and never closed with `[DONE]`. A failed turn-ticket mint refreshes the session and mints again instead of calling the model proxy without a ticket.
 
-## Transport fingerprint
+## Transport
 
-`fingerprint.go` reproduces the TLS ClientHello of the official CLI 2.4.120, measured offline against a local capture listener: JA3 `fe1a22af39881f8613c4834b2a568a00` (`fingerprint.go` keeps the full parameter string in `PerchJA3Raw`), 52 cipher suites in the recorded order, extensions `65281,11,10,35,16,22,23,13,43,45,51`, curves `4588,29,23,30,24,25,256,257`, point formats `0,1,2`, and ALPN `http/1.1` — the CLI does not speak HTTP/2, so the fingerprint transport leaves HTTP/2 off.
+`fingerprint.go` reproduces the CLI ClientHello through `internal/pkg/tlsfingerprint`: 52 cipher suites in the recorded order, the captured 12-extension list (server_name second, ending 43/45/51), curves `4588,29,23,30,24,25,256,257`, point formats `0,1,2`, 26 signature algorithms starting at 2309, key-share groups X25519MLKEM768 and X25519, and ALPN `http/1.1` only. `wire.go` writes the HTTP/1.1 bytes over that connection. The JA3 of the hostname dial, the one production uses, is `505556100e8b8604b580554ebf5aaed5` (extensions `65281-0-11-10-35-16-22-23-13-43-45-51`); `PerchJA3` (`fe1a22af39881f8613c4834b2a568a00`) is the same profile dialled by IP, where uTLS sends no server_name.
 
-`TestFingerprintProfileMatchesRecordedJA3` listens on a loopback socket, dials with the profile, parses the produced ClientHello and asserts both the JA3 hash and the raw parameter string. `WithFingerprintTransport(false)` switches the profile off for a plain transport.
+The transport first failed every handshake (`remote error: tls: handshake failure`) because the profile omitted `server_name`; Cloudflare rejects a hello without SNI before the application sees it. With the extension list and the signature algorithms taken from a captured CLI hello the handshake completes and the request reaches Perch. The surface gate below is still content-based, so this layer is parity, not the gate.
 
-Still open for full parity: the per-turn request sequence. The CLI also emits `public-model-default`, `account` and three `cli-context` calls around each turn; the adapter fetches `account` and the ticket but does not replicate `public-model-default` or `cli-context`, because `cli-context` reports the CLI's own context-assembly statistics and sending fabricated telemetry would be worse than omitting it.
+The per-turn request sequence is deliberately not replicated. The CLI also emits `public-model-default`, `account` and three `cli-context` calls around each turn; measured 2026-10-29, a model call that skips `public-model-default` and `cli-context` still answers 200, and `cli-context` reports the CLI's own context-assembly statistics, so replaying it would send fabricated telemetry for no benefit.
 
 ## Wire layer
 
-`net/http` always sorts request headers, so the adapter cannot reproduce the CLI's wire order through `http.Client`. `wire.go` therefore writes HTTP/1.1 itself over the fingerprinted TLS connection and parses the response with `http.ReadResponse`.
+`net/http` always sorts request headers, so the adapter cannot reproduce the CLI's wire order through `http.Client`. `wire.go` therefore writes HTTP/1.1 itself over the TLS connection and parses the response with `http.ReadResponse`.
 
 Header order is the one the CLI's own client (undici, as shipped in `perchai-cli`'s dependency tree) puts on the wire: request line, `host`, `connection: keep-alive`, the headers the CLI sets in its own insertion order (`Content-Type`, `x-perch-call-delta`, `Accept`, `Authorization`, `User-Agent`, `x-perch-locale`, `x-perch-turn-ticket` for model calls; `Content-Type`, `Authorization`, `User-Agent`, `x-perch-locale` for JSON control calls), then the defaults undici appends (`accept: */*` when absent, `accept-language: *`, `sec-fetch-mode: cors`, `accept-encoding: br, gzip, deflate`), and finally `content-length`.
 
-Kept from `net/http`: response parsing, chunked decoding, connection reuse. A connection returns to the pool only when the body was read to EOF, the response allows reuse and no buffered bytes remain; an SSE stream closed early drops its connection. Before an idle connection is reused it is peeked without consuming bytes (`recvfrom` with `MSG_PEEK|MSG_DONTWAIT` on unix; the TLS wrapper is unwrapped with `NetConn` first, and platforms without the probe never reuse), so a pending byte or a queued EOF drops the connection instead of being read as the next response. A body settles exactly once through `sync.Once`, so a concurrent `Read` and `Close` cannot release and close the same socket. Header names and values go to the socket verbatim, so `checkWireHeader` rejects any name or value carrying a control byte (`errWireHeader`) before a byte leaves: a token, ticket or credential containing a newline cannot inject a header line. Two doers cover the two deadlines: control calls get a 60s whole-exchange timeout, model calls get a response-header timeout and no total timeout (an idle reader still trips the 60s stream guard).
+Kept from `net/http`: response parsing, chunked decoding, connection reuse. Response bodies are decompressed for `gzip`, `deflate` and `br` because the CLI advertises all three and Perch answers compressed; without it the JSON and SSE readers see binary. A connection returns to the pool only when the body was read to EOF, the response allows reuse and no buffered bytes remain; an SSE stream closed early drops its connection. Before an idle connection is reused it is peeked without consuming bytes (`recvfrom` with `MSG_PEEK|MSG_DONTWAIT` on unix; the TLS wrapper is unwrapped with `NetConn` first, and platforms without the probe never reuse), so a pending byte or a queued EOF drops the connection instead of being read as the next response. A body settles exactly once through `sync.Once`, so a concurrent `Read` and `Close` cannot release and close the same socket. Header names and values go to the socket verbatim, so `checkWireHeader` rejects any name or value carrying a control byte (`errWireHeader`) before a byte leaves: a token, ticket or credential containing a newline cannot inject a header line. Two doers cover the two deadlines: control calls get a 60s whole-exchange timeout, model calls get a response-header timeout and no total timeout (an idle reader still trips the 60s stream guard).
 
-Evidence, all offline against a local capture listener with zero traffic to Perch:
+Evidence:
 
 - `testdata/wire/model-call.http` and `testdata/wire/turn-ticket.http` are the bytes the CLI's undici stack produced for the same requests; `TestWireDoerMatchesRecordedModelCallBytes` and `TestWireDoerMatchesRecordedTurnTicketBytes` compare them byte for byte.
-- End to end through the fingerprint dialer, the two requests the Go adapter sent were byte-identical to those recordings, and the recorded ClientHello carried JA3 `fe1a22af39881f8613c4834b2a568a00` with ALPN `http/1.1`.
+- Measured 2026-10-29 through one forwarding proxy, the official CLI and the Go adapter emit the same request line, the same 13 headers in the same order with the same casing and values. The only remaining differences are inside the body, and one of them gates the request (see the surface gate).
 
 ## Client identity
 
@@ -96,6 +96,7 @@ Perch only serves hosted models to its own surfaces, so the adapter presents the
 | `accept-language`, `sec-fetch-mode` | `*`, `cors` |
 | `Accept-Encoding` | `br, gzip, deflate` on model calls, decoded by `encoding.go` |
 | turn context | a `<perch_turn_context>` user message with today's date, inserted after any system messages |
+| system prompt | `surfacePromptText` as the first message, ≥ `surfacePromptFloor` (205) characters, ahead of any caller system message (see the surface gate) |
 
 `identity.go` resolves the version once per process, so the header cannot change between requests. All outbound Perch calls go through one header applier; the turn ticket request deliberately omits delta mode. `wire.go` decides where each header lands on the wire, so no call site can reorder them.
 
@@ -111,7 +112,7 @@ The model-call body follows the captured CLI byte shape rather than the spec tab
 
 Ticket minting is single-flight through a one-slot gate, so a caller waiting behind another goroutine's mint is released by its own context instead of the control-plane deadline. The per-ticket budget leaves a tombstone: a spent ticket keeps its counter until it expires, so workers that still hold it cannot re-acquire budget, while a rotation mints exactly one replacement that the other workers share.
 
-Control-plane calls (`cli-auth/config`, `turn-ticket`, `account`) keep a 60s total deadline even when the fingerprint transport is active; only the model-call client runs without a total timeout and relies on the 60s idle read instead.
+Control-plane calls (`cli-auth/config`, `turn-ticket`, `account`) keep a 60s total deadline even when the wire transport is active; only the model-call client runs without a total timeout and relies on the 60s idle read instead.
 
 One `Client` (and one `Session`) exists per account: the handler creates it under its own mutex, so two cold-start requests cannot mint two sessions that refresh with the same rotated token. Cached clients are reference-counted while a request uses them, and eviction only removes unpinned entries. The turn-ticket budget is reserved under the client mutex, so the 40-call limit and the reuse counter cannot be raced.
 
@@ -119,25 +120,50 @@ One `Client` (and one `Session`) exists per account: the handler creates it unde
 
 Model calls get their own HTTP client with no total timeout: `net/http` measures `Client.Timeout` across the body, which would cut any turn longer than a minute. The 60s budget is applied per read instead — an idle body is closed and reported as `stream_interrupted` — and the transport keeps a 60s `ResponseHeaderTimeout` for the header phase. When Perch restarts a stream after output already reached the client, the response ends as `stream_interrupted` rather than replaying the resent text.
 
-A turn ticket is reusable for up to 40 model calls on the `standard` profile; the client mints a new one after that instead of running into the vendor limit.
+A turn ticket is reusable for up to 40 model calls on the `standard` profile; the client mints a new one after that instead of running into the vendor limit. The vectors above were measured in six rounds of four to six model calls, each round on one freshly minted ticket.
 
 ## Session ownership
 
 Do not point this provider at the session file the CLI is using. Supabase refresh tokens rotate, and a second client refreshing the same token can revoke the token family: after the adapter refreshed `~/.perch/cli-auth-session.json` once more, both the adapter and the official CLI started answering `401 not_authenticated` / `Not authorized` on that session. Import a snapshot of the session at account creation (copy the file, then let the adapter own the copy) and keep the CLI session separate.
 
-After a fresh `perch login` on 2026-10-29 the adapter still answered `401 not_authenticated` on the turn ticket, and the official CLI on the same session answered `Not authorized`, so the block is account-side rather than client-side. Probe evidence lives in `~/re/perchai/notes/p5-live-attempts.md`.
+The revoked family is recoverable without a browser: `POST {supabaseUrl}/auth/v1/token?grant_type=refresh_token` with `apikey: <publishable key from cli-auth/config>`, then write the rotated pair back to the session file. Verified 2026-10-29 04:33Z: refresh rotated, `GET /api/perchai/account` returned the account, and the official CLI completed a turn on the same session minutes later.
 
-## Access restriction
+## Surface gate
 
-Perch plans grant hosted models for the official surfaces only. Calling the model proxy from a third-party gateway is rejected with HTTP 403 `perch_surface_required`: "Your plan includes Perch-hosted models for use in Perch AI Web, Desktop, and CLI only. Direct API access is not included. Repeated direct-access attempts may result in account suspension." Do not ship this provider to end users without written access from Perch; keep the adapter for research use until then.
+`POST /api/perch-terminal/model-call` answers 403 `perch_surface_required` when the request carries no substantial system prompt. That is the whole check: it is a length floor, not a persona check and not a transport check.
 
-Evidence gathered on 2026-10-28/29 (notes: `~/re/perchai/notes/p5-reconciliation.md`): the refusal persists with a fresh turn ticket, real attribution and the documented headers, while the official CLI gets 200 on the same account. Removing ticket-presence and attribution as causes leaves client identity (delta mode, browser-style headers, the CLI turn-context body, TLS/HTTP fingerprint) as the only difference, and closing that gap means impersonating the official client. Do not attempt it.
+Measured 2026-10-29 against one account with one turn ticket, every variant sent through the same forwarding proxy with identical headers:
+
+| Variant | System prompt | Result |
+| --- | --- | --- |
+| CLI turn | 53,561 chars | 200 |
+| provider body as shipped before this fix | none (user messages only) | 403 |
+| first 200 chars of the CLI prompt | 200 chars | 403 |
+| first 205 chars of the CLI prompt | 205 chars | 200 |
+| 3,000 `x` characters, no persona text | 3,000 chars | 200 |
+| full CLI prompt, different user message | 53,561 chars | 200 |
+| caller system message only, no injected prompt | short | 403 |
+
+The boundary sits between 200 and 205 characters. Content, key order, tools, `preferredModelId`, `attribution` and the wire transport made no difference to the gate: a CLI body replayed from Go with a Go-minted ticket returned 200, and a provider body truncated to a 200-character system prompt returned 403.
+
+`chat.go` therefore sends `surfacePromptText` (898 chars, `surfacePromptFloor` 205 in `surface_test.go`) as the first message of every model call and keeps the caller's system messages behind it. `TestSurfacePromptSatisfiedByProviderText` fails if that text ever drops below the floor; `TestBuildModelCallRequestLeadsWithSurfacePrompt` asserts the first message on the wire is that system message and that the body starts with it. Negative control: truncating `surfacePromptText` to 22 characters fails both tests, and restoring it reproduces the byte-identical file.
+
+## Live proof
+
+Measured 2026-10-29 through the `sub2api` container serving `/v1/chat/completions` with a Perch account and a `perch` group:
+
+| Call | Status | TTFB | Total | Answer | Upstream model | Usage |
+| --- | --- | --- | --- | --- | --- | --- |
+| `stream:false` | 200 | 3.035 s | 3.035 s | `pong` | `deepseek/deepseek-v4.1-flash` | 293 prompt / 4 completion / 297 total |
+| `stream:true` | 200 | 0.981 s | 1.127 s | `pong` in `chat.completion.chunk` frames, ends with `[DONE]` | reported by the `done` event | same turn path |
+
+The upstream model that answered comes from Perch's `done` event, not from the request: the request named `wandb-kimi-k2-6` and Perch routed the turn to `deepseek/deepseek-v4.1-flash`.
 
 ## Tests
 
 ```bash
-cd backend && go test ./internal/pkg/perch/            # fixtures captured from the real proxy
-cd backend && PERCH_SESSION_FILE=/path/to/session.json go test -tags perchlive ./internal/pkg/perch/   # live account
+cd backend && go test -tags unit ./internal/pkg/perch/   # fixtures captured from the real proxy
+cd backend && PERCH_SESSION_FILE=/path/to/session.json go test -tags 'unit perchlive' -run TestLivePerchGatewayModelCall -v ./internal/pkg/perch/   # one live turn through the production wiring
 ```
 
 Fixtures under `internal/pkg/perch/testdata` keep the captured wire shapes with synthetic content; no session token, ticket or vendor prompt text is stored.

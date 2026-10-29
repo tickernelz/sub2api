@@ -53,7 +53,7 @@ var wireDefaultHeaders = []wireDefaultHeader{
 	{"accept-encoding", "br, gzip, deflate"},
 }
 
-// WireDoer speaks HTTP/1.1 over the CLI fingerprint with the header order the official client emits.
+// WireDoer speaks HTTP/1.1 with the header order the official client emits.
 type WireDoer struct {
 	dial    DialFunc
 	plain   DialFunc
@@ -182,6 +182,18 @@ func (w *WireDoer) exchange(req *http.Request, conn net.Conn, addr string, body 
 	if err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("perch: wire read response: %w", err)
+	}
+	decoded, decodeErr := decodeResponseBody(resp)
+	if decodeErr != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("perch: wire decode response: %w", decodeErr)
+	}
+	if decoded != resp.Body {
+		resp.Body = decoded
+		resp.Header.Del("Content-Encoding")
+		resp.Header.Del("Content-Length")
+		resp.ContentLength = -1
+		resp.Uncompressed = true
 	}
 	if w.control == 0 {
 		if err := conn.SetDeadline(time.Time{}); err != nil {

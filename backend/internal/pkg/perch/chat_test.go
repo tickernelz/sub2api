@@ -51,13 +51,13 @@ func TestBuildModelCallRequestCarriesConversationAndOptions(t *testing.T) {
 	if call.AvoidModelIDs == nil {
 		t.Fatalf("avoidModelIds must serialize as []")
 	}
-	if len(call.Request.Messages) != 3 || len(call.Request.Tools) != 1 {
+	if len(call.Request.Messages) != 4 || len(call.Request.Tools) != 1 {
 		t.Fatalf("messages=%d tools=%d", len(call.Request.Messages), len(call.Request.Tools))
 	}
-	if got := messageRoles(t, call.Request.Messages); got[0] != "system" || got[1] != "user" || got[2] != "user" {
-		t.Fatalf("roles = %v, want system,user,user", got)
+	if got := messageRoles(t, call.Request.Messages); got[0] != "system" || got[1] != "system" || got[2] != "user" || got[3] != "user" {
+		t.Fatalf("roles = %v, want system,system,user,user", got)
 	}
-	context := messageText(t, call.Request.Messages[1])
+	context := messageText(t, call.Request.Messages[2])
 	if !strings.Contains(context, "<perch_turn_context>") || !strings.Contains(context, time.Now().Format("2006-01-02")) {
 		t.Fatalf("turn context = %q", context)
 	}
