@@ -3,12 +3,16 @@
 package perch
 
 import (
+	"crypto/tls"
 	"net"
 
 	"golang.org/x/sys/unix"
 )
 
 func wireConnIdle(conn net.Conn) bool {
+	if tlsConn, ok := conn.(*tls.Conn); ok {
+		conn = tlsConn.NetConn()
+	}
 	tcp, ok := conn.(*net.TCPConn)
 	if !ok {
 		return false

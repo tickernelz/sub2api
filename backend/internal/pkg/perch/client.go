@@ -34,7 +34,7 @@ type Client struct {
 	now        func() time.Time
 
 	mu         sync.Mutex
-	mintMu     sync.Mutex
+	mintGate   chan struct{}
 	rotateMu   sync.Mutex
 	tickets    map[string]ticketEntry
 	ticketUses map[string]ticketUse
@@ -83,6 +83,7 @@ func NewClient(session *Session, opts ...ClientOption) *Client {
 		now:        time.Now,
 		tickets:    make(map[string]ticketEntry),
 		ticketUses: make(map[string]ticketUse),
+		mintGate:   make(chan struct{}, 1),
 	}
 	if session != nil {
 		c.http = session.http
@@ -197,14 +198,29 @@ func (c *Client) Account(ctx context.Context) (AccountInfo, error) {
 }
 
 // TurnTicket returns a cached ticket for the profile, minting a new one when stale.
+func (c *Client) lockMint(ctx context.Context) error {
+	select {
+	case c.mintGate <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *Client) unlockMint() {
+	<-c.mintGate
+}
+
 func (c *Client) TurnTicket(ctx context.Context, surface, profile string) (Ticket, error) {
 	if strings.TrimSpace(profile) == "" {
 		profile = DefaultProfile
 	}
 	key := surface + "|" + profile
 
-	c.mintMu.Lock()
-	defer c.mintMu.Unlock()
+	if err := c.lockMint(ctx); err != nil {
+		return Ticket{}, err
+	}
+	defer c.unlockMint()
 
 	c.mu.Lock()
 	entry, ok := c.tickets[key]
