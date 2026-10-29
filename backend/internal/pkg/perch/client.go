@@ -13,11 +13,13 @@ import (
 )
 
 const (
-	modelCallPath   = "/api/perch-terminal/model-call"
-	turnTicketPath  = "/api/perch-terminal/turn-ticket"
-	accountPath     = "/api/perchai/account"
-	ticketRenewSkew = 30 * time.Second
-	accountTTL      = 10 * time.Minute
+	modelCallPath          = "/api/perch-terminal/model-call"
+	turnTicketPath         = "/api/perch-terminal/turn-ticket"
+	publicModelDefaultPath = "/api/perch-terminal/public-model-default"
+	cliContextPath         = "/api/perch-terminal/cli-context"
+	accountPath            = "/api/perchai/account"
+	ticketRenewSkew        = 30 * time.Second
+	accountTTL             = 10 * time.Minute
 
 	modelCallIdleTimeout  = 60 * time.Second
 	responseHeaderTimeout = 60 * time.Second
@@ -345,11 +347,56 @@ func (c *Client) OpenModelCall(ctx context.Context, req ModelCallRequest) (*Mode
 	return &ModelCallStream{Response: resp, Events: NewSSEStream(resp.Body), Request: req}, nil
 }
 
+func (c *Client) runPreCall(ctx context.Context, path string, body any) {
+	var sink json.RawMessage
+	_ = c.doJSON(ctx, http.MethodPost, path, body, &sink)
+}
+
+func (c *Client) runPreGet(ctx context.Context, path string) {
+	var sink json.RawMessage
+	_ = c.doJSON(ctx, http.MethodGet, path, nil, &sink)
+}
+
+func lastUserPrompt(req *ModelCallRequest) string {
+	for i := len(req.Request.Messages) - 1; i >= 0; i-- {
+		var message struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		}
+		if json.Unmarshal(req.Request.Messages[i], &message) != nil {
+			continue
+		}
+		if message.Role != "user" {
+			continue
+		}
+		var text string
+		if json.Unmarshal(message.Content, &text) == nil {
+			return strings.TrimSpace(text)
+		}
+		var parts []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(message.Content, &parts) == nil {
+			for _, part := range parts {
+				if part.Type == "text" && strings.TrimSpace(part.Text) != "" {
+					return strings.TrimSpace(part.Text)
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*http.Response, error) {
 	endpoint, err := joinURL(c.session.AppURL(), modelCallPath)
 	if err != nil {
 		return nil, err
 	}
+
+	prompt := lastUserPrompt(req)
+	c.runPreGet(ctx, publicModelDefaultPath)
+	c.runPreCall(ctx, cliContextPath, map[string]any{"query": "", "includeIndex": false})
 
 	attempt := 0
 	for {
@@ -372,6 +419,10 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 			}
 		}
 
+		if attempt == 1 {
+			c.runPreCall(ctx, cliContextPath, map[string]any{"query": prompt, "includeIndex": false})
+			c.runPreCall(ctx, cliContextPath, map[string]any{"query": "", "includeIndex": true})
+		}
 		if strings.TrimSpace(req.RunID) == "" {
 			req.RunID = firstNonEmpty(ticket.RunID, NewRunID(c.now()))
 		}
