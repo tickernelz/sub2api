@@ -147,12 +147,6 @@ func (s *parityLockServer) bodyFor(path string) []byte {
 	return nil
 }
 
-func (s *parityLockServer) peakConcurrency() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.peak
-}
-
 func lockClient(server *parityLockServer, opts ...ClientOption) *Client {
 	creds := Credentials{
 		AppURL:       server.url(),
