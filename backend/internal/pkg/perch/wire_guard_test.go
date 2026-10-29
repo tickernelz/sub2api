@@ -160,9 +160,9 @@ func TestWireBodySettlesOnceUnderConcurrentReadAndClose(t *testing.T) {
 	if got := conn.closeCount(); got != 1 {
 		t.Fatalf("conn closed %d times, want exactly 1", got)
 	}
-	doer.mu.Lock()
-	idle := doer.idle["perch.test:443"]
-	doer.mu.Unlock()
+	doer.pool.mu.Lock()
+	idle := doer.pool.idle["perch.test:443"]
+	doer.pool.mu.Unlock()
 	if idle != nil {
 		t.Fatalf("idle connection = %#v, want none after a non-complete settle", idle)
 	}

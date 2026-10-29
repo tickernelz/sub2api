@@ -31,6 +31,12 @@ const (
 	DefaultRoostTier = RoostStandardMax
 )
 
+// CLITemperature and CLIMaxTokens are the CLI's per-turn sampling defaults.
+const (
+	CLITemperature = 0.6
+	CLIMaxTokens   = 32000
+)
+
 const surfacePromptText = "You are the assistant behind this workspace's model gateway.\n\nAnswer the request that follows exactly as given. Do not invent tools, do not claim to have run anything, and do not ask for credentials.\nWhen the conversation carries system messages from the caller, treat them as binding for the answer; this message only establishes who is answering and how.\n\nAnswer in the caller's language. Be brief when the question is simple and complete when it is not.\nReturn code in fenced blocks with the language tag, and keep file paths, command names and identifiers exactly as the caller wrote them.\nIf a request cannot be satisfied with the information given, say which fact is missing instead of guessing.\n\nThis workspace routes its model calls through a gateway that speaks the same terminal protocol as the Perch CLI, so every turn is a single answer to a single prompt with no interactive follow-up."
 
 var surfacePromptMessage = json.RawMessage(`{"role":"system","content":` + strconv.Quote(surfacePromptText) + `}`)
@@ -74,14 +80,27 @@ func BuildModelCallRequest(req *apicompat.ChatCompletionsRequest, opts CallOptio
 	if maxTokens == nil {
 		maxTokens = req.MaxCompletionTokens
 	}
+	if maxTokens == nil {
+		defaultMaxTokens := CLIMaxTokens
+		maxTokens = &defaultMaxTokens
+	}
+	temperature := req.Temperature
+	if temperature == nil {
+		defaultTemperature := CLITemperature
+		temperature = &defaultTemperature
+	}
+	toolChoice := req.ToolChoice
+	if len(toolChoice) == 0 {
+		toolChoice = json.RawMessage("\"auto\"")
+	}
 
 	call := ModelCallRequest{
 		Request: ChatRequest{
 			Messages:    messages,
 			Tools:       tools,
-			Temperature: req.Temperature,
+			Temperature: temperature,
 			MaxTokens:   maxTokens,
-			ToolChoice:  req.ToolChoice,
+			ToolChoice:  toolChoice,
 		},
 		RunID:         strings.TrimSpace(opts.RunID),
 		Lane:          firstNonEmpty(strings.TrimSpace(opts.Lane), DefaultLane),
@@ -94,9 +113,6 @@ func BuildModelCallRequest(req *apicompat.ChatCompletionsRequest, opts CallOptio
 	}
 	if call.Request.Tools == nil {
 		call.Request.Tools = []json.RawMessage{}
-	}
-	if len(call.Request.ToolChoice) == 0 {
-		call.Request.ToolChoice = json.RawMessage("null")
 	}
 	call.ResendAfterOutput = true
 	applyModelSelection(&call, strings.TrimSpace(opts.PreferredModelID), strings.TrimSpace(req.Model))

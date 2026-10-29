@@ -79,9 +79,9 @@ func TestModelCallClientDropsTotalTimeout(t *testing.T) {
 	session := NewSession(creds, WithHTTPClient(slow))
 	client := NewClient(session)
 
-	streaming, ok := client.streamHTTP.(*http.Client)
+	streaming, ok := unwrapDoer(client.streamHTTP).(*http.Client)
 	if !ok {
-		t.Fatalf("stream client = %T, want *http.Client", client.streamHTTP)
+		t.Fatalf("stream client = %T, want *http.Client", unwrapDoer(client.streamHTTP))
 	}
 	if streaming.Timeout != 0 {
 		t.Fatalf("stream client timeout = %v, want 0", streaming.Timeout)

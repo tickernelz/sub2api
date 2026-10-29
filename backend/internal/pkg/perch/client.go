@@ -13,11 +13,12 @@ import (
 )
 
 const (
-	modelCallPath   = "/api/perch-terminal/model-call"
-	turnTicketPath  = "/api/perch-terminal/turn-ticket"
-	accountPath     = "/api/perchai/account"
-	ticketRenewSkew = 30 * time.Second
-	accountTTL      = 10 * time.Minute
+	modelCallPath     = "/api/perch-terminal/model-call"
+	turnTicketPath    = "/api/perch-terminal/turn-ticket"
+	accountPath       = "/api/perchai/account"
+	publicDefaultPath = "/api/perch-terminal/public-model-default"
+	ticketRenewSkew   = 30 * time.Second
+	accountTTL        = 10 * time.Minute
 
 	modelCallIdleTimeout  = 60 * time.Second
 	responseHeaderTimeout = 60 * time.Second
@@ -42,6 +43,14 @@ type Client struct {
 	account   AccountInfo
 	accountAt time.Time
 	accountOK bool
+
+	defaultModel   string
+	defaultModelAt time.Time
+	defaultModelOK bool
+
+	gate        *accountGate
+	maxAttempts int
+	retryDelays []time.Duration
 }
 
 type ticketEntry struct {
@@ -76,14 +85,16 @@ func WithClientClock(now func() time.Time) ClientOption {
 
 func NewClient(session *Session, opts ...ClientOption) *Client {
 	c := &Client{
-		session:    session,
-		http:       &http.Client{Timeout: 0},
-		streamHTTP: &http.Client{Timeout: 0},
-		idle:       modelCallIdleTimeout,
-		now:        time.Now,
-		tickets:    make(map[string]ticketEntry),
-		ticketUses: make(map[string]ticketUse),
-		mintGate:   make(chan struct{}, 1),
+		session:     session,
+		http:        &http.Client{Timeout: 0},
+		streamHTTP:  &http.Client{Timeout: 0},
+		idle:        modelCallIdleTimeout,
+		now:         time.Now,
+		tickets:     make(map[string]ticketEntry),
+		ticketUses:  make(map[string]ticketUse),
+		mintGate:    make(chan struct{}, 1),
+		maxAttempts: DefaultMaxAttempts,
+		retryDelays: append([]time.Duration(nil), DefaultRetryDelays...),
 	}
 	if session != nil {
 		c.http = session.http
@@ -93,7 +104,31 @@ func NewClient(session *Session, opts ...ClientOption) *Client {
 	for _, opt := range opts {
 		opt(c)
 	}
+	if c.gate == nil {
+		c.gate = newAccountGate(0, DefaultMaxConcurrentCalls)
+	}
+	c.http = newGatedDoer(c.http, c.gate)
+	c.streamHTTP = newGatedDoer(c.streamHTTP, c.gate)
 	return c
+}
+
+// WithMinRequestInterval sets the floor between two request starts.
+func WithMinRequestInterval(interval time.Duration) ClientOption {
+	return func(c *Client) {
+		c.gate = newAccountGate(interval, DefaultMaxConcurrentCalls)
+	}
+}
+
+// WithRetryPolicy overrides the CLI-derived attempt budget and backoff.
+func WithRetryPolicy(attempts int, delays []time.Duration) ClientOption {
+	return func(c *Client) {
+		if attempts > 0 {
+			c.maxAttempts = attempts
+		}
+		if delays != nil {
+			c.retryDelays = append([]time.Duration(nil), delays...)
+		}
+	}
 }
 
 func WithModelCallIdle(idle time.Duration) ClientOption {
@@ -229,7 +264,10 @@ func (c *Client) TurnTicket(ctx context.Context, surface, profile string) (Ticke
 		return entry.ticket, nil
 	}
 
-	body := map[string]string{"surface": surface, "profile": profile}
+	body := struct {
+		Surface string `json:"surface"`
+		Profile string `json:"profile"`
+	}{Surface: surface, Profile: profile}
 	var payload struct {
 		Ticket    string `json:"ticket"`
 		TicketID  string `json:"ticketId"`
@@ -351,6 +389,9 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 		return nil, err
 	}
 
+	c.applyPublicDefault(ctx, req)
+	c.prepareAttribution(ctx, req)
+
 	attempt := 0
 	for {
 		attempt++
@@ -401,6 +442,10 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 
 		resp, err := c.streamHTTP.Do(httpReq)
 		if err != nil {
+			if attempt < c.maxAttempts && ctx.Err() == nil {
+				c.waitRetry(ctx, attempt)
+				continue
+			}
 			return nil, fmt.Errorf("perch: model call: %w", err)
 		}
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
@@ -419,17 +464,20 @@ func (c *Client) postModelCall(ctx context.Context, req *ModelCallRequest) (*htt
 			return nil, fmt.Errorf("perch: read model call error: %w", readErr)
 		}
 		apiErr := NewAPIError(resp.StatusCode, body)
-		if attempt >= 2 || !retryableModelCall(apiErr) {
-			return nil, apiErr
-		}
 		if IsAuthError(apiErr) {
+			if attempt >= 2 {
+				return nil, apiErr
+			}
 			if _, err := c.session.Refresh(ctx); err != nil {
 				return nil, err
 			}
 			c.discardTicket(ClientSurfaceCLI, DefaultProfile)
 			continue
 		}
-		c.discardTicket(ClientSurfaceCLI, DefaultProfile)
+		if !retryableModelCall(apiErr) || attempt >= c.maxAttempts {
+			return nil, apiErr
+		}
+		c.waitRetry(ctx, attempt)
 	}
 }
 
@@ -442,6 +490,9 @@ func retryableModelCall(err *APIError) bool {
 		return false
 	}
 	if IsAuthError(err) {
+		return false
+	}
+	if err.Status >= 500 || err.Status == http.StatusRequestTimeout || err.Status == http.StatusTooEarly {
 		return true
 	}
 	return err.Code == CodeTicketUnavailable
@@ -555,6 +606,75 @@ func mergeToolCalls(existing []ToolCall, incoming []ToolCall) []ToolCall {
 	return existing
 }
 
+// PublicModelDefault returns the account's public default chat model.
+func (c *Client) PublicModelDefault(ctx context.Context) (string, bool) {
+	c.mu.Lock()
+	model, fetchedAt, ok := c.defaultModel, c.defaultModelAt, c.defaultModelOK
+	c.mu.Unlock()
+	if ok && c.now().Sub(fetchedAt) < accountTTL {
+		return model, model != ""
+	}
+	var payload struct {
+		OK        bool `json:"ok"`
+		Selection struct {
+			ChatModelID string `json:"chatModelId"`
+		} `json:"selection"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, publicDefaultPath, nil, &payload); err != nil {
+		return "", false
+	}
+	model = strings.TrimSpace(payload.Selection.ChatModelID)
+	c.mu.Lock()
+	c.defaultModel, c.defaultModelAt, c.defaultModelOK = model, c.now(), true
+	c.mu.Unlock()
+	return model, model != ""
+}
+
+func (c *Client) applyPublicDefault(ctx context.Context, req *ModelCallRequest) {
+	if req == nil || req.PreferredModelID != nil || strings.TrimSpace(req.ManualModelOptionID) != "" {
+		return
+	}
+	switch req.RoostModelChoice {
+	case "", RoostStandard, RoostStandardMax:
+	default:
+		return
+	}
+	model, ok := c.PublicModelDefault(ctx)
+	if !ok {
+		return
+	}
+	model = strings.TrimSpace(model)
+	req.PreferredModelID = &model
+	req.RoostModelChoice = ""
+}
+
+func (c *Client) prepareAttribution(ctx context.Context, req *ModelCallRequest) {
+	if req == nil || req.Attribution != nil {
+		return
+	}
+	c.cachedAccount(ctx)
+}
+
+func (c *Client) waitRetry(ctx context.Context, attempt int) {
+	if len(c.retryDelays) == 0 {
+		return
+	}
+	index := attempt - 1
+	if index >= len(c.retryDelays) {
+		index = len(c.retryDelays) - 1
+	}
+	delay := c.retryDelays[index]
+	if delay <= 0 {
+		return
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+}
+
 func (c *Client) attribution(ctx context.Context, runID, lane string) *Attribution {
 	info, ok := c.cachedAccount(ctx)
 	if !ok {
@@ -616,8 +736,9 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 	if err != nil {
 		return fmt.Errorf("perch: build %s: %w", path, err)
 	}
-	req.Header.Set("accept", "application/json")
-	if body != nil {
+	if body == nil {
+		req.Header.Set("accept", "application/json")
+	} else {
 		req.Header.Set("content-type", "application/json")
 	}
 	req.Header.Set("authorization", "Bearer "+token)

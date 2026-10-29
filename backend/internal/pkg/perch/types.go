@@ -51,11 +51,12 @@ type ChatRequest struct {
 
 // Attribution identifies the Perch user, workspace and run behind a model call.
 type Attribution struct {
-	UserID    string `json:"userId,omitempty"`
-	Workspace string `json:"workspaceId,omitempty"`
-	RunID     string `json:"runId,omitempty"`
-	Lane      string `json:"lane,omitempty"`
-	Source    string `json:"source,omitempty"`
+	UserID            string   `json:"userId,omitempty"`
+	Workspace         string   `json:"workspaceId,omitempty"`
+	RunID             string   `json:"runId,omitempty"`
+	Lane              string   `json:"lane,omitempty"`
+	Source            string   `json:"source,omitempty"`
+	BillingMultiplier *float64 `json:"billingMultiplier"`
 }
 
 // Usage is the token accounting Perch returns on the done event.
