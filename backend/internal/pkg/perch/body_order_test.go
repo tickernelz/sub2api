@@ -23,7 +23,11 @@ func orderedKeys(t *testing.T, raw []byte) []string {
 		if err != nil {
 			t.Fatalf("read key: %v", err)
 		}
-		keys = append(keys, keyToken.(string))
+		key, ok := keyToken.(string)
+		if !ok {
+			t.Fatalf("object key is not a string: %v", keyToken)
+		}
+		keys = append(keys, key)
 		var skip json.RawMessage
 		if err := decoder.Decode(&skip); err != nil {
 			t.Fatalf("skip value: %v", err)
