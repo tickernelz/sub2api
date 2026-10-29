@@ -10,7 +10,11 @@ export default {
         appUrl: 'Perch app URL',
         limits:
           'Perch issues no API key: the account runs on the Perch session and serves /v1/chat/completions only; /v1/responses answers unsupported_protocol.',
-        accessTokenRequired: 'Paste a Perch access token'
+        accessTokenRequired: 'Paste a Perch access token',
+        keepStoredToken: 'Leave empty to keep the stored token',
+        editSessionHint:
+          'Leave both token fields empty to keep the stored session. To replace it, paste the access token and refresh token from one fresh CLI login; the adapter rotates the refresh token on every refresh.',
+        tokenPairRequired: 'Fill both the access token and the refresh token, or leave both empty'
       },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',

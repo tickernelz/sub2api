@@ -10,7 +10,11 @@ export default {
         appUrl: 'Perch 应用地址',
         limits:
           'Perch 不提供 API key：账号直接使用 Perch 会话，仅服务 /v1/chat/completions；/v1/responses 返回 unsupported_protocol。',
-        accessTokenRequired: '请填写 Perch access token'
+        accessTokenRequired: '请填写 Perch access token',
+        keepStoredToken: '留空表示保留已存储的 token',
+        editSessionHint:
+          '两个 token 输入框都留空即保留现有会话；替换时请从同一次 CLI 登录中粘贴 access token 与 refresh token，适配器每次刷新都会轮换 refresh token。',
+        tokenPairRequired: 'access token 与 refresh token 需同时填写，或同时留空'
       },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',

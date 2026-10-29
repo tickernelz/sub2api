@@ -11,6 +11,12 @@ Perch has no API keys: the official CLI, Desktop app and web app all authenticat
 
 Pasting a session keeps a copy of the refresh token that the CLI on the source machine still holds; the first refresh by either side rotates the token and the other side's copy becomes stale, and Supabase reuse detection can revoke the whole session. Log in once with `perch login` for sub2api, paste that session, and stop using it in the CLI.
 
+### Editing an account
+
+Edit on a Perch row shows the session panel in place of the API-key panel. The access token and refresh token inputs start empty and mean "keep the stored value": the backend preserves sensitive credential keys the payload does not carry (`MergePreservingSensitiveCreds`), so name, group, concurrency, priority and status save without a token. Paste both tokens from one fresh CLI login to replace the session; `expires_at` is re-derived from the new JWT. The app URL field carries the stored value.
+
+Editing never writes `api_key`, `base_url`, `upstream_billing_probe_enabled` or `upstream_billing_rate_sync_enabled` for a Perch account, because the adapter reads none of them and a probe without an api key would reschedule forever.
+
 The account answers `/v1/chat/completions` only. `/v1/responses` returns `unsupported_protocol` with HTTP 400, and the model name in a request is a Perch tier alias or catalogue id, not an OpenAI model name.
 
 ### Troubleshooting

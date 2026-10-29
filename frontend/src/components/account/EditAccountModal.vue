@@ -26,8 +26,43 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <div v-if="account.platform === 'perch'" class="space-y-4" data-testid="perch-credentials">
+        <div>
+          <label class="input-label">{{ t('admin.accounts.perch.accessToken') }}</label>
+          <input
+            v-model="editPerchAccessToken"
+            type="password"
+            class="input font-mono"
+            data-testid="perch-access-token"
+            :placeholder="t('admin.accounts.perch.keepStoredToken')"
+          />
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.perch.refreshToken') }}</label>
+          <input
+            v-model="editPerchRefreshToken"
+            type="password"
+            class="input font-mono"
+            data-testid="perch-refresh-token"
+            :placeholder="t('admin.accounts.perch.keepStoredToken')"
+          />
+          <p class="input-hint">{{ t('admin.accounts.perch.editSessionHint') }}</p>
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.perch.appUrl') }}</label>
+          <input
+            v-model="editPerchAppUrl"
+            type="text"
+            class="input font-mono"
+            :placeholder="PERCH_DEFAULT_APP_URL"
+            data-testid="perch-app-url"
+          />
+        </div>
+        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.perch.limits') }}</p>
+      </div>
+
       <!-- API Key fields (only for apikey type) -->
-      <div v-if="account.type === 'apikey'" class="space-y-4">
+      <div v-if="account.type === 'apikey' && account.platform !== 'perch'" class="space-y-4">
         <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -1977,7 +2012,7 @@
             }}
           </p>
           <div
-            v-if="account?.type === 'apikey'"
+            v-if="account?.type === 'apikey' && account?.platform !== 'perch'"
             class="mt-3 flex items-center justify-between gap-3"
           >
             <div class="min-w-0">
@@ -2244,7 +2279,7 @@
       </div>
 
       <div
-        v-if="account?.type === 'apikey'"
+        v-if="account?.type === 'apikey' && account?.platform !== 'perch'"
         class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div>
@@ -3462,6 +3497,7 @@ import {
   type OpenCodeAccountMode,
   type OpenCodeGoProtocolRule
 } from '@/components/account/credentialsBuilder'
+import { PERCH_DEFAULT_APP_URL, perchExpirySeconds } from '@/utils/perchSession'
 import {
   formatDateTime,
   formatDateTimeLocalInput,
@@ -3645,6 +3681,9 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const editPerchAccessToken = ref('')
+const editPerchRefreshToken = ref('')
+const editPerchAppUrl = ref('')
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
 // account_mode 决定额度/余额监控路径，api_protocol 决定转发端点与格式；
@@ -5022,6 +5061,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     selectedErrorCodes.value = []
   }
   editApiKey.value = ''
+  editPerchAccessToken.value = ''
+  editPerchRefreshToken.value = ''
+  editPerchAppUrl.value =
+    newAccount.platform === 'perch' && typeof credentials?.app_url === 'string'
+      ? credentials.app_url.trim()
+      : ''
 }
 
 async function loadTLSProfiles() {
@@ -5655,7 +5700,7 @@ const handleSubmit = async () => {
       updatePayload.load_factor = 0
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
-    if (props.account.type === 'apikey') {
+    if (props.account.type === 'apikey' && props.account.platform !== 'perch') {
       updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
       updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value
       if (upstreamBillingRateSyncEnabled.value) {
@@ -5663,8 +5708,32 @@ const handleSubmit = async () => {
       }
     }
 
-    // For apikey type, handle credentials update
-    if (props.account.type === 'apikey') {
+    if (props.account.platform === 'perch') {
+      const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
+      const newCredentials: Record<string, unknown> = { ...currentCredentials }
+      const accessToken = editPerchAccessToken.value.trim()
+      const refreshToken = editPerchRefreshToken.value.trim()
+      if (Boolean(accessToken) !== Boolean(refreshToken)) {
+        appStore.showError(t('admin.accounts.perch.tokenPairRequired'))
+        return
+      }
+      if (accessToken) {
+        newCredentials.access_token = accessToken
+        newCredentials.refresh_token = refreshToken
+        const expiresAt = perchExpirySeconds(accessToken)
+        if (expiresAt > 0) {
+          newCredentials.expires_at = expiresAt
+        }
+      }
+      newCredentials.app_url = editPerchAppUrl.value.trim() || PERCH_DEFAULT_APP_URL
+      applyInterceptWarmup(newCredentials, interceptWarmupRequests.value, 'edit')
+      applyAccountSchedulingThresholdOverridePatch(newCredentials, currentCredentials)
+      if (!applyTempUnschedConfig(newCredentials)) {
+        return
+      }
+      updatePayload.credentials = newCredentials
+    } else if (props.account.type === 'apikey') {
+      // For apikey type, handle credentials update
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
       const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
