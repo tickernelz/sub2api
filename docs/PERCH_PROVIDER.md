@@ -65,9 +65,9 @@ A stream that closes without a `done` event is reported as `stream_interrupted` 
 
 ## Transport
 
-`dialer.go` dials `crypto/tls` with ALPN `http/1.1` and no HTTP/2, which is what the CLI negotiates; the request bytes themselves come from `wire.go`, not from `net/http`.
+`fingerprint.go` reproduces the CLI ClientHello through `internal/pkg/tlsfingerprint`: JA3 `fe1a22af39881f8613c4834b2a568a00`, 52 cipher suites in the recorded order, the captured 12-extension list (server_name second, ending 43/45/51), curves `4588,29,23,30,24,25,256,257`, point formats `0,1,2`, 26 signature algorithms starting at 2309, key-share groups X25519MLKEM768 and X25519, and ALPN `http/1.1` only. `wire.go` writes the HTTP/1.1 bytes over that connection.
 
-An earlier revision reproduced the CLI ClientHello through `internal/pkg/tlsfingerprint` (`fingerprint.go`), matching JA3 `fe1a22af39881f8613c4834b2a568a00` offline. That profile cannot complete a handshake with Cloudflare: measured 2026-10-29, every variant (the recorded profile, an X25519-only key share, and the profile without the ML-KEM curve) returned `remote error: tls: handshake failure`, while a plain `crypto/tls` dial succeeded in 31 ms. The crafted hello therefore never reached the application, and the surface gate below turned out to be content-based, so the adapter keeps the CLI header order over a standard TLS connection. `WithWireTransport(false)` falls back to plain `net/http`.
+The transport first failed every handshake (`remote error: tls: handshake failure`) because the profile omitted `server_name`; Cloudflare rejects a hello without SNI before the application sees it. With the extension list and the signature algorithms taken from a captured CLI hello the handshake completes and the request reaches Perch. The surface gate below is still content-based, so this layer is parity, not the gate. `WithWireTransport(false)` falls back to plain `net/http`.
 
 Still open for full parity: the per-turn request sequence. The CLI also emits `public-model-default`, `account` and three `cli-context` calls around each turn; the adapter fetches `account` and the ticket but does not replicate `public-model-default` or `cli-context`, because `cli-context` reports the CLI's own context-assembly statistics and sending fabricated telemetry would be worse than omitting it.
 
