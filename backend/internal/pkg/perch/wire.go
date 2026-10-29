@@ -39,6 +39,19 @@ var modelCallWireHeaders = []wireHeaderName{
 	{"x-perch-turn-ticket", "x-perch-turn-ticket"},
 }
 
+var supabaseTokenWireHeaders = []wireHeaderName{
+	{"content-type", "Content-Type"},
+	{"authorization", "Authorization"},
+	{"apikey", "apikey"},
+	{"x-client-info", "X-Client-Info"},
+	{"x-supabase-api-version", "X-Supabase-Api-Version"},
+	{"accept", "accept"},
+	{"accept-language", "accept-language"},
+	{"sec-fetch-mode", "sec-fetch-mode"},
+	{"user-agent", "user-agent"},
+	{"accept-encoding", "accept-encoding"},
+}
+
 var jsonWireHeaders = []wireHeaderName{
 	{"content-type", "Content-Type"},
 	{"authorization", "Authorization"},
@@ -381,8 +394,12 @@ func wireForbidden(s string) bool {
 }
 
 func wireOrderFor(req *http.Request) []wireHeaderName {
-	if strings.HasSuffix(strings.TrimSuffix(req.URL.Path, "/"), modelCallPath) {
+	path := strings.TrimSuffix(req.URL.Path, "/")
+	if strings.HasSuffix(path, modelCallPath) {
 		return modelCallWireHeaders
+	}
+	if strings.HasSuffix(path, tokenPath) {
+		return supabaseTokenWireHeaders
 	}
 	return jsonWireHeaders
 }

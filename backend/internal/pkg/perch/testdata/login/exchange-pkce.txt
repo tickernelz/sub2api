@@ -1,0 +1,16 @@
+POST /auth/v1/token?grant_type=pkce HTTP/1.1
+host: fixture.supabase.co
+connection: keep-alive
+Content-Type: application/json;charset=UTF-8
+Authorization: Bearer FIXTURE_ANON_KEY
+apikey: FIXTURE_ANON_KEY
+X-Client-Info: supabase-js-node/2.106.0
+X-Supabase-Api-Version: 2024-01-01
+accept: */*
+accept-language: *
+sec-fetch-mode: cors
+user-agent: node
+accept-encoding: br, gzip, deflate
+content-length: 63
+
+{"auth_code":"FIXTURE_CODE","code_verifier":"FIXTURE_VERIFIER"}

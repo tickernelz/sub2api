@@ -14,6 +14,8 @@ const {
   showWarningMock,
   importCodexSessionMock,
   createOpenAICodexPATMock,
+  perchGenerateAuthUrlMock,
+  perchExchangeCodeMock,
   authIsSimpleMode,
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
@@ -22,6 +24,8 @@ const {
   showWarningMock: vi.fn(),
   importCodexSessionMock: vi.fn(),
   createOpenAICodexPATMock: vi.fn(),
+  perchGenerateAuthUrlMock: vi.fn(),
+  perchExchangeCodeMock: vi.fn(),
   authIsSimpleMode: { value: true },
 }))
 
@@ -65,6 +69,15 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn().mockResolvedValue([]),
 }))
 
+vi.mock('@/api/admin/perch', () => ({
+  generateAuthUrl: perchGenerateAuthUrlMock,
+  exchangeCode: perchExchangeCodeMock,
+  default: {
+    generateAuthUrl: perchGenerateAuthUrlMock,
+    exchangeCode: perchExchangeCodeMock,
+  },
+}))
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
@@ -89,13 +102,24 @@ const OAuthAuthorizationFlowStub = defineComponent({
     showAgentIdentityOption: Boolean,
     showCodexPatOption: Boolean,
     initialInputMethod: String,
+    platform: String,
+    authUrl: String,
+    sessionId: String,
+    error: String,
   },
-  data: () => ({ inputMethod: 'manual' }),
-  emits: ['import-codex-session', 'import-codex-pat'],
+  data: () => ({ inputMethod: 'manual', authCode: '' }),
+  expose: ['authCode', 'inputMethod', 'reset'],
+  emits: ['import-codex-session', 'import-codex-pat', 'generate-url', 'exchange-code'],
   template: `
     <div>
+      <span data-testid="oauth-flow-platform">{{ platform }}</span>
+      <span data-testid="oauth-flow-auth-url">{{ authUrl }}</span>
+      <span data-testid="oauth-flow-error">{{ error }}</span>
       <button data-testid="import-codex-session" @click="$emit('import-codex-session', 'session-json')">session</button>
       <button data-testid="import-codex-pat" @click="$emit('import-codex-pat', 'pat-token')">pat</button>
+      <button data-testid="oauth-generate-url" @click="$emit('generate-url')">generate</button>
+      <input data-testid="oauth-auth-code" v-model="authCode" />
+      <button data-testid="oauth-exchange" @click="$emit('exchange-code', authCode)">exchange</button>
     </div>
   `,
 })
@@ -1042,11 +1066,25 @@ describe('CreateAccountModal Vertex API key auth', () => {
   })
 })
 
-describe('CreateAccountModal Perch session accounts', () => {
-  const jwt = (exp: number) => {
-    const encode = (value: unknown) =>
-      btoa(JSON.stringify(value)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-    return `${encode({ alg: 'HS256' })}.${encode({ exp, sub: 'perch-user' })}.signature`
+describe('CreateAccountModal Perch accounts', () => {
+  const startResponse = {
+    auth_url:
+      'https://zlfuvsfjtgsdtqcaykia.supabase.co/auth/v1/authorize?provider=google&redirect_to=http%3A%2F%2F127.0.0.1%3A45999%2Fcallback&code_challenge=CHAL&code_challenge_method=s256&prompt=select_account',
+    session_id: 'session-1',
+    provider: 'google',
+    providers: ['google', 'github'],
+    app_url: 'https://app.perchai.app',
+    redirect_uri: 'http://127.0.0.1:45999/callback',
+    expires_in: 600
+  }
+
+  const exchanged = {
+    access_token: 'access-token-1',
+    refresh_token: 'refresh-token-1',
+    app_url: 'https://app.perchai.app',
+    expires_at: 1893456000,
+    user_id: 'user-1',
+    email: 'operator@example.com'
   }
 
   beforeEach(() => {
@@ -1055,92 +1093,138 @@ describe('CreateAccountModal Perch session accounts', () => {
     probeUpstreamBillingMock.mockReset().mockResolvedValue({})
     syncUpstreamModelsMock.mockReset().mockResolvedValue({ models: [], metadata: {} })
     showWarningMock.mockReset()
+    perchGenerateAuthUrlMock.mockReset()
+    perchExchangeCodeMock.mockReset()
     resetPlatformCatalog()
   })
 
-  it('selects Perch from the platform catalog and shows the session fields only', async () => {
+  async function openPerchOAuthStep(wrapper: ReturnType<typeof mountModal>) {
+    await selectButtonByText(wrapper, 'Perch')
+    await flushPromises()
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Perch work')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+  }
+
+  it('shows no token, session-file or app-url field for Perch', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'Perch')
 
-    expect(wrapper.find('[data-testid="perch-credentials"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="perch-access-token"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="perch-refresh-token"]').exists()).toBe(true)
-    expect(wrapper.find('form#create-account-form input[placeholder="https://api.anthropic.com"]').exists()).toBe(
-      false
-    )
+    expect(wrapper.find('[data-testid="perch-provider"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="perch-session-input"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="perch-access-token"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="perch-refresh-token"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="perch-app-url"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('cli-auth-session')
+    expect(wrapper.text()).not.toContain('perch-credentials')
     wrapper.unmount()
   })
 
-  it('derives the session expiry from the pasted CLI session and submits Perch credentials', async () => {
+  it('generates the login URL and creates the account from the pasted callback URL', async () => {
+    perchGenerateAuthUrlMock.mockResolvedValue(startResponse)
+    perchExchangeCodeMock.mockResolvedValue(exchanged)
+
     const wrapper = mountModal()
-    await selectButtonByText(wrapper, 'Perch')
-    const exp = 1893456000
-    await wrapper.get('[data-testid="perch-session-input"]').setValue(
-      JSON.stringify({ accessToken: jwt(exp), refreshToken: 'refresh-token', appUrl: 'https://app.perchai.app' })
-    )
-    await wrapper.get('[data-testid="perch-session-input"]').trigger('change')
-    await wrapper.get('form#create-account-form input[type="text"]').setValue('Perch work')
-    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await openPerchOAuthStep(wrapper)
+
+    await wrapper.get('[data-testid="oauth-generate-url"]').trigger('click')
+    await flushPromises()
+    expect(perchGenerateAuthUrlMock).toHaveBeenCalledWith({ provider: 'google' })
+    expect(wrapper.get('[data-testid="oauth-flow-platform"]').text()).toBe('perch')
+    expect(wrapper.get('[data-testid="oauth-flow-auth-url"]').text()).toContain('/auth/v1/authorize')
+
+    await wrapper.get('[data-testid="oauth-auth-code"]').setValue('http://127.0.0.1:45999/callback?code=auth-code-1')
+    await selectButtonByText(wrapper, 'admin.accounts.oauth.completeAuth')
     await flushPromises()
 
+    expect(perchExchangeCodeMock).toHaveBeenCalledWith({
+      session_id: 'session-1',
+      callback_url: 'http://127.0.0.1:45999/callback?code=auth-code-1'
+    })
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
       name: 'Perch work',
       platform: 'perch',
       type: 'apikey',
       credentials: {
-        access_token: jwt(exp),
-        refresh_token: 'refresh-token',
+        access_token: 'access-token-1',
+        refresh_token: 'refresh-token-1',
         app_url: 'https://app.perchai.app',
-        expires_at: exp
+        expires_at: 1893456000
       }
     })
     wrapper.unmount()
   })
 
-  it('refuses to submit a Perch account without an access token', async () => {
+  it('sends the GitHub provider when GitHub is selected', async () => {
+    perchGenerateAuthUrlMock.mockResolvedValue({ ...startResponse, provider: 'github' })
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'Perch')
-    await wrapper.get('form#create-account-form input[type="text"]').setValue('Perch empty')
+    await wrapper.get('[data-testid="perch-provider"] input[value="github"]').setValue(true)
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Perch gh')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
+    await wrapper.get('[data-testid="oauth-generate-url"]').trigger('click')
+    await flushPromises()
 
+    expect(perchGenerateAuthUrlMock).toHaveBeenCalledWith({ provider: 'github' })
+    wrapper.unmount()
+  })
+
+  it('surfaces a rejected callback and creates no account', async () => {
+    perchGenerateAuthUrlMock.mockResolvedValue(startResponse)
+    perchExchangeCodeMock.mockRejectedValue({
+      response: { data: { message: 'login session is unknown or already used; start the login again' } }
+    })
+
+    const wrapper = mountModal()
+    await openPerchOAuthStep(wrapper)
+    await wrapper.get('[data-testid="oauth-generate-url"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="oauth-auth-code"]').setValue('http://127.0.0.1:45999/callback?code=used')
+    await selectButtonByText(wrapper, 'admin.accounts.oauth.completeAuth')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="oauth-flow-error"]').text()).toContain('already used')
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('surfaces access_denied from the provider and creates no account', async () => {
+    perchGenerateAuthUrlMock.mockResolvedValue(startResponse)
+    perchExchangeCodeMock.mockRejectedValue({
+      response: { data: { message: 'The resource owner or authorization server denied the request' } }
+    })
+
+    const wrapper = mountModal()
+    await openPerchOAuthStep(wrapper)
+    await wrapper.get('[data-testid="oauth-generate-url"]').trigger('click')
+    await flushPromises()
+    await wrapper
+      .get('[data-testid="oauth-auth-code"]')
+      .setValue('http://127.0.0.1:45999/callback?error=access_denied&error_description=denied')
+    await selectButtonByText(wrapper, 'admin.accounts.oauth.completeAuth')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="oauth-flow-error"]').text()).toContain('denied')
     expect(createAccountMock).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
   it('does not send the upstream billing probe for a Perch account', async () => {
+    perchGenerateAuthUrlMock.mockResolvedValue(startResponse)
+    perchExchangeCodeMock.mockResolvedValue(exchanged)
+
     const wrapper = mountModal()
-    await selectButtonByText(wrapper, 'Perch')
-    await wrapper.get('[data-testid="perch-access-token"]').setValue(jwt(1893456000))
-    await wrapper.get('form#create-account-form input[type="text"]').setValue('Perch probe')
-    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await openPerchOAuthStep(wrapper)
+    await wrapper.get('[data-testid="oauth-generate-url"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="oauth-auth-code"]').setValue('http://127.0.0.1:45999/callback?code=c')
+    await selectButtonByText(wrapper, 'admin.accounts.oauth.completeAuth')
     await flushPromises()
 
-    expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]).not.toHaveProperty('upstream_billing_probe_enabled')
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
-    wrapper.unmount()
-  })
-
-  it('clears the previous refresh token when the next pasted session has none', async () => {
-    const wrapper = mountModal()
-    await selectButtonByText(wrapper, 'Perch')
-    const sessionInput = wrapper.get('[data-testid="perch-session-input"]')
-    await sessionInput.setValue(JSON.stringify({ accessToken: jwt(1893456000), refreshToken: 'first-refresh' }))
-    await sessionInput.trigger('change')
-    expect((wrapper.get('[data-testid="perch-refresh-token"]').element as HTMLInputElement).value).toBe(
-      'first-refresh'
-    )
-    expect((sessionInput.element as HTMLTextAreaElement).value).toBe('')
-
-    await sessionInput.setValue(JSON.stringify({ accessToken: jwt(1893456000), refreshToken: null }))
-    await sessionInput.trigger('change')
-    await wrapper.get('form#create-account-form input[type="text"]').setValue('Perch null refresh')
-    await wrapper.get('form#create-account-form').trigger('submit.prevent')
-    await flushPromises()
-
-    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).not.toHaveProperty('refresh_token')
     wrapper.unmount()
   })
 })

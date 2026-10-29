@@ -981,7 +981,9 @@ const emailPasswordOptionEnabled = computed(
   () => props.showEmailPasswordOption && props.platform === 'grok' && passwordAuthEnabled.value
 )
 
-const showLocalCallbackNotice = computed(() => props.platform === 'openai' || props.platform === 'grok')
+const showLocalCallbackNotice = computed(
+  () => props.platform === 'openai' || props.platform === 'grok' || props.platform === 'perch'
+)
 
 // Get translation key based on platform
 const getOAuthKey = (key: string) => {
@@ -989,6 +991,7 @@ const getOAuthKey = (key: string) => {
   if (props.platform === 'gemini') return `admin.accounts.oauth.gemini.${key}`
   if (props.platform === 'antigravity') return `admin.accounts.oauth.antigravity.${key}`
   if (props.platform === 'grok') return `admin.accounts.oauth.grok.${key}`
+  if (props.platform === 'perch') return `admin.accounts.oauth.perch.${key}`
   return `admin.accounts.oauth.${key}`
 }
 
