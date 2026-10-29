@@ -13,7 +13,7 @@ import (
 func newTestRedisClient(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
 	t.Helper()
 	server := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	client := redis.NewClient(&redis.Options{Addr: server.Addr(), MaxRetries: -1})
 	t.Cleanup(func() { _ = client.Close() })
 	return server, client
 }
