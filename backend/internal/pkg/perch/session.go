@@ -194,9 +194,7 @@ func (s *Session) exchangeRefreshToken(ctx context.Context, creds Credentials) (
 	if err != nil {
 		return Credentials{}, fmt.Errorf("perch: build refresh request: %w", err)
 	}
-	req.Header.Set("content-type", "application/json")
-	req.Header.Set("apikey", auth.SupabaseAnonKey)
-	req.Header.Set("authorization", "Bearer "+auth.SupabaseAnonKey)
+	setSupabaseTokenHeaders(req, auth.SupabaseAnonKey)
 
 	resp, err := s.http.Do(req)
 	if err != nil {
