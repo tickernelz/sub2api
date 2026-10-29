@@ -311,7 +311,7 @@ Required behavior:
 
 Replay anchors:
 
-- `backend/internal/pkg/perch/` — handler, client, `wire.go`, `dialer.go`, chat translation, `surfacePromptText`, `testdata/wire/*.http`
+- `backend/internal/pkg/perch/` — handler, client, `wire.go`, `fingerprint.go`, chat translation, `surfacePromptText`, `testdata/wire/*.http`
 - `backend/internal/service/openai_gateway_perch.go`
 - `backend/internal/service/openai_gateway_chat_completions.go` — the `PlatformPerch` branch
 - `backend/internal/service/openai_gateway_forward.go` — the Responses guard
