@@ -314,7 +314,7 @@ Replay anchors:
 
 - `backend/internal/domain/constants.go` (`PlatformMeta`), `backend/internal/domain/platforms.go`
 - `backend/internal/service/meta.go`, `meta_oauth_service.go`, `meta_token_provider.go`, `ratelimit_meta.go`
-- `backend/internal/service/provider_profile.go`, `account.go` (`GetMetaBaseURL`, `GetOpenAIGateway`-side `IsMeta` branches in `GetOpenAIBaseURL` / `GetCNProtocolBaseURL` / `GetOpenAIProtocolAPIKey`)
+- `backend/internal/service/provider_profile.go`, `account.go` (`GetMetaBaseURL`, `UsesOpenAICodexProtocol` Meta exclusion, `GetOpenAIGateway`-side `IsMeta` branches in `GetOpenAIBaseURL` / `GetCNProtocolBaseURL` / `GetOpenAIProtocolAPIKey`)
 - `backend/internal/service/openai_gateway_forward.go` (`buildUpstreamRequest`: Meta OAuth target URL, `EnsureMuseToolNamespace`, identity headers), `openai_gateway_cc_pipeline.go` (identity headers), `openai_gateway_service.go` (`GetAccessToken` Meta branch)
 - `backend/internal/service/ratelimit_service.go` (`handleMetaThrottle` hook), `backend/internal/service/ratelimit_meta.go`
 - `backend/internal/handler/admin/meta_oauth_handler.go`, `backend/internal/server/routes/admin.go` (`/admin/meta/oauth/device/{start,poll}`, `/admin/meta/accounts/:id/mint`), `backend/internal/handler/wire.go`, `backend/cmd/server/wire_gen.go`
@@ -328,6 +328,8 @@ Known replay hazards:
 - `GetOpenAIProtocolAPIKey` must keep returning the minted key for Meta OAuth accounts. Reverting it to the API-key-only branch breaks account tests and model sync for device-flow accounts.
 - The `muse` namespace append must stay inside `buildUpstreamRequest` (and not per endpoint), so the Chat Completions inbound conversion path inherits it too. Moving it into the raw passthrough path would miss converted requests.
 - `X-Tbh-Contributor-Mode` is read from the upstream model, not the client model: keep using the body model after mapping.
+- `UsesOpenAICodexProtocol` must keep excluding platform `meta`. Upstream keys it on account type alone, so a Meta OAuth account would take every Codex branch: `Host: chatgpt.com` on an `api.meta.ai` URL, a `codex_cli_rs` User-Agent and Codex session headers, which the Muse gateway rejects.
+- Muse identity is applied after the passthrough whitelist and the account/ForceCodexCLI User-Agent overrides, and client-supplied Codex headers are dropped for Meta accounts, so exactly one `muse-build` User-Agent leaves the gateway.
 - The device flow session store is in-process. Do not move it to Redis without also giving `MetaOAuthService` a way to rebuild the DCA token, otherwise a restart during login loses the minted key.
 - Do not add `search_content_types` sanitization by mutating caller tool bytes: Meta rejects the field, and the gateway should reject/strip it at the body-normalization stage rather than in the namespace helper.
 
