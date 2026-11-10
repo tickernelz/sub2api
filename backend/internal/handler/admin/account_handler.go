@@ -2980,6 +2980,17 @@ func (h *AccountHandler) respondAvailableModels(c *gin.Context, account *service
 		return
 	}
 
+	if account.IsMeta() {
+		if h.accountTestService != nil {
+			if models, fetchErr := h.accountTestService.FetchMetaAccountModels(c.Request.Context(), account); fetchErr == nil && len(models) > 0 {
+				response.Success(c, models)
+				return
+			}
+		}
+		response.Success(c, service.DefaultMetaModels())
+		return
+	}
+
 	// Handle Claude/Anthropic accounts
 	// For OAuth and Setup-Token accounts: return default models
 	if account.IsOAuth() {
