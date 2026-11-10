@@ -13,6 +13,7 @@ FRONTEND_CRITICAL_VITEST := \
 	src/components/account/__tests__/credentialsBuilder.platformCatalog.spec.ts \
 	src/components/account/__tests__/CNProviderQuotaCell.spec.ts \
 	src/components/account/__tests__/MetaDeviceLogin.spec.ts \
+	src/components/account/__tests__/MetaUsageCell.spec.ts \
 	src/components/account/__tests__/CreateAccountModal.spec.ts \
 	src/components/account/__tests__/EditAccountModal.spec.ts \
 	src/components/account/__tests__/credentialsBuilder.spec.ts \
