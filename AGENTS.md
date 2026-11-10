@@ -294,6 +294,54 @@ go test -tags=unit ./internal/service/ -run 'ToolName|RestoreSSELine|RestoreTool
 
 Observed: 20 tests, all passing. Run the full `go test -tags=unit ./...` gate from section 5 before shipping; the focused run above is a feature check, not the CI gate.
 
+### H. Meta Muse Code provider (platform `meta`)
+
+Adds Meta Muse Code (api.meta.ai) as a provider: device-flow OAuth login, minted inference
+API keys, the Muse client identity headers, the mandatory `muse` tool namespace, a
+credential-scoped throttle path, and a static Muse model catalog. Details for operators live
+in `docs/META_PROVIDER.md`; this entry is the replay contract.
+
+Required behavior:
+
+- Platform `meta` stays registered in `backend/internal/domain/platforms.go` with the OpenAI gateway, and a `ProviderProfile` stays registered in `backend/internal/service/provider_profile.go` with `Routing: ProviderRoutingByModel`, `*` matched to `responses`, and both protocol base URLs pointing at `https://api.meta.ai/v1`.
+- Every inference request carries the Muse client identity headers and `X-Tbh-Contributor-Mode: 1` for `*-contributor` models (see `backend/internal/pkg/meta/identity.go`). A fresh UUIDv7 session id per request is intentional; do not reuse one session across unrelated requests.
+- Tool-bearing Responses requests get the canonical `muse` namespace appended after caller tools, never replacing or reordering them; tool-less requests and requests that already carry the namespace are untouched.
+- `AccountTypeOAuth` Meta accounts use the minted `api_key`, never the DCA token, for inference; the token provider mints on demand and persists the key. `AccountTypeAPIKey` accounts never mint.
+- Throttling is credential scoped: 429/404 with `error.resets_at` parks the account until that instant; 404 without it gets a 5 minute cooldown. Do not route Meta through the CN frequency-limit fallback, which would shorten a real quota window to seconds.
+- `dca_token` stays in `SensitiveCredentialKeys` so the admin API never echoes it and a full-object credentials PUT preserves it.
+
+Replay anchors:
+
+- `backend/internal/domain/constants.go` (`PlatformMeta`), `backend/internal/domain/platforms.go`
+- `backend/internal/service/meta.go`, `meta_oauth_service.go`, `meta_token_provider.go`, `ratelimit_meta.go`
+- `backend/internal/service/provider_profile.go`, `account.go` (`GetMetaBaseURL`, `UsesOpenAICodexProtocol` Meta exclusion, `GetOpenAIGateway`-side `IsMeta` branches in `GetOpenAIBaseURL` / `GetCNProtocolBaseURL` / `GetOpenAIProtocolAPIKey`)
+- `backend/internal/service/openai_gateway_forward.go` (`buildUpstreamRequest`: Meta OAuth target URL, `EnsureMuseToolNamespace`, identity headers), `openai_gateway_cc_pipeline.go` (identity headers), `openai_gateway_service.go` (`GetAccessToken` Meta branch)
+- `backend/internal/service/ratelimit_service.go` (`handleMetaThrottle` hook), `backend/internal/service/ratelimit_meta.go`
+- `backend/internal/handler/admin/meta_oauth_handler.go`, `backend/internal/server/routes/admin.go` (`/admin/meta/oauth/device/{start,poll}`, `/admin/meta/accounts/:id/mint`), `backend/internal/handler/wire.go`, `backend/cmd/server/wire_gen.go`
+- `backend/internal/pkg/meta/` (client, identity, errors) and its tests
+- `frontend/src/api/admin/meta.ts`, `frontend/src/components/account/MetaDeviceLogin.vue`, `frontend/src/constants/platformCatalog.builtin.json` (generated), `frontend/src/utils/platformColors.ts`, `frontend/src/components/common/PlatformIcon.vue`
+
+Known replay hazards:
+
+- The platform catalog JSON is generated from the backend: run `UPDATE_PLATFORM_CATALOG=1 go test -tags unit ./internal/service/ -run TestFrontendBuiltinPlatformCatalogInSync` after touching `platforms.go` or `provider_profile.go`, otherwise `TestFrontendBuiltinPlatformCatalogInSync` and several frontend specs fail on a stale JSON.
+- `GetCNProtocolBaseURL` and `GetOpenAIBaseURL` must keep their Meta shortcut to `GetMetaBaseURL()`; without it a minted `base_url` is silently ignored because the by-model profile default wins.
+- `GetOpenAIProtocolAPIKey` must keep returning the minted key for Meta OAuth accounts. Reverting it to the API-key-only branch breaks account tests and model sync for device-flow accounts.
+- The `muse` namespace append must stay inside `buildUpstreamRequest` (and not per endpoint), so the Chat Completions inbound conversion path inherits it too. Moving it into the raw passthrough path would miss converted requests.
+- `X-Tbh-Contributor-Mode` is read from the upstream model, not the client model: keep using the body model after mapping.
+- `UsesOpenAICodexProtocol` must keep excluding platform `meta`. Upstream keys it on account type alone, so a Meta OAuth account would take every Codex branch: `Host: chatgpt.com` on an `api.meta.ai` URL, a `codex_cli_rs` User-Agent and Codex session headers, which the Muse gateway rejects.
+- Muse identity is applied after the passthrough whitelist and the account/ForceCodexCLI User-Agent overrides, and client-supplied Codex headers are dropped for Meta accounts, so exactly one `muse-build` User-Agent leaves the gateway.
+- The device flow session store is in-process. Do not move it to Redis without also giving `MetaOAuthService` a way to rebuild the DCA token, otherwise a restart during login loses the minted key.
+- Do not add `search_content_types` sanitization by mutating caller tool bytes: Meta rejects the field, and the gateway should reject/strip it at the body-normalization stage rather than in the namespace helper.
+
+Verification for this entry:
+
+```bash
+cd backend
+go test -tags=unit ./internal/pkg/meta/ ./internal/service/ -run 'Meta|TestMeta|TestHandleUpstreamErrorMeta|TestPlatformList|TestRoutesByModel|TestProviderProfile|TestMatchingPlatforms|TestCompositeGroupScheduler' -count=1
+```
+
+Frontend: `src/components/account/__tests__/MetaDeviceLogin.spec.ts`, `src/constants/__tests__/platforms.spec.ts`, `src/components/account/__tests__/credentialsBuilder.platformCatalog.spec.ts`.
+
 ## 3. Upstream and workflow divergence
 
 The fork follows upstream `.github/` workflows except for these intentional changes:
