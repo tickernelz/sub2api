@@ -298,8 +298,9 @@ Observed: 20 tests, all passing. Run the full `go test -tags=unit ./...` gate fr
 
 Adds Meta Muse Code (api.meta.ai) as a provider: device-flow OAuth login, minted inference
 API keys, the Muse client identity headers, the mandatory `muse` tool namespace, a
-credential-scoped throttle path, and a static Muse model catalog. Details for operators live
-in `docs/META_PROVIDER.md`; this entry is the replay contract.
+credential-scoped throttle path, and a Muse model catalog (live upstream discovery with a
+static fallback). Details for operators live in `docs/META_PROVIDER.md`; this entry is the
+replay contract.
 
 Required behavior:
 
@@ -308,18 +309,21 @@ Required behavior:
 - Tool-bearing Responses requests get the canonical `muse` namespace appended after caller tools, never replacing or reordering them; tool-less requests and requests that already carry the namespace are untouched.
 - `AccountTypeOAuth` Meta accounts use the minted `api_key`, never the DCA token, for inference; the token provider mints on demand and persists the key. `AccountTypeAPIKey` accounts never mint.
 - Throttling is credential scoped: 429/404 with `error.resets_at` parks the account until that instant; 404 without it gets a 5 minute cooldown. Do not route Meta through the CN frequency-limit fallback, which would shorten a real quota window to seconds.
+- Model discovery is live: `buildUpstreamModelsRequest` has a Meta case and the admin provider list returns the upstream `GET {base}/models` result filtered to `muse-*` IDs, falling back to the static catalog in `pkg/meta` when the upstream call fails. That one path feeds the admin account test picker, the `sync-upstream` endpoint, and the create-form preview, so new upstream models appear without a code change.
+- The `response.subscription_usage` event carries the account's current window/weekly usage inline; it is never forwarded to downstream clients. The gateway samples it for Meta accounts and persists utilization/reset ratios in `account.Extra` under `meta_usage_*` keys; the account usage cell renders those sampled windows. There is no Meta usage-polling endpoint.
 - `dca_token` stays in `SensitiveCredentialKeys` so the admin API never echoes it and a full-object credentials PUT preserves it.
 
 Replay anchors:
 
 - `backend/internal/domain/constants.go` (`PlatformMeta`), `backend/internal/domain/platforms.go`
-- `backend/internal/service/meta.go`, `meta_oauth_service.go`, `meta_token_provider.go`, `ratelimit_meta.go`
+- `backend/internal/service/meta.go`, `meta_models.go`, `meta_usage.go`, `meta_gateway_key.go`, `meta_oauth_service.go`, `meta_token_provider.go`, `ratelimit_meta.go`
 - `backend/internal/service/provider_profile.go`, `account.go` (`GetMetaBaseURL`, `UsesOpenAICodexProtocol` Meta exclusion, `GetOpenAIGateway`-side `IsMeta` branches in `GetOpenAIBaseURL` / `GetCNProtocolBaseURL` / `GetOpenAIProtocolAPIKey`)
 - `backend/internal/service/openai_gateway_forward.go` (`buildUpstreamRequest`: Meta OAuth target URL, `EnsureMuseToolNamespace`, identity headers), `openai_gateway_cc_pipeline.go` (identity headers), `openai_gateway_service.go` (`GetAccessToken` Meta branch)
 - `backend/internal/service/ratelimit_service.go` (`handleMetaThrottle` hook), `backend/internal/service/ratelimit_meta.go`
 - `backend/internal/handler/admin/meta_oauth_handler.go`, `backend/internal/server/routes/admin.go` (`/admin/meta/oauth/device/{start,poll}`, `/admin/meta/accounts/:id/mint`), `backend/internal/handler/wire.go`, `backend/cmd/server/wire_gen.go`
 - `backend/internal/pkg/meta/` (client, identity, errors) and its tests
-- `frontend/src/api/admin/meta.ts`, `frontend/src/components/account/MetaDeviceLogin.vue`, `frontend/src/constants/platformCatalog.builtin.json` (generated), `frontend/src/utils/platformColors.ts`, `frontend/src/components/common/PlatformIcon.vue`
+- `backend/internal/service/upstream_models.go` (Meta case in `buildUpstreamModelsRequest`), `backend/internal/handler/admin/account_handler.go` (Meta branch in `respondAvailableModels`), `backend/internal/service/openai_gateway_response_handling.go` (subscription-usage sampling hooks), `backend/internal/service/account_usage_service.go` (Meta usage dispatch)
+- `frontend/src/api/admin/meta.ts`, `frontend/src/components/account/MetaDeviceLogin.vue`, `frontend/src/components/account/MetaUsageCell.vue`, `frontend/src/constants/platformCatalog.builtin.json` (generated), `frontend/src/utils/platformColors.ts`, `frontend/src/components/common/PlatformIcon.vue`
 
 Known replay hazards:
 
@@ -332,6 +336,8 @@ Known replay hazards:
 - Muse identity is applied after the passthrough whitelist and the account/ForceCodexCLI User-Agent overrides, and client-supplied Codex headers are dropped for Meta accounts, so exactly one `muse-build` User-Agent leaves the gateway.
 - The device flow session store is in-process. Do not move it to Redis without also giving `MetaOAuthService` a way to rebuild the DCA token, otherwise a restart during login loses the minted key.
 - Do not add `search_content_types` sanitization by mutating caller tool bytes: Meta rejects the field, and the gateway should reject/strip it at the body-normalization stage rather than in the namespace helper.
+- `response.subscription_usage` events must stay suppressed for Meta accounts even when a client sends them in a re-used event shape; forwarding leaks the upstream subscription usage and the tier identifier to downstream clients. Sampling runs after the stream ends, never inline in the read loop.
+- Keep the `muse-*` filter on the upstream model list: the same API key may expose unrelated surfaces, and only muse models are addressable through this provider's protocol rules.
 
 Verification for this entry:
 
