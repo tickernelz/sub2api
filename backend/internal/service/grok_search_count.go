@@ -269,18 +269,37 @@ func countGrokNativeSearchCallsInOutputArray(output gjson.Result) int {
 }
 
 func isGrokNativeSearchOutputItem(item gjson.Result) bool {
-	if !item.Exists() {
+	return item.Exists() && isNativeSearchCall(item.Get("type").String(), item.Get("name").String(), item.Get("call_id").String())
+}
+
+func countNativeSearchCallsInResponsesOutput(output []apicompat.ResponsesOutput) int {
+	count := 0
+	for i := range output {
+		if isNativeSearchCall(output[i].Type, output[i].Name, output[i].CallID) {
+			count++
+		}
+	}
+	return count
+}
+
+func isNativeSearchCountEvent(eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	case "response.output_item.done", "response.completed", "response.incomplete", "response.done":
+		return true
+	default:
 		return false
 	}
-	itemType := strings.ToLower(strings.TrimSpace(item.Get("type").String()))
-	switch itemType {
+}
+
+func isNativeSearchCall(itemType, name, callID string) bool {
+	switch strings.ToLower(strings.TrimSpace(itemType)) {
 	case "web_search_call", "x_search_call", "tool_search_call":
 		return true
 	case "function_call", "custom_tool_call":
-		if apicompat.IsServerSideSearchCall(itemType, item.Get("call_id").String()) {
+		if apicompat.IsServerSideSearchCall(itemType, callID) {
 			return true
 		}
-		name := strings.ToLower(strings.TrimSpace(item.Get("name").String()))
+		name = strings.ToLower(strings.TrimSpace(name))
 		return name == "web_search" || name == "x_search" || name == "tool_search"
 	default:
 		return false
