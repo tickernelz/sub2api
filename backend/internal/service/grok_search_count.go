@@ -8,6 +8,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// billsNativeSearchCalls reports whether the account's upstream bills native search tool calls per query.
+func (a *Account) billsNativeSearchCalls() bool {
+	return a.IsGrok() || a.IsMeta()
+}
+
 // countGrokNativeSearchCallsFromJSONBytes counts completed native search tool
 // calls in a Responses-style JSON body (output array or nested response.output).
 // Counts: web_search_call, x_search_call, tool_search_call, and function_call
