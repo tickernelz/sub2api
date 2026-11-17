@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -481,6 +482,51 @@ func TestOpenAIGatewayService_ForwardAsChatCompletions_RecordsForcedServiceTier(
 	require.NotNil(t, result.ServiceTier)
 	require.Equal(t, "priority", *result.ServiceTier)
 	require.Equal(t, "priority", gjson.GetBytes(upstream.lastBody, "service_tier").String())
+}
+
+func TestOpenAIGatewayService_Forward_GroupForcedTierOverridesConfiguredTier(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = false
+
+	settingRepo := &gatewayServiceTierSettingRepoStub{values: map[string]string{
+		SettingKeyGatewayServiceTierSettings: `{"openai":{"mode":"force","service_tier":"flex"},"anthropic":{"mode":"disabled","service_tier":"auto"}}`,
+	}}
+	upstream := &httpUpstreamRecorder{
+		resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"usage":{"input_tokens":1,"output_tokens":2}}`)),
+		},
+	}
+	svc := &OpenAIGatewayService{
+		cfg:            cfg,
+		httpUpstream:   upstream,
+		settingService: NewSettingService(settingRepo, nil),
+	}
+	account := &Account{
+		ID:          8,
+		Name:        "openai-apikey",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://example.com"},
+		Extra:       map[string]any{"use_responses_api": true},
+	}
+	ctx := context.WithValue(context.Background(), ctxkey.Group, &Group{
+		ID: 7, Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true, ForceOpenAIFast: true,
+	})
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+
+	result, err := svc.Forward(ctx, c, account, []byte(`{"model":"gpt-5","stream":false,"service_tier":"priority","input":"hi"}`))
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, OpenAIFastTierPriority, gjson.GetBytes(upstream.lastBody, "service_tier").String(),
+		"the group-forced tier must reach upstream even when it equals the client tier the configured rule replaced")
 }
 
 func TestOpenAIGatewayService_Forward_TextDataImageDoesNotForceMapMarshal(t *testing.T) {
