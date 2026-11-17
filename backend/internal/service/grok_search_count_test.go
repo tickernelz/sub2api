@@ -29,6 +29,8 @@ func TestCountGrokNativeSearchCalls_ServerSideSearchCustomToolCall(t *testing.T)
 
 	require.Equal(t, 2, countGrokNativeSearchCallsFromJSONBytes([]byte(`{"output":[`+xSearch+`,`+attachment+`,`+client+`]}`)))
 	require.Equal(t, 0, countGrokNativeSearchCallsFromJSONBytes([]byte(`{"output":[`+client+`]}`)))
+	require.Equal(t, 1, countGrokNativeSearchCallsFromJSONBytes([]byte(`{"output":[{"type":" Custom_Tool_Call ","call_id":"xs_2","name":"x_keyword_search"}]}`)),
+		"the item type is matched case- and space-insensitively, as for the other search call types")
 
 	sse := stringsJoin(
 		`data: {"type":"response.output_item.done","item":`+xSearch+`}`,

@@ -247,7 +247,8 @@ func isNativeSearchCountEvent(eventType string) bool {
 }
 
 func isNativeSearchCall(itemType, name, callID string) bool {
-	switch strings.ToLower(strings.TrimSpace(itemType)) {
+	itemType = strings.ToLower(strings.TrimSpace(itemType))
+	switch itemType {
 	case "web_search_call", "x_search_call", "tool_search_call":
 		return true
 	case "function_call", "custom_tool_call":
