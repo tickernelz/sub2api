@@ -472,8 +472,12 @@ const supportsGrokVideoTest = computed(
   () => isGrokAccount.value && grokTestMode.value === 'video'
 )
 
+const supportsMetaImageTest = computed(
+  () => props.account?.platform === 'meta' && selectedModelId.value.toLowerCase().startsWith('muse-image-')
+)
+
 const supportsImageTest = computed(
-  () => supportsGeminiImageTest.value || supportsOpenAIImageTest.value || supportsGrokImageTest.value
+  () => supportsGeminiImageTest.value || supportsOpenAIImageTest.value || supportsGrokImageTest.value || supportsMetaImageTest.value
 )
 
 // Model select only when the mode needs a model.
@@ -751,6 +755,10 @@ watch(
     }
   }
 )
+
+watch(selectedModelId, () => {
+  if (!isGrokAccount.value) applyDefaultPromptForMode()
+})
 
 watch(grokTestMode, () => {
   if (!isGrokAccount.value) return

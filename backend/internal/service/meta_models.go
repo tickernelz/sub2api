@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/meta"
@@ -29,7 +28,7 @@ func (s *AccountTestService) FetchMetaAccountModels(ctx context.Context, account
 	if err != nil {
 		return nil, newUpstreamModelSyncUpstreamError("Upstream model list response has no usable muse models", err)
 	}
-	return projectMetaModels(models, account.GetModelMapping()), nil
+	return MetaAccountTestModels(account, models), nil
 }
 
 func extractMetaUpstreamModelIDs(body []byte) ([]string, error) {
@@ -44,34 +43,16 @@ func extractMetaUpstreamModelIDs(body []byte) ([]string, error) {
 	return ids, nil
 }
 
-func projectMetaModels(models []meta.Model, mapping map[string]string) []meta.Model {
-	if len(mapping) == 0 {
-		return models
-	}
-	byID := make(map[string]meta.Model, len(models))
-	for _, model := range models {
-		byID[model.ID] = model
-	}
-	requested := make([]string, 0, len(mapping))
-	for source := range mapping {
-		requested = append(requested, source)
-	}
-	sort.Strings(requested)
-
-	projected := make([]meta.Model, 0, len(requested))
-	for _, source := range requested {
-		target := strings.TrimSpace(mapping[source])
-		if target == "" {
-			target = source
+// MetaAccountTestModels projects a Muse catalog onto the account's configured models.
+func MetaAccountTestModels(account *Account, models []meta.Model) []meta.Model {
+	return AccountTestModels(account, models, func(model meta.Model) string { return model.ID }, func(id string, target *meta.Model) meta.Model {
+		if target == nil {
+			return meta.NewModel(id)
 		}
-		projected = append(projected, meta.NewModel(source))
-		if upstream, ok := byID[target]; ok {
-			entry := upstream
-			entry.ID = source
-			projected[len(projected)-1] = entry
-		}
-	}
-	return projected
+		entry := *target
+		entry.ID = id
+		return entry
+	})
 }
 
 func (s *AccountTestService) buildMetaUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {

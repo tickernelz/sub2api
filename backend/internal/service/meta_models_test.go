@@ -32,22 +32,27 @@ func (u *metaModelsUpstreamStub) DoWithTLS(req *http.Request, proxyURL string, a
 	return u.Do(req, proxyURL, accountID, concurrency)
 }
 
-func TestProjectMetaModels(t *testing.T) {
+func TestMetaAccountTestModels(t *testing.T) {
 	models := []metapkg.Model{
 		metapkg.NewModel("muse-spark-1.3"),
 		metapkg.NewModel("muse-wonder-1.0"),
 	}
 
-	require.Equal(t, models, projectMetaModels(models, nil))
+	unmapped := metaTestAccount(map[string]any{"api_key": "sk-muse"}, AccountTypeAPIKey)
+	require.Equal(t, models, MetaAccountTestModels(unmapped, models))
 
-	projected := projectMetaModels(models, map[string]string{
-		"muse-spark":  "muse-spark-1.3",
-		"muse-custom": "muse-custom",
-	})
-	require.Len(t, projected, 2)
-	require.Equal(t, "muse-custom", projected[0].ID)
-	require.Equal(t, "muse-spark", projected[1].ID)
-	require.Equal(t, "muse-spark-1.3", projected[1].DisplayName)
+	mapped := metaTestAccount(map[string]any{"api_key": "sk-muse", "model_mapping": map[string]any{
+		"muse-spark":    "muse-spark-1.3",
+		"muse-custom":   "muse-custom",
+		"muse-wonder-*": "muse-wonder-1.0",
+	}}, AccountTypeOAuth)
+	projected := MetaAccountTestModels(mapped, models)
+	ids := make([]string, 0, len(projected))
+	for _, model := range projected {
+		ids = append(ids, model.ID)
+	}
+	require.Equal(t, []string{"muse-wonder-1.0", "muse-custom", "muse-spark"}, ids)
+	require.Equal(t, "muse-spark-1.3", projected[2].DisplayName)
 }
 
 func TestBuildMetaUpstreamModelsRequestSendsMuseIdentity(t *testing.T) {

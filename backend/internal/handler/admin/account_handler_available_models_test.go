@@ -731,3 +731,158 @@ func TestSyncUpstreamModelsPreview_MetaAPIKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), "\"muse-spark-1.3\"")
 }
+
+func availableModelIDs(t *testing.T, router *gin.Engine, accountID string) []string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/"+accountID+"/models", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids := make([]string, 0, len(resp.Data))
+	for _, model := range resp.Data {
+		ids = append(ids, model.ID)
+	}
+	return ids
+}
+
+func TestAccountHandlerGetAvailableModels_ListsConfiguredModelsOnEveryPlatform(t *testing.T) {
+	cases := []struct {
+		name     string
+		platform string
+		typ      string
+		mapping  map[string]any
+		want     []string
+		absent   []string
+	}{
+		{
+			name:     "anthropic oauth",
+			platform: service.PlatformAnthropic,
+			typ:      service.AccountTypeOAuth,
+			mapping:  map[string]any{"claude-custom-alias": "claude-sonnet-4-5", "custom-claude": "custom-claude"},
+			want:     []string{"claude-custom-alias", "custom-claude"},
+		},
+		{
+			name:     "anthropic api key",
+			platform: service.PlatformAnthropic,
+			typ:      service.AccountTypeAPIKey,
+			mapping:  map[string]any{"custom-claude": "custom-claude", "claude-haiku-5*": "custom-claude"},
+			want:     []string{"claude-haiku-5-5", "custom-claude"},
+			absent:   []string{"claude-haiku-5*"},
+		},
+		{
+			name:     "gemini oauth",
+			platform: service.PlatformGemini,
+			typ:      service.AccountTypeOAuth,
+			mapping:  map[string]any{"gemini-2.5-pro": "gemini-2.5-pro", "gemini-custom": "gemini-2.5-pro"},
+			want:     []string{"gemini-2.5-pro", "gemini-custom"},
+		},
+		{
+			name:     "gemini api key",
+			platform: service.PlatformGemini,
+			typ:      service.AccountTypeAPIKey,
+			mapping:  map[string]any{"gemini-custom": "gemini-custom"},
+			want:     []string{"gemini-custom"},
+		},
+		{
+			name:     "grok wildcard",
+			platform: service.PlatformGrok,
+			typ:      service.AccountTypeOAuth,
+			mapping:  map[string]any{"grok-4.3*": "grok-4.3", "my-grok": "grok-4.3"},
+			want:     []string{"grok-4.3", "my-grok"},
+			absent:   []string{"grok-4.3*"},
+		},
+		{
+			name:     "openai api key without discovery",
+			platform: service.PlatformOpenAI,
+			typ:      service.AccountTypeAPIKey,
+			mapping:  map[string]any{"gpt-5.6-sol": "gpt-5.6-sol", "nemotron-3-ultra": "nemotron-3-ultra", "deepseek-flash": "deepseek-v4.1-flash-1017"},
+			want:     []string{"gpt-5.6-sol", "nemotron-3-ultra", "deepseek-flash"},
+		},
+		{
+			name:     "deepseek api key without discovery",
+			platform: service.PlatformDeepseek,
+			typ:      service.AccountTypeAPIKey,
+			mapping:  map[string]any{"deepseek-chat": "deepseek-chat", "ds-alias": "deepseek-reasoner"},
+			want:     []string{"deepseek-chat", "ds-alias"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &availableModelsAdminService{
+				stubAdminService: newStubAdminService(),
+				account: service.Account{
+					ID:          60,
+					Name:        tc.name,
+					Platform:    tc.platform,
+					Type:        tc.typ,
+					Status:      service.StatusActive,
+					Credentials: map[string]any{"api_key": "sk-test", "model_mapping": tc.mapping},
+				},
+			}
+			ids := availableModelIDs(t, setupAvailableModelsRouter(svc), "60")
+			for _, id := range tc.want {
+				require.Contains(t, ids, id)
+			}
+			for _, id := range tc.absent {
+				require.NotContains(t, ids, id)
+			}
+			require.Len(t, ids, len(tc.want))
+		})
+	}
+}
+
+func TestAccountHandlerGetAvailableModels_MetaFallbackKeepsConfiguredModels(t *testing.T) {
+	account := metaAvailableModelsAccount()
+	account.Credentials["model_mapping"] = map[string]any{"muse-image-1.0": "muse-image-1.0", "muse-custom": "muse-spark-1.3"}
+	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
+	upstream := &syncUpstreamHTTPUpstream{resp: &http.Response{
+		StatusCode: http.StatusBadGateway,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":"down"}`)),
+	}}
+
+	ids := availableModelIDs(t, setupAvailableModelsRouterWithTestService(svc, upstream), "47")
+	require.Equal(t, []string{"muse-image-1.0", "muse-custom"}, ids)
+}
+
+func TestAccountHandlerGetAvailableModels_MultiProtocolUsesUpstreamCatalog(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		mapping map[string]any
+		want    []string
+	}{
+		{name: "unmapped", want: []string{"deepseek-chat", "deepseek-reasoner"}},
+		{name: "mapped", mapping: map[string]any{"deepseek-chat": "deepseek-chat", "ds-alias": "deepseek-reasoner"}, want: []string{"deepseek-chat", "ds-alias"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			credentials := map[string]any{"api_key": "sk-test", "base_url": "https://deepseek.example"}
+			if tc.mapping != nil {
+				credentials["model_mapping"] = tc.mapping
+			}
+			svc := &availableModelsAdminService{
+				stubAdminService: newStubAdminService(),
+				account: service.Account{
+					ID:          61,
+					Name:        "deepseek",
+					Platform:    service.PlatformDeepseek,
+					Type:        service.AccountTypeAPIKey,
+					Status:      service.StatusActive,
+					Credentials: credentials,
+				},
+			}
+			upstream := &syncUpstreamHTTPUpstream{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"deepseek-chat"},{"id":"deepseek-reasoner"}]}`)),
+			}}
+
+			ids := availableModelIDs(t, setupAvailableModelsRouterWithTestService(svc, upstream), "61")
+			require.Equal(t, tc.want, ids)
+		})
+	}
+}

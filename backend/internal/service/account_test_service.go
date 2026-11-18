@@ -235,9 +235,6 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 		// Image models that a configured alias points at are absent from the Codex
 		// manifest, so the projection alone cannot surface them. Resolve each public
 		// name to its target and keep the entry when that target is an image model.
-		// Judging by the target rather than the public name keeps a lookalike name
-		// (for example an alias spelled "gpt-image-*" that maps to a text model)
-		// from being synthesized into the picker.
 		// Passthrough keeps native image names without applying mapping targets.
 		for publicID := range account.GetModelMapping() {
 			if strings.Contains(publicID, "*") || seen[publicID] {
@@ -254,7 +251,7 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 			seen[publicID] = true
 		}
 	}
-	return payload.Data, nil
+	return AccountTestModels(account, payload.Data, OpenAITestModelID, NewOpenAITestModel), nil
 }
 
 // NewAccountTestService creates a new AccountTestService
@@ -444,6 +441,9 @@ func (s *AccountTestService) testModelRoutedAccountConnection(c *gin.Context, ac
 		testModelID = openai.DefaultTestModel
 	}
 	testModelID = account.GetMappedModel(testModelID)
+	if account.IsMeta() && isMetaImageModel(testModelID) {
+		return s.testMetaImageGeneration(c, account, testModelID, prompt)
+	}
 	if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(testModelID) {
 		return fmt.Errorf("model %q is not supported on OpenCode standard gateway (gemini models require Google SDK endpoint, jev models require System One endpoint)", testModelID)
 	}

@@ -220,4 +220,48 @@ describe('AccountTestModal', () => {
       mode: 'compact'
     })
   })
+
+  it('Meta Muse 图片模型测试会带默认提示词并渲染图片预览', async () => {
+    getAvailableModels.mockResolvedValue([
+      { id: 'muse-spark-1.3', display_name: 'muse-spark-1.3' },
+      { id: 'muse-image-1.0', display_name: 'muse-image-1.0' }
+    ])
+    global.fetch = vi.fn().mockResolvedValue(
+      createStreamResponse([
+        'data: {"type":"test_start","model":"muse-image-1.0"}\n',
+        'data: {"type":"image","image_url":"data:image/webp;base64,UklGRg==","mime_type":"image/webp"}\n',
+        'data: {"type":"test_complete","success":true}\n'
+      ])
+    ) as any
+
+    const wrapper = mountModal({
+      id: 43,
+      name: 'Muse',
+      platform: 'meta',
+      type: 'oauth',
+      status: 'active'
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect(wrapper.find('textarea.textarea-stub').exists()).toBe(false)
+
+    ;(wrapper.vm as any).selectedModelId = 'muse-image-1.0'
+    await flushPromises()
+    const promptInput = wrapper.find('textarea.textarea-stub')
+    expect(promptInput.exists()).toBe(true)
+    expect((promptInput.element as HTMLTextAreaElement).value).toBe('Generate a cute orange cat astronaut sticker on a clean pastel background.')
+
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+    await flushPromises()
+
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toEqual({
+      model_id: 'muse-image-1.0',
+      prompt: 'Generate a cute orange cat astronaut sticker on a clean pastel background.'
+    })
+    const preview = wrapper.find('img[alt="test-image-1"]')
+    expect(preview.exists()).toBe(true)
+    expect(preview.attributes('src')).toBe('data:image/webp;base64,UklGRg==')
+  })
 })
