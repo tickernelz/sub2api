@@ -200,7 +200,7 @@ func TestFetchOpenAIAccountModelsOAuthImageNamesMappedToText(t *testing.T) {
 				models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
 				require.NoError(t, err)
 				if target == "text-target-missing" {
-					require.Empty(t, models, "a missing text target must not be synthesized as an image choice")
+					require.Equal(t, []string{publicID}, pickerModelIDs(models), "a configured name stays testable when its target is missing upstream")
 					return
 				}
 				require.Equal(t, []string{publicID}, pickerModelIDs(models))
@@ -290,4 +290,29 @@ func TestFetchOpenAIAccountModelsMappingChangesReuseRawCache(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, original, after.Body, "projection must not mutate the shared catalog")
 	require.EqualValues(t, 1, calls.Load(), "both mappings must reuse the same discovery cache")
+}
+
+func TestFetchOpenAIAccountModelsAPIKeyListsConfiguredModelsMissingUpstream(t *testing.T) {
+	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		return ordinaryModelsUpstreamResponse(`{"data":[{"id":"upstream-target","owned_by":"provider"},{"id":"gpt-listed","owned_by":"provider"},{"id":"unconfigured-model"}]}`), nil
+	}})
+	svc := &AccountTestService{openaiGatewayService: gateway}
+	account := newCodexModelsAPIKeyTestAccount("https://models.example/v1")
+	account.Credentials["model_mapping"] = map[string]any{
+		"direct-alias":   "upstream-target",
+		"deepseek-flash": "deepseek-v4.1-flash-1017",
+		"image/kino-xl":  "image/kino-xl",
+		"gpt-*":          "upstream-target",
+	}
+
+	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.NoError(t, err)
+	ids := pickerModelIDs(models)
+	require.ElementsMatch(t, []string{"gpt-listed", "direct-alias", "deepseek-flash", "image/kino-xl"}, ids)
+	byID := make(map[string]string, len(models))
+	for _, model := range models {
+		byID[model.ID] = model.DisplayName
+	}
+	require.Equal(t, "deepseek-flash", byID["deepseek-flash"])
+	require.Equal(t, "image/kino-xl", byID["image/kino-xl"])
 }
