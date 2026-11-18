@@ -347,6 +347,7 @@ Known replay hazards:
 - Do not add `search_content_types` sanitization by mutating caller tool bytes: Meta rejects the field, and the gateway should reject/strip it at the body-normalization stage rather than in the namespace helper.
 - `response.subscription_usage` events must stay suppressed for Meta accounts even when a client sends them in a re-used event shape; forwarding leaks the upstream subscription usage and the tier identifier to downstream clients. Sampling runs after the stream ends, never inline in the read loop.
 - Keep the `muse-*` filter on the upstream model list: the same API key may expose unrelated surfaces, and only muse models are addressable through this provider's protocol rules.
+- The admin account test sends a `muse-image-*` model (after account mapping) to `testMetaImageGeneration` (`account_test_service_meta_image.go`), which builds the request with the gateway's own `GetAccessToken` + `buildOpenAIImagesRequest`, so the test and `/v1/images/generations` share the URL, minted key and Muse identity. The body is `{model, prompt, n: 1}` only: Meta answers 400 to `aspect_ratio`. The image MIME is sniffed from the `b64_json` bytes (Muse returns WebP). The frontend shows the prompt box and image preview for platform `meta` when the model starts with `muse-image-`. `account_test_service_meta_image_test.go` and the Muse case in `AccountTestModal.spec.ts` lock it.
 
 Verification for this entry:
 
@@ -356,6 +357,26 @@ go test -tags=unit ./internal/pkg/meta/ ./internal/service/ -run 'Meta|TestMeta|
 ```
 
 Frontend: `src/components/account/__tests__/MetaDeviceLogin.spec.ts`, `src/constants/__tests__/platforms.spec.ts`, `src/components/account/__tests__/credentialsBuilder.platformCatalog.spec.ts`.
+
+### I. Account test picker lists every configured model
+
+The "Select Test Model" list in the admin Test Account Connection dialog (`GET /api/v1/admin/accounts/:id/models`) offers every model the account can be asked for, on every platform: the platform defaults it serves, then every exact source name of the stored `credentials.model_mapping` (custom models and aliases), even when the upstream `/v1/models` catalog does not list the alias target (Zhafron, ZHA-6892).
+
+Invariants:
+
+- One rule, `service.AccountTestModels` (`backend/internal/service/account_test_models.go`): no stored mapping keeps the full default list; with a mapping, a default stays only when `IsModelSupported` admits it (exact key or wildcard), and wildcard keys themselves are never listed.
+- OpenAI keeps the shared discovery catalog and its cache untouched; `FetchOpenAIAccountModels` appends the configured names on its own copy. Passthrough without the model filter ignores the mapping, so a leftover mapping adds nothing (issue #4936).
+- Anthropic and Gemini OAuth, Grok, Meta (live and static fallback) and the multi-protocol API-key providers (Kimi, Zhipu, DeepSeek, MiniMax, OpenCode, Command Code, Cline) all go through the same rule. The multi-protocol providers use the account's upstream model list (`FetchUpstreamSupportedModels`) as their defaults and fall back to the Claude list when it fails. Antigravity keeps its stored-mapping list and TypeSafe keeps `jev-latest`.
+
+Replay anchors: `backend/internal/handler/admin/account_handler.go` (`respondAvailableModels`), `backend/internal/service/account_test_service.go` (`FetchOpenAIAccountModels` return), `backend/internal/service/meta_models.go` (`MetaAccountTestModels`).
+
+Verification:
+
+```bash
+cd backend
+go test -tags=unit ./internal/handler/admin/ -run 'GetAvailableModels' -count=1
+go test -tags=unit ./internal/service/ -run 'FetchOpenAIAccountModels|MetaAccountTestModels|AccountTestMeta' -count=1
+```
 
 ## 3. Upstream and workflow divergence
 
