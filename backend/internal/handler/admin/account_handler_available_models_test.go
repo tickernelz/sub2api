@@ -886,4 +886,3 @@ func TestAccountHandlerGetAvailableModels_MultiProtocolUsesUpstreamCatalog(t *te
 		})
 	}
 }
-
