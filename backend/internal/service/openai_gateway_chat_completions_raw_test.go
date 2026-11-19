@@ -369,6 +369,76 @@ func TestForwardAsRawChatCompletions_NonStreamingCapturesCacheWriteUsage(t *test
 	}
 }
 
+func TestForwardAsRawChatCompletions_NonStreamingClientCollectsStreamedUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, contentType := range []string{"text/event-stream", "application/json"} {
+		t.Run(contentType, func(t *testing.T) {
+			body := []byte(`{"model":"gpt-5.6","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{contentType}, "x-request-id": []string{"rid_raw_collect"}},
+				Body: io.NopCloser(strings.NewReader(
+					"data: {\"id\":\"chatcmpl_long\",\"model\":\"gpt-5.6\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"think\"}}]}\n\n" +
+						"data: {\"id\":\"chatcmpl_long\",\"model\":\"gpt-5.6\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"part one, \"}}]}\n\n" +
+						"data: {\"id\":\"chatcmpl_long\",\"model\":\"gpt-5.6\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"part two\"},\"finish_reason\":\"stop\"}]}\n\n" +
+						"data: {\"id\":\"chatcmpl_long\",\"model\":\"gpt-5.6\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":5,\"total_tokens\":12}}\n\n" +
+						"data: [DONE]\n\n",
+				)),
+			}}
+			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+			result, err := svc.forwardAsRawChatCompletions(context.Background(), c, rawChatCompletionsTestAccount(), body, "")
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+			require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
+			require.Equal(t, "text/event-stream", upstream.lastReq.Header.Get("Accept"))
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+			require.Equal(t, "chat.completion", gjson.Get(rec.Body.String(), "object").String())
+			require.Equal(t, "chatcmpl_long", gjson.Get(rec.Body.String(), "id").String())
+			require.Equal(t, "part one, part two", gjson.Get(rec.Body.String(), "choices.0.message.content").String())
+			require.Equal(t, "think", gjson.Get(rec.Body.String(), "choices.0.message.reasoning_content").String())
+			require.Equal(t, "stop", gjson.Get(rec.Body.String(), "choices.0.finish_reason").String())
+			require.Equal(t, int64(5), gjson.Get(rec.Body.String(), "usage.completion_tokens").Int())
+			require.Equal(t, 7, result.Usage.InputTokens)
+			require.Equal(t, 5, result.Usage.OutputTokens)
+			require.False(t, result.Stream)
+		})
+	}
+}
+
+func TestForwardAsRawChatCompletions_NonStreamingClientFailsOverTruncatedUpstreamStream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.6","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"id\":\"chatcmpl_cut\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"half an ans\"}}]}\n\n",
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	_, err := svc.forwardAsRawChatCompletions(context.Background(), c, rawChatCompletionsTestAccount(), body, "")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+	require.Empty(t, rec.Body.String())
+}
+
 func TestForwardAsRawChatCompletions_PreservesDeepSeekReasoningContentNonStreaming(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

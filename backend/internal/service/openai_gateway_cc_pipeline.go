@@ -347,6 +347,25 @@ func (s *OpenAIGatewayService) scanCCStream(
 	return st
 }
 
+const ccStreamSniffBytes = 16
+
+type ccSniffedBody struct {
+	io.Reader
+	io.Closer
+}
+
+// ccUpstreamStreamed reports whether a successful CC upstream answered with SSE, sniffing the body when Content-Type is not text/event-stream.
+func ccUpstreamStreamed(resp *http.Response) bool {
+	if isEventStreamResponse(resp.Header) {
+		return true
+	}
+	reader := bufio.NewReader(resp.Body)
+	resp.Body = ccSniffedBody{Reader: reader, Closer: resp.Body}
+	head, _ := reader.Peek(ccStreamSniffBytes)
+	head = bytes.TrimLeft(head, " \t\r\n")
+	return bytes.HasPrefix(head, []byte(":")) || bodyHasSSEFraming(head)
+}
+
 // logCCStreamMissingDoneSentinel 记录"上游未发 [DONE] 哨兵即结束"的 debug 日志。
 func logCCStreamMissingDoneSentinel(logPrefix, requestID string) {
 	logger.L().Debug(logPrefix+": upstream stream ended without done sentinel",
