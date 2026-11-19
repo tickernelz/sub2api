@@ -290,7 +290,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 	logPrefix string,
 	requestID string,
 	startTime time.Time,
-	emit func(*apicompat.ChatCompletionsChunk),
+	emit func([]byte, *apicompat.ChatCompletionsChunk),
 ) ccStreamScanState {
 	var st ccStreamScanState
 
@@ -320,8 +320,9 @@ func (s *OpenAIGatewayService) scanCCStream(
 			st.Usage = *u
 		}
 
+		raw := []byte(payload)
 		var chunk apicompat.ChatCompletionsChunk
-		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+		if err := json.Unmarshal(raw, &chunk); err != nil {
 			logger.L().Warn(logPrefix+": failed to parse chat stream chunk",
 				zap.Error(err),
 				zap.String("request_id", requestID),
@@ -332,7 +333,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
 		}
-		emit(&chunk)
+		emit(raw, &chunk)
 	}
 
 	if err := scanner.Err(); err != nil {
