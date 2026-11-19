@@ -363,6 +363,16 @@ func (u *grokCredentialHandlerUpstream) Do(req *http.Request, _ string, accountI
 			Body:       io.NopCloser(bytes.NewBufferString(`{"error":{"message":"payment required"}}`)),
 		}, nil
 	}
+	if strings.Contains(req.URL.Path, "/chat/completions") && bytes.Contains(requestBody, []byte(`"stream":true`)) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body: io.NopCloser(bytes.NewBufferString(
+				"data: {\"id\":\"chatcmpl_healthy\",\"model\":\"grok-4.5\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n" +
+					"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\ndata: [DONE]\n\n",
+			)),
+		}, nil
+	}
 	if bytes.Contains(requestBody, []byte(`"stream":true`)) {
 		return &http.Response{
 			StatusCode: http.StatusOK,

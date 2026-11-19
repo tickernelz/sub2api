@@ -138,7 +138,7 @@ func TestMessagesEffortPolicyHTTP(t *testing.T) {
 						require.NotNil(t, result.ReasoningEffort)
 						require.Equal(t, test.want, *result.ReasoningEffort)
 						require.Equal(t, stream, result.Stream)
-						require.Equal(t, stream || !usesChat, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+						require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
 						if stream {
 							require.Contains(t, recorder.Header().Get("Content-Type"), "text/event-stream")
 							require.Contains(t, recorder.Body.String(), "message_stop")
