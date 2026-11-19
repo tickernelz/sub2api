@@ -414,6 +414,39 @@ func TestForwardAsRawChatCompletions_NonStreamingClientCollectsStreamedUpstream(
 	}
 }
 
+func TestForwardAsRawChatCompletions_NonStreamingClientKeepsUpstreamOnlyFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.6","messages":[{"role":"user","content":"hello"}],"logprobs":true,"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"id\":\"x\",\"model\":\"gpt-5.6\",\"citations\":[\"https://a.example\"],\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"h\"},\"logprobs\":{\"content\":[{\"token\":\"h\",\"logprob\":-0.1}]}}]}\n\n" +
+				"data: {\"id\":\"x\",\"model\":\"gpt-5.6\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"i\"},\"logprobs\":{\"content\":[{\"token\":\"i\",\"logprob\":-0.2}]},\"finish_reason\":\"stop\"}]}\n\n" +
+				"data: {\"id\":\"x\",\"model\":\"gpt-5.6\",\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":1,\"total_tokens\":4,\"prompt_cache_hit_tokens\":2,\"cost\":0.0001}}\n\n" +
+				"data: [DONE]\n\n",
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	_, err := svc.forwardAsRawChatCompletions(context.Background(), c, rawChatCompletionsTestAccount(), body, "")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
+	out := rec.Body.String()
+	require.Equal(t, "hi", gjson.Get(out, "choices.0.message.content").String())
+	require.JSONEq(t, `[{"token":"h","logprob":-0.1},{"token":"i","logprob":-0.2}]`, gjson.Get(out, "choices.0.logprobs.content").Raw)
+	require.Equal(t, int64(2), gjson.Get(out, "usage.prompt_cache_hit_tokens").Int())
+	require.Equal(t, 0.0001, gjson.Get(out, "usage.cost").Float())
+	require.JSONEq(t, `["https://a.example"]`, gjson.Get(out, "citations").Raw)
+	require.NotZero(t, gjson.Get(out, "created").Int())
+}
+
 func TestForwardAsRawChatCompletions_NonStreamingClientFailsOverTruncatedUpstreamStream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

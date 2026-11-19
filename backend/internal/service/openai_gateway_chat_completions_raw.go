@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -574,16 +573,18 @@ func (s *OpenAIGatewayService) collectRawChatCompletionsStream(
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
-	reply := apicompat.NewChatCompletionsStreamAccumulator()
-	scan := s.scanCCStream(c, resp, "openai chat_completions raw", requestID, startTime, reply.Add)
-	if scan.Err != nil || (!scan.SawDone && reply.FinishReason() == "") {
+	reply := newChatCompletionsStreamAccumulator()
+	scan := s.scanCCStream(c, resp, "openai chat_completions raw", requestID, startTime, func(payload []byte, _ *apicompat.ChatCompletionsChunk) {
+		reply.add(payload)
+	})
+	if scan.Err != nil || (!scan.SawDone && reply.finishReason() == "") {
 		cause := scan.Err
 		if cause == nil {
 			cause = ErrOpenAIUpstreamStreamTruncated
 		}
 		return nil, newOpenAIRawStreamTruncatedFailoverError(c, account, requestID, cause)
 	}
-	respBody, err := json.Marshal(reply.Response())
+	respBody, err := reply.assemble()
 	if err != nil {
 		writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Failed to assemble upstream response")
 		return nil, fmt.Errorf("marshal assembled chat completion: %w", err)

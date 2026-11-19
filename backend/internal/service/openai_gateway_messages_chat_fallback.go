@@ -168,8 +168,10 @@ func (s *OpenAIGatewayService) collectChatCompletionsStreamAsAnthropic(
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
-	reply := apicompat.NewChatCompletionsStreamAccumulator()
-	scan := s.scanCCStream(c, resp, "openai messages chat fallback", requestID, startTime, reply.Add)
+	reply := newChatCompletionsStreamAccumulator()
+	scan := s.scanCCStream(c, resp, "openai messages chat fallback", requestID, startTime, func(payload []byte, _ *apicompat.ChatCompletionsChunk) {
+		reply.add(payload)
+	})
 
 	result := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
@@ -194,12 +196,21 @@ func (s *OpenAIGatewayService) collectChatCompletionsStreamAsAnthropic(
 		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream response stream was interrupted")
 		return result(), fmt.Errorf("stream usage incomplete: %w", scan.Err)
 	}
-	if !scan.SawDone && reply.FinishReason() == "" {
+	if !scan.SawDone && reply.finishReason() == "" {
 		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream response stream ended before the reply finished")
 		return result(), fmt.Errorf("upstream stream ended without finish_reason or done sentinel")
 	}
 
-	anthropicResp := apicompat.ChatCompletionsResponseToAnthropic(reply.Response(), compositeClientModel(c.Request.Context(), originalModel))
+	assembled, err := reply.assemble()
+	var ccResp apicompat.ChatCompletionsResponse
+	if err == nil {
+		err = json.Unmarshal(assembled, &ccResp)
+	}
+	if err != nil {
+		writeAnthropicError(c, http.StatusBadGateway, "api_error", "Failed to assemble upstream response")
+		return result(), fmt.Errorf("assemble chat completion: %w", err)
+	}
+	anthropicResp := apicompat.ChatCompletionsResponseToAnthropic(&ccResp, compositeClientModel(c.Request.Context(), originalModel))
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
@@ -264,7 +275,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 
 	// 与 responses 兄弟不同：客户端断开后仍继续做事件转换（喂 anthropicState），
 	// 仅跳过写出，保证 finalize 阶段的 usage 汇总不受断开影响。
-	emitChunk := func(chunk *apicompat.ChatCompletionsChunk) {
+	emitChunk := func(_ []byte, chunk *apicompat.ChatCompletionsChunk) {
 		// CC chunk → Anthropic events (direct, single state machine)
 		anthropicEvents := apicompat.ChatCompletionsChunkToAnthropicEvents(chunk, anthropicState)
 		if clientDisconnected {
