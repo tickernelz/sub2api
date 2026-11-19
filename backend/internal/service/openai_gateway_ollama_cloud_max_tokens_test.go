@@ -332,7 +332,6 @@ func TestForwardAsRawChatCompletions_DeepseekOllamaCloudClampsMaxTokens(t *testi
 	require.Equal(t, "deepseek-v4-flash", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, int64(65535), gjson.GetBytes(upstream.lastBody, "max_tokens").Int())
 
-	// 官方 DeepSeek（api.deepseek.com）+ 残留 usage extra：字节级不变。
 	official := officialDeepSeekTestAccount(312)
 	official.Credentials["api_protocol"] = APIProtocolChatCompletions
 	officialBody := []byte(`{"model":"deepseek-v4-flash","max_tokens":256000,"messages":[{"role":"user","content":"hi"}],"stream":false}`)
@@ -341,7 +340,7 @@ func TestForwardAsRawChatCompletions_DeepseekOllamaCloudClampsMaxTokens(t *testi
 
 	_, err = officialSvc.forwardAsRawChatCompletions(context.Background(), adaptiveProtocolTestContext("/v1/chat/completions", officialBody), official, officialBody, "")
 	require.Error(t, err)
-	require.Equal(t, string(officialBody), string(officialUpstream.lastBody))
+	require.Equal(t, `{"model":"deepseek-v4-flash","max_tokens":256000,"messages":[{"role":"user","content":"hi"}],"stream":true,"stream_options":{"include_usage":true}}`, string(officialUpstream.lastBody))
 }
 
 // TestForwardResponsesViaRawChatCompletions_DeepseekOllamaCloudClampsMaxTokens 验证

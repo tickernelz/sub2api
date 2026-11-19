@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -162,12 +164,16 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 		}
 	}
 
-	if clientStream {
-		var usageErr error
-		upstreamBody, usageErr = ensureOpenAIChatStreamUsage(upstreamBody)
-		if usageErr != nil {
-			return nil, fmt.Errorf("enable stream usage: %w", usageErr)
+	if !clientStream {
+		var streamErr error
+		upstreamBody, streamErr = sjson.SetBytes(upstreamBody, "stream", true)
+		if streamErr != nil {
+			return nil, fmt.Errorf("enable upstream stream: %w", streamErr)
 		}
+	}
+	upstreamBody, usageErr := ensureOpenAIChatStreamUsage(upstreamBody)
+	if usageErr != nil {
+		return nil, fmt.Errorf("enable stream usage: %w", usageErr)
 	}
 	if account.Platform == PlatformGrok {
 		upstreamBody, err = stripGrokChatPromptCacheKey(upstreamBody)
@@ -213,7 +219,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 	// the outbound request (for example GLM xhigh is forwarded as max).
 	reasoningEffort := extractRawChatCompletionsReasoningEffort(account, upstreamBody, upstreamModel, billingModel, originalModel)
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, upstreamBody, upstreamModel)
-	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA, grokCacheIdentity)
+	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, true, token, customUA, grokCacheIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -267,9 +273,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletionsWithStartTime(
 	// 8. Forward response
 	var result *OpenAIForwardResult
 	var forwardErr error
-	if clientStream {
+	switch {
+	case clientStream:
 		result, forwardErr = s.streamRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, len(body))
-	} else {
+	case ccUpstreamStreamed(resp):
+		result, forwardErr = s.collectRawChatCompletionsStream(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	default:
 		result, forwardErr = s.bufferRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	if result != nil {
@@ -525,8 +534,6 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	serviceTier *string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
-	requestID := resp.Header.Get("x-request-id")
-
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
@@ -544,6 +551,62 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsedUsage
 	}
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	return s.writeRawChatCompletionsJSON(c, resp, account, respBody, contentType, usage, nil, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+}
+
+// collectRawChatCompletionsStream answers a non-streaming /v1/chat/completions client from a streamed upstream.
+func (s *OpenAIGatewayService) collectRawChatCompletionsStream(
+	c *gin.Context,
+	resp *http.Response,
+	account *Account,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	reasoningEffort *string,
+	serviceTier *string,
+	startTime time.Time,
+) (*OpenAIForwardResult, error) {
+	requestID := resp.Header.Get("x-request-id")
+	if upstreamResponseModelObserverFromContext(c) == nil {
+		beginUpstreamResponseModelObservation(c)
+	}
+	reply := apicompat.NewChatCompletionsStreamAccumulator()
+	scan := s.scanCCStream(c, resp, "openai chat_completions raw", requestID, startTime, reply.Add)
+	if scan.Err != nil || (!scan.SawDone && reply.FinishReason() == "") {
+		cause := scan.Err
+		if cause == nil {
+			cause = ErrOpenAIUpstreamStreamTruncated
+		}
+		return nil, newOpenAIRawStreamTruncatedFailoverError(c, account, requestID, cause)
+	}
+	respBody, err := json.Marshal(reply.Response())
+	if err != nil {
+		writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Failed to assemble upstream response")
+		return nil, fmt.Errorf("marshal assembled chat completion: %w", err)
+	}
+	return s.writeRawChatCompletionsJSON(c, resp, account, respBody, "application/json", scan.Usage, scan.FirstTokenMs, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+}
+
+func (s *OpenAIGatewayService) writeRawChatCompletionsJSON(
+	c *gin.Context,
+	resp *http.Response,
+	account *Account,
+	respBody []byte,
+	contentType string,
+	usage OpenAIUsage,
+	firstTokenMs *int,
+	originalModel string,
+	billingModel string,
+	upstreamModel string,
+	reasoningEffort *string,
+	serviceTier *string,
+	startTime time.Time,
+) (*OpenAIForwardResult, error) {
+	requestID := resp.Header.Get("x-request-id")
 	responseModel := gjson.GetBytes(respBody, "model").String()
 	if requiresBillableGrokChatUsage(account, billingModel, upstreamModel, responseModel) && !hasBillableGrokChatUsage(usage) {
 		upstreamRequestID := firstNonEmpty(requestID, resp.Header.Get("xai-request-id"))
@@ -555,11 +618,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		c.Writer.Header().Set("Content-Type", ct)
-	} else {
-		c.Writer.Header().Set("Content-Type", "application/json")
-	}
+	c.Writer.Header().Set("Content-Type", contentType)
 	c.Writer.WriteHeader(http.StatusOK)
 	_, _ = c.Writer.Write(respBody)
 
@@ -577,6 +636,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
 		Stream:                        false,
 		Duration:                      time.Since(startTime),
+		FirstTokenMs:                  firstTokenMs,
 	}, nil
 }
 

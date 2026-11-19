@@ -161,7 +161,9 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonStreaming(t *testing.T) {
 	require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "hello", gjson.GetBytes(upstream.lastBody, "messages.0.content").String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
-	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options").Exists() == false)
+	require.True(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
+	require.Equal(t, "text/event-stream", upstream.lastReq.Header.Get("Accept"))
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "assistant", gjson.Get(rec.Body.String(), "role").String())
@@ -172,6 +174,68 @@ func TestForwardAsAnthropic_ForceChatCompletionsNonStreaming(t *testing.T) {
 	require.Nil(t, result.ServiceTier)
 	require.Equal(t, "priority", result.UpstreamResponseServiceTier)
 	require.False(t, result.Stream)
+}
+
+func TestForwardAsAnthropic_ForceChatCompletionsNonStreamingCollectsStreamedUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"id\":\"chatcmpl_tool\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Looking up\"}}]}\n\n" +
+				"data: {\"id\":\"chatcmpl_tool\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\"}}]}}]}\n\n" +
+				"data: {\"id\":\"chatcmpl_tool\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"x\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+				"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":4,\"total_tokens\":13}}\n\n" +
+				"data: [DONE]\n\n",
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, forceChatMessagesFallbackAccount(), body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "message", gjson.Get(rec.Body.String(), "type").String())
+	require.Equal(t, "Looking up", gjson.Get(rec.Body.String(), "content.0.text").String())
+	require.Equal(t, "tool_use", gjson.Get(rec.Body.String(), "content.1.type").String())
+	require.Equal(t, "lookup", gjson.Get(rec.Body.String(), "content.1.name").String())
+	require.Equal(t, "x", gjson.Get(rec.Body.String(), "content.1.input.q").String())
+	require.Equal(t, "tool_use", gjson.Get(rec.Body.String(), "stop_reason").String())
+	require.Equal(t, int64(4), gjson.Get(rec.Body.String(), "usage.output_tokens").Int())
+	require.Equal(t, 9, result.Usage.InputTokens)
+	require.Equal(t, 4, result.Usage.OutputTokens)
+	require.False(t, result.Stream)
+}
+
+func TestForwardAsAnthropic_ForceChatCompletionsNonStreamingRejectsTruncatedStream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","max_tokens":32,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"id\":\"chatcmpl_cut\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"half an ans\"}}]}\n\n",
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	_, err := svc.ForwardAsAnthropic(context.Background(), c, forceChatMessagesFallbackAccount(), body, "", "")
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.NotEqual(t, "message", gjson.Get(rec.Body.String(), "type").String())
 }
 
 // Covers the fully-new streaming composition: text block is still open when

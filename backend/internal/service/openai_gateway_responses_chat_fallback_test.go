@@ -126,6 +126,35 @@ func TestForwardResponses_NonStreamingClientCollectsStreamedChatCompletions(t *t
 	require.False(t, result.Stream)
 }
 
+func TestForwardResponses_NonStreamingClientCollectsStreamLabeledAsJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.4","input":"hello","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"id\":\"chatcmpl_json_label\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"whole reply\"},\"finish_reason\":\"stop\"}]}\n\n" +
+				"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n" +
+				"data: [DONE]\n\n",
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "completed", gjson.Get(rec.Body.String(), "status").String())
+	require.Equal(t, "whole reply", gjson.Get(rec.Body.String(), "output.#(type==\"message\").content.0.text").String())
+	require.Equal(t, 2, result.Usage.OutputTokens)
+}
+
 func TestForwardResponses_NonStreamingClientRejectsTruncatedChatCompletionsStream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
