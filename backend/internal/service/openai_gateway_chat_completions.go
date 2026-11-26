@@ -814,7 +814,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	}
 	// Grok chat bridge: bill native search tools found in the terminal Responses body.
 	if account != nil && account.billsNativeSearchCalls() && finalResponse != nil {
-		result.SearchCount = countNativeSearchCallsInResponsesOutput(finalResponse.Output)
+		result.SearchCount = countNativeSearchCallsInResponse(finalResponse)
 	}
 	return result, nil
 }

@@ -720,7 +720,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	}
 	// Grok /v1/messages uses Responses upstream; count native search for surcharge.
 	if account != nil && account.billsNativeSearchCalls() && finalResponse != nil {
-		result.SearchCount = countNativeSearchCallsInResponsesOutput(finalResponse.Output)
+		result.SearchCount = countNativeSearchCallsInResponse(finalResponse)
 	}
 	return result, nil
 }

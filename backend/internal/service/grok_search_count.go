@@ -63,7 +63,10 @@ func countGrokNativeSearchCallsFromSSEBody(body string) int {
 // false when server_side_tool_usage_details is absent, so callers keep the
 // item count.
 func grokSearchCountFromUsage(usage gjson.Result) (int, bool) {
-	details := usage.Get("server_side_tool_usage_details")
+	return grokSearchCountFromUsageDetails(usage.Get("server_side_tool_usage_details"))
+}
+
+func grokSearchCountFromUsageDetails(details gjson.Result) (int, bool) {
 	if !details.IsObject() {
 		return 0, false
 	}
@@ -270,6 +273,15 @@ func countGrokNativeSearchCallsInOutputArray(output gjson.Result) int {
 
 func isGrokNativeSearchOutputItem(item gjson.Result) bool {
 	return item.Exists() && isNativeSearchCall(item.Get("type").String(), item.Get("name").String(), item.Get("call_id").String())
+}
+
+func countNativeSearchCallsInResponse(resp *apicompat.ResponsesResponse) int {
+	if resp.Usage != nil && len(resp.Usage.ServerSideToolUsageDetails) > 0 {
+		if n, ok := grokSearchCountFromUsageDetails(gjson.ParseBytes(resp.Usage.ServerSideToolUsageDetails)); ok {
+			return n
+		}
+	}
+	return countNativeSearchCallsInResponsesOutput(resp.Output)
 }
 
 func countNativeSearchCallsInResponsesOutput(output []apicompat.ResponsesOutput) int {
