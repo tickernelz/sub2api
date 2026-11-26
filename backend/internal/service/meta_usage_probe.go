@@ -65,7 +65,7 @@ func (s *OpenAIGatewayService) ProbeMetaSubscriptionUsage(ctx context.Context, a
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
 	meta.ApplyClientIdentity(req.Header, "")
-	account.ApplyHeaderOverrides(req.Header)
+	account.ApplyHeaderOverrides(req.Context(), req.Header)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
