@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 func TestKimiChatDynamicToolsAcrossProtocols(t *testing.T) {
@@ -38,7 +39,13 @@ func TestKimiChatDynamicToolsAcrossProtocols(t *testing.T) {
 			schema := gjson.GetBytes(body, "messages.2.tools.0.function.parameters").Raw
 			switch protocol {
 			case APIProtocolChatCompletions:
-				require.JSONEq(t, string(body), string(upstream.lastBody))
+				require.True(t, out.Get("stream").Bool())
+				require.True(t, out.Get("stream_options.include_usage").Bool())
+				forwarded, err := sjson.DeleteBytes(upstream.lastBody, "stream")
+				require.NoError(t, err)
+				forwarded, err = sjson.DeleteBytes(forwarded, "stream_options")
+				require.NoError(t, err)
+				require.JSONEq(t, string(body), string(forwarded))
 			case APIProtocolResponses:
 				require.JSONEq(t, `["Lookup","Calculator"]`, out.Get("tools.#.name").Raw)
 				require.JSONEq(t, schema, out.Get("tools.1.parameters").Raw)
